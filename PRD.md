@@ -166,7 +166,7 @@ Delivers a Redis-compatible server that clients can connect to. Cache misses pro
 3. Implement core Redis commands: `PING`, `AUTH`, `GET`, `SET`, `MGET`, `DEL`, `TTL`, `EXISTS`.
 4. Implement `PGRST.QUERY`: parse path, fetch from PostgREST via HTTP, cache result, return canonical cache key.
 5. Implement `PGRST.POLICY`: update TTL, rewarm interval, or persist flag on existing cache entry.
-6. Implement HTTP endpoint for PostgREST proxy with `X-Cache`, `X-Cache-TTL`, `X-Cache-Rewarm` headers.
+6. Implement HTTP endpoint for PostgREST proxy with `SC-Cache`, `SC-Cache-TTL`, `SC-Cache-Rewarm` headers.
 7. Implement cache key canonicalization: parse query parameters into a map, apply `:erlang.phash2/1`. Tenant config contains the API key used for PostgREST authz.
 8. Add tenant config table to Postgres. Store default TTL, read replica URL, persist cap.
 9. Implement `AUTH`: resolve tenant from Supabase API key via config Postgres. MVP ships unauthenticated. Wire the `AUTH` path but do not enforce.
@@ -190,24 +190,29 @@ Delivers a Redis-compatible server that clients can connect to. Cache misses pro
 Delivers automatic cache busting when tenant data changes. Queries are invalidated within seconds of a write.
 
 1. Add `supa_cacher_buster` as the third child app.
-2. Implement GenSingleton WAL tail process registered via `syn`.
-3. Connect to Postgres logical replication slot. Parse WAL events: table name, operation, old/new row data.
-4. Extract primary key from WAL row data.
-5. On DML event (INSERT, UPDATE, DELETE), look up reverse index for `(table, primary_key)`. Delete matching cache entries from ETS and CubDB.
-6. On DDL event (DROP TABLE), flush all cache entries for the affected table.
-7. Implement monitored failover: on GenSingleton crash, `syn` re-registers on another node. New owner reconnects from last confirmed LSN.
-8. Cache tenant config locally on each node. Implement config change listener that flushes affected table caches on config update.
-9. Add metrics: WAL events processed/sec, invalidation latency, reverse index hit rate.
+2. Add `:syn` as the cross-cluster process registry. Configure two scopes: `:wal` (unique registration for the WAL tailer singleton) and `:wal_fanout` (group registration keyed by AZ). Each node joins its scope on boot with AZ metadata read from runtime config (e.g. `RELEASE_AZ` env var). `libcluster` membership drives `:syn` node visibility; rely on `:syn`'s built-in netsplit resolution (last-write-wins by default; documented choice).
+3. Implement the WAL tail as a singleton GenServer registered under `:syn` scope `:wal` with key `:wal_tailer`. Every node attempts to register on boot; `:syn` guarantees exactly one winner cluster-wide. Losers stay supervised and idle, ready to take over.
+4. Connect to Postgres logical replication slot. Parse WAL events: table name, operation, old/new row data.
+5. Extract primary key from WAL row data.
+6. Broadcast WAL events to peers via `:syn.publish(:wal_fanout, {:az, az_name}, msg)`. One subscriber per AZ receives the event and re-broadcasts locally; bounds cross-AZ traffic to one message per AZ per event.
+7. On DML event (INSERT, UPDATE, DELETE), look up reverse index for `(table, primary_key)`. Delete matching cache entries from ETS and CubDB.
+8. On DDL event (DROP TABLE), flush all cache entries for the affected table.
+9. Implement failover via `:syn` process monitoring. On WAL tailer exit, `:syn` emits an unregister event; idle candidates on other nodes race to re-register under `:wal` / `:wal_tailer`. The new owner reconnects to the replication slot from the last confirmed LSN persisted in Postgres.
+10. Cache tenant config locally on each node. Implement config change listener that flushes affected table caches on config update.
+11. Add metrics: WAL events processed/sec, invalidation latency, reverse index hit rate.
 
 **Completion criteria:**
 
 - A write to a tenant's Postgres table invalidates the corresponding cache entry within 2 seconds.
 - GenSingleton failover completes within 5 seconds with no WAL events lost (at-least-once delivery from Postgres LSN resume).
+- Killing the node currently holding `:wal`/`:wal_tailer` causes a peer to acquire the registration and resume WAL consumption within 5 seconds.
+- `:syn` group membership for `:wal_fanout` reflects current cluster topology within 1 second of a node join/leave.
 - Config change for a single table does not flush unrelated table caches.
 
 **Risks:**
 
 - GenSingleton failover has an event gap between crash and reconnection. Events confirmed but not broadcast are lost until LSN resumes. This is an unavoidable edge case in failure scenarios. For TTL-mode caches, stale data persists until TTL expiry. For replication mode (Phase 5), a reconciliation mechanism closes the gap post-failover. Documented.
+- `:syn` netsplit resolution defaults to last-write-wins on rejoin. In a split-brain, both partitions may briefly run a WAL tailer and double-consume from the replication slot. Postgres rejects the second consumer (one slot, one connection), so the duplicate is bounded — but document it and rely on LSN-resume to avoid lost events.
 - WAL volume from write-heavy tenants can overwhelm the buster's worker pool. Add backpressure and per-tenant rate limiting on worker spawns.
 
 ---
