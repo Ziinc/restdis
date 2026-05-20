@@ -30,11 +30,16 @@ defmodule SupaCacherCache.ReverseIndex do
     GenServer.cast(TenantRegistry.via(tenant_id, :reverse_index), {:purge_key, key})
   end
 
+  @spec purge_table(String.t(), table_name()) :: [Key.t()]
+  def purge_table(tenant_id, table) do
+    GenServer.call(TenantRegistry.via(tenant_id, :reverse_index), {:purge_table, table})
+  end
+
   @impl GenServer
-  def init(_tenant_id) do
+  def init(tenant_id) do
     fwd = :ets.new(:reverse_index_fwd, [:bag, :public, read_concurrency: true])
     rev = :ets.new(:reverse_index_rev, [:bag, :public, read_concurrency: true])
-    {:ok, %{fwd: fwd, rev: rev}}
+    {:ok, %{fwd: fwd, rev: rev, tenant_id: tenant_id}}
   end
 
   @impl GenServer
@@ -57,8 +62,24 @@ defmodule SupaCacherCache.ReverseIndex do
   end
 
   @impl GenServer
-  def handle_call({:purge_row, table, pk}, _from, %{fwd: fwd, rev: rev} = state) do
+  def handle_call({:purge_row, table, pk}, _from, %{fwd: fwd, rev: rev, tenant_id: tenant_id} = state) do
     keys = :ets.lookup(fwd, {table, pk}) |> Enum.map(fn {_, key} -> key end)
+
+    case keys do
+      [] ->
+        :telemetry.execute(
+          [:supa_cacher_buster, :reverse_index, :miss],
+          %{count: 1},
+          %{tenant_id: tenant_id, table: table}
+        )
+
+      _ ->
+        :telemetry.execute(
+          [:supa_cacher_buster, :reverse_index, :hit],
+          %{keys: length(keys)},
+          %{tenant_id: tenant_id, table: table}
+        )
+    end
 
     Enum.each(keys, fn key ->
       :ets.delete_object(rev, {key, {table, pk}})
@@ -66,5 +87,19 @@ defmodule SupaCacherCache.ReverseIndex do
 
     :ets.delete(fwd, {table, pk})
     {:reply, keys, state}
+  end
+
+  @impl GenServer
+  def handle_call({:purge_table, table}, _from, %{fwd: fwd, rev: rev} = state) do
+    matches = :ets.match(fwd, {{table, :_}, :"$1"})
+    cache_keys = matches |> Enum.flat_map(& &1) |> Enum.uniq()
+
+    :ets.match_delete(fwd, {{table, :_}, :_})
+
+    Enum.each(cache_keys, fn key ->
+      :ets.match_delete(rev, {key, {table, :_}})
+    end)
+
+    {:reply, cache_keys, state}
   end
 end

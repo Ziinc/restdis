@@ -1,5 +1,18 @@
 import Config
 
+config :syn,
+  scopes: [:wal, :wal_fanout]
+
+config :supa_cacher_buster,
+  slot_name: "supacacher_slot",
+  publication_name: "supacacher_pub",
+  az: "local",
+  tenant_config_invalidator: SupaCacherBuster.CompositeInvalidator,
+  tenant_config_invalidator_chain: [
+    SupaCacherCache.TenantInvalidator,
+    SupaCacherServer.TenantStore.Invalidator
+  ]
+
 config :supa_cacher_cache,
   cache_data_dir: "./cache_data",
   origin: SupaCacherCache.Origin.Stub,

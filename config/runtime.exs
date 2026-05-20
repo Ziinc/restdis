@@ -1,6 +1,15 @@
 import Config
 
 if config_env() == :prod do
+  config :supa_cacher_buster,
+    az: System.get_env("RELEASE_AZ", "local"),
+    slot_name: System.get_env("WAL_SLOT_NAME", "supacacher_slot"),
+    publication_name: System.get_env("WAL_PUBLICATION_NAME", "supacacher_pub"),
+    replication_connection: [
+      url: System.fetch_env!("DATABASE_URL"),
+      pool_size: 1
+    ]
+
   config :supa_cacher_cache,
     cache_data_dir: System.get_env("CACHE_DATA_DIR", "/var/lib/supacacher/cache"),
     origin: SupaCacherCache.Origin.PostgREST

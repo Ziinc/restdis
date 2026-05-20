@@ -52,6 +52,26 @@ defmodule SupaCacherCache do
     :ok
   end
 
+  @spec flush_table(tenant_id(), String.t()) :: :ok
+  def flush_table(tenant_id, table) do
+    TenantId.cast!(tenant_id)
+
+    case TenantRegistry.whereis(tenant_id, :reverse_index) do
+      nil ->
+        :ok
+
+      _ ->
+        cache_keys = ReverseIndex.purge_table(tenant_id, table)
+
+        Enum.each(cache_keys, fn key ->
+          QueryCache.delete(tenant_id, key)
+          DiskCache.delete(tenant_id, key)
+        end)
+
+        :ok
+    end
+  end
+
   @spec invalidate_by_row(tenant_id(), String.t(), primary_key()) :: :ok
   def invalidate_by_row(tenant_id, table, pk) do
     TenantId.cast!(tenant_id)
