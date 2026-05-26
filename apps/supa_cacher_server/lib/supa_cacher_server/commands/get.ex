@@ -1,14 +1,19 @@
 defmodule SupaCacherServer.Commands.Get do
   alias SupaCacherCache.Key
   alias SupaCacherServer.RESP.Encoder
+  alias SupaCacherServer.Rewarm
 
   @spec run(map(), [binary()]) :: {iodata(), map()}
   def run(state, [wire_key]) do
     case Key.decode(wire_key) do
       {:ok, key} ->
         case SupaCacherCache.get(state.tenant_id, key) do
-          {:ok, value} -> {Encoder.bulk_string(Jason.encode!(value)), state}
-          :miss -> {Encoder.bulk_string(nil), state}
+          {:ok, value} ->
+            Rewarm.touch(state.tenant_id, wire_key, key)
+            {Encoder.bulk_string(Jason.encode!(value)), state}
+
+          :miss ->
+            {Encoder.bulk_string(nil), state}
         end
 
       :error ->

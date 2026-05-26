@@ -9,6 +9,7 @@ defmodule SupaCacherServer.Application do
     children = [
       SupaCacherServer.TenantConfig.Cache,
       SupaCacherServer.PolicyStore,
+      SupaCacherServer.Rewarm.Supervisor,
       {Finch, name: SupaCacherServer.Finch},
       {ThousandIsland,
        port: resp_port,

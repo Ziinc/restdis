@@ -21,7 +21,8 @@ config :supa_cacher_server,
   resp_port: 0,
   http_port: 0,
   tenant_store: SupaCacherServer.TenantStore.InMemory,
-  req_options: [plug: {Req.Test, SupaCacherServer.Finch}]
+  req_options: [plug: {Req.Test, SupaCacherServer.Finch}],
+  rewarm_tick_ms: 50
 
 config :supa_cacher_repo, SupaCacherRepo,
   username: "postgres",

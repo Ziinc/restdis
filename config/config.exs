@@ -21,7 +21,9 @@ config :supa_cacher_cache,
 config :supa_cacher_server,
   resp_port: 6380,
   http_port: 4040,
-  tenant_store: SupaCacherServer.TenantStore.Repo
+  tenant_store: SupaCacherServer.TenantStore.Repo,
+  postgrest_fetcher: SupaCacherServer.PostgREST.Fetcher.Req,
+  rewarm_tick_ms: 500
 
 config :supa_cacher_repo,
   ecto_repos: [SupaCacherRepo]

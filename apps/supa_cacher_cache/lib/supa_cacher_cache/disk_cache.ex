@@ -14,9 +14,20 @@ defmodule SupaCacherCache.DiskCache do
     GenServer.call(TenantRegistry.via(tenant_id, :disk_cache), {:get, key})
   end
 
-  @spec put(String.t(), Key.t(), term()) :: :ok
-  def put(tenant_id, key, value) do
-    GenServer.call(TenantRegistry.via(tenant_id, :disk_cache), {:put, key, value})
+  @spec put(String.t(), Key.t(), term(), keyword()) :: :ok
+  def put(tenant_id, key, value, opts \\ []) do
+    persist = Keyword.get(opts, :persist, false)
+    GenServer.call(TenantRegistry.via(tenant_id, :disk_cache), {:put, key, value, persist})
+  end
+
+  @spec set_persist(String.t(), Key.t(), boolean()) :: :ok | :not_found
+  def set_persist(tenant_id, key, persist) do
+    GenServer.call(TenantRegistry.via(tenant_id, :disk_cache), {:set_persist, key, persist})
+  end
+
+  @spec peek_meta(String.t(), Key.t()) :: {:ok, %{persist: boolean()}} | :miss
+  def peek_meta(tenant_id, key) do
+    GenServer.call(TenantRegistry.via(tenant_id, :disk_cache), {:peek_meta, key})
   end
 
   @spec delete(String.t(), Key.t()) :: :ok
@@ -43,6 +54,7 @@ defmodule SupaCacherCache.DiskCache do
   def handle_call({:get, key}, _from, %{cubdb: cubdb} = state) do
     result =
       case CubDB.fetch(cubdb, key) do
+        {:ok, {:v1, %{value: value}}} -> {:ok, value}
         {:ok, value} -> {:ok, value}
         :error -> :miss
       end
@@ -50,9 +62,38 @@ defmodule SupaCacherCache.DiskCache do
     {:reply, result, state}
   end
 
-  def handle_call({:put, key, value}, _from, %{cubdb: cubdb} = state) do
-    :ok = CubDB.put(cubdb, key, value)
+  def handle_call({:put, key, value, persist}, _from, %{cubdb: cubdb} = state) do
+    :ok = CubDB.put(cubdb, key, {:v1, %{value: value, persist: persist}})
     {:reply, :ok, state}
+  end
+
+  def handle_call({:set_persist, key, persist}, _from, %{cubdb: cubdb} = state) do
+    result =
+      case CubDB.fetch(cubdb, key) do
+        {:ok, {:v1, %{value: value}}} ->
+          :ok = CubDB.put(cubdb, key, {:v1, %{value: value, persist: persist}})
+          :ok
+
+        {:ok, value} ->
+          :ok = CubDB.put(cubdb, key, {:v1, %{value: value, persist: persist}})
+          :ok
+
+        :error ->
+          :not_found
+      end
+
+    {:reply, result, state}
+  end
+
+  def handle_call({:peek_meta, key}, _from, %{cubdb: cubdb} = state) do
+    result =
+      case CubDB.fetch(cubdb, key) do
+        {:ok, {:v1, %{persist: persist}}} -> {:ok, %{persist: persist}}
+        {:ok, _} -> {:ok, %{persist: false}}
+        :error -> :miss
+      end
+
+    {:reply, result, state}
   end
 
   def handle_call(:flush, _from, %{cubdb: cubdb} = state) do

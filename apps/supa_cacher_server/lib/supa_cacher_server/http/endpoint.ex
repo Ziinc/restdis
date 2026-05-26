@@ -6,6 +6,8 @@ defmodule SupaCacherServer.HTTP.Endpoint do
   alias SupaCacherServer.HTTP.Plug.CacheHeaders
   alias SupaCacherServer.PGRST.QueryParser
   alias SupaCacherServer.PolicyStore
+  alias SupaCacherServer.PostgREST.Fetcher
+  alias SupaCacherServer.Rewarm
 
   plug Plug.Logger
   plug :match
@@ -49,15 +51,19 @@ defmodule SupaCacherServer.HTTP.Endpoint do
 
     case QueryParser.parse(path) do
       {:ok, key, _params} ->
+        wire_key = Key.encode(key)
+
         case SupaCacherCache.peek(tenant_id, key) do
           {:ok, value} ->
+            Rewarm.touch(tenant_id, wire_key, key)
+
             conn
             |> CacheHeaders.put_cache_hit(ttl_remaining(tenant_id, key))
             |> put_resp_content_type("application/json")
             |> send_resp(200, Jason.encode!(value))
 
           :miss ->
-            fetch_and_respond(conn, tenant_id, key, config)
+            fetch_and_respond(conn, tenant_id, key, wire_key, config)
         end
 
       {:error, reason} ->
@@ -65,25 +71,22 @@ defmodule SupaCacherServer.HTTP.Endpoint do
     end
   end
 
-  defp fetch_and_respond(conn, tenant_id, key, config) do
-    base_url = config[:replica_url] || config.pgrst_base_url
-    path = key_to_path(key)
+  defp fetch_and_respond(conn, tenant_id, key, wire_key, config) do
     ttl_ms = (config.default_ttl_s || 60) * 1000
+    policy = PolicyStore.get(tenant_id, wire_key)
 
-    extra = Application.get_env(:supa_cacher_server, :req_options, [])
-    req = Req.new([base_url: base_url, headers: [{"apikey", config.pgrst_api_key}], retry: false] ++ extra)
-
-    case Req.get(req, url: path) do
-      {:ok, %{status: 200, body: body}} ->
-        SupaCacherCache.put(tenant_id, key, body, ttl_ms: ttl_ms)
+    case Fetcher.fetch(tenant_id, key, config) do
+      {:ok, body} ->
+        SupaCacherCache.put(tenant_id, key, body, ttl_ms: ttl_ms, persist: policy.persist)
+        Rewarm.touch(tenant_id, wire_key, key)
 
         conn
         |> CacheHeaders.put_cache_miss(div(ttl_ms, 1000))
         |> put_resp_content_type("application/json")
         |> send_resp(200, Jason.encode!(body))
 
-      {:ok, %{status: status, body: body}} ->
-        send_resp(conn, status, Jason.encode!(body))
+      {:error, {:status, status}} ->
+        send_resp(conn, status, Jason.encode!(%{error: "upstream error"}))
 
       {:error, reason} ->
         send_resp(conn, 502, Jason.encode!(%{error: inspect(reason)}))
@@ -108,6 +111,7 @@ defmodule SupaCacherServer.HTTP.Endpoint do
         }
 
         PolicyStore.put(tenant_id, wire_key, new_policy)
+        Rewarm.policy_changed(tenant_id, wire_key, key, new_policy)
 
         conn =
           if is_integer(ttl_s) and ttl_s > 0 do
@@ -145,7 +149,4 @@ defmodule SupaCacherServer.HTTP.Endpoint do
     end
   end
 
-  defp key_to_path(%Key{scope: :table, ident: ident}), do: "/#{URI.encode(ident)}"
-  defp key_to_path(%Key{scope: :rpc, ident: ident}), do: "/rpc/#{URI.encode(ident)}"
-  defp key_to_path(%Key{scope: :view, ident: ident}), do: "/#{URI.encode(ident)}"
 end

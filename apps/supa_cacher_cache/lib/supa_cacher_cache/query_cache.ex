@@ -72,6 +72,8 @@ defmodule SupaCacherCache.QueryCache do
   def init(tenant_id) do
     tid = :ets.new(:query_cache, [:set, :public, read_concurrency: true, write_concurrency: true])
     :persistent_term.put({:sc_qc, tenant_id}, tid)
+    ref = :counters.new(1, [:atomics])
+    :persistent_term.put({:sc_persist, tenant_id}, ref)
     schedule_sweep()
     {:ok, %{tenant_id: tenant_id, tid: tid}}
   end
@@ -91,6 +93,7 @@ defmodule SupaCacherCache.QueryCache do
   @impl GenServer
   def terminate(_reason, %{tenant_id: tenant_id}) do
     :persistent_term.erase({:sc_qc, tenant_id})
+    :persistent_term.erase({:sc_persist, tenant_id})
   end
 
   defp table(tenant_id), do: :persistent_term.get({:sc_qc, tenant_id})

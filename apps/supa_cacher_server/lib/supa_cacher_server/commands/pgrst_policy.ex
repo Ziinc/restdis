@@ -3,6 +3,7 @@ defmodule SupaCacherServer.Commands.PgrstPolicy do
   alias SupaCacherCache.QueryCache
   alias SupaCacherServer.RESP.Encoder
   alias SupaCacherServer.PolicyStore
+  alias SupaCacherServer.Rewarm
 
   @spec run(map(), [binary()]) :: {iodata(), map()}
   def run(state, [wire_key | opts]) do
@@ -27,12 +28,26 @@ defmodule SupaCacherServer.Commands.PgrstPolicy do
     }
 
     PolicyStore.put(state.tenant_id, wire_key, new_policy)
+    Rewarm.policy_changed(state.tenant_id, wire_key, key, new_policy)
 
-    if ttl_ms = parsed[:ttl_ms] do
-      QueryCache.put(state.tenant_id, key, get_current_value(state.tenant_id, key), ttl_ms: ttl_ms)
+    persist_result =
+      if new_policy.persist != existing_policy.persist do
+        SupaCacherCache.set_persist(state.tenant_id, key, new_policy.persist)
+      else
+        :ok
+      end
+
+    case persist_result do
+      {:error, :persist_cap} ->
+        {Encoder.error("ERR persist cap reached"), state}
+
+      _ ->
+        if ttl_ms = parsed[:ttl_ms] do
+          QueryCache.put(state.tenant_id, key, get_current_value(state.tenant_id, key), ttl_ms: ttl_ms)
+        end
+
+        {Encoder.simple_string("OK"), state}
     end
-
-    {Encoder.simple_string("OK"), state}
   end
 
   defp get_current_value(tenant_id, key) do
