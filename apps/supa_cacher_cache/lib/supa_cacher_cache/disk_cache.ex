@@ -47,6 +47,7 @@ defmodule SupaCacherCache.DiskCache do
     tenant_dir = Path.join(data_dir, tenant_id)
     File.mkdir_p!(tenant_dir)
     {:ok, cubdb} = CubDB.start_link(data_dir: tenant_dir)
+    recount_persist(tenant_id, cubdb)
     {:ok, %{cubdb: cubdb}}
   end
 
@@ -105,5 +106,19 @@ defmodule SupaCacherCache.DiskCache do
   def handle_cast({:delete, key}, %{cubdb: cubdb} = state) do
     CubDB.delete(cubdb, key)
     {:noreply, state}
+  end
+
+  defp recount_persist(tenant_id, cubdb) do
+    count =
+      CubDB.select(cubdb)
+      |> Stream.filter(fn {_k, v} ->
+        match?({:v1, %{persist: true}}, v)
+      end)
+      |> Enum.count()
+
+    if count > 0 do
+      ref = :persistent_term.get({:sc_persist, tenant_id})
+      :counters.add(ref, 1, count)
+    end
   end
 end

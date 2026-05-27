@@ -1,5 +1,6 @@
 defmodule SupaCacherServer.Commands.Get do
   alias SupaCacherCache.Key
+  alias SupaCacherServer.PolicyStore
   alias SupaCacherServer.RESP.Encoder
   alias SupaCacherServer.Rewarm
 
@@ -13,6 +14,7 @@ defmodule SupaCacherServer.Commands.Get do
             {Encoder.bulk_string(Jason.encode!(value)), state}
 
           :miss ->
+            maybe_cold_read(state.tenant_id, wire_key)
             {Encoder.bulk_string(nil), state}
         end
 
@@ -22,4 +24,16 @@ defmodule SupaCacherServer.Commands.Get do
   end
 
   def run(state, _), do: {Encoder.error("ERR wrong number of arguments for 'get' command"), state}
+
+  defp maybe_cold_read(tenant_id, wire_key) do
+    policy = PolicyStore.get(tenant_id, wire_key)
+
+    if not is_nil(policy.rewarm_s) do
+      :telemetry.execute(
+        [:supa_cacher_server, :rewarm, :cold_read],
+        %{count: 1},
+        %{tenant_id: tenant_id}
+      )
+    end
+  end
 end

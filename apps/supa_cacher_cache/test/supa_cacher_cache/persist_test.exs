@@ -84,6 +84,24 @@ defmodule SupaCacherCache.PersistTest do
     assert 1 = SupaCacherCache.persist_count(tenant_id)
   end
 
+  test "persist_count is rebuilt from disk after supervisor restart", %{tenant_id: tenant_id} do
+    key1 = Key.build(:table, "rebuild1", %{})
+    key2 = Key.build(:table, "rebuild2", %{})
+    key3 = Key.build(:table, "rebuild3", %{})
+
+    assert :ok = SupaCacherCache.put(tenant_id, key1, "v1", persist: true)
+    assert :ok = SupaCacherCache.put(tenant_id, key2, "v2", persist: true)
+    assert :ok = SupaCacherCache.put(tenant_id, key3, "v3", persist: true)
+    assert 3 = SupaCacherCache.persist_count(tenant_id)
+
+    pid = TenantRegistry.whereis(tenant_id, :tenant)
+    Supervisor.stop(pid, :normal)
+    Process.sleep(50)
+
+    TenantSupervisor.ensure_started(tenant_id)
+    assert 3 = SupaCacherCache.persist_count(tenant_id)
+  end
+
   test "legacy un-wrapped disk values still read correctly", %{tenant_id: tenant_id} do
     key = Key.build(:table, "legacy", %{})
     raw_value = %{"id" => 99, "name" => "old"}

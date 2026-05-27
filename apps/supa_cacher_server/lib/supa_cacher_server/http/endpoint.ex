@@ -63,6 +63,7 @@ defmodule SupaCacherServer.HTTP.Endpoint do
             |> send_resp(200, Jason.encode!(value))
 
           :miss ->
+            maybe_cold_read(tenant_id, wire_key)
             fetch_and_respond(conn, tenant_id, key, wire_key, config)
         end
 
@@ -132,6 +133,18 @@ defmodule SupaCacherServer.HTTP.Endpoint do
 
       _ ->
         send_resp(conn, 400, Jason.encode!(%{error: "invalid or missing 'key'"}))
+    end
+  end
+
+  defp maybe_cold_read(tenant_id, wire_key) do
+    policy = PolicyStore.get(tenant_id, wire_key)
+
+    if not is_nil(policy.rewarm_s) do
+      :telemetry.execute(
+        [:supa_cacher_server, :rewarm, :cold_read],
+        %{count: 1},
+        %{tenant_id: tenant_id}
+      )
     end
   end
 

@@ -21,6 +21,7 @@ defmodule SupaCacherServer.Commands.PgrstQuery do
           {Encoder.bulk_string(wire_key), state}
 
         :miss ->
+          maybe_cold_read(state.tenant_id, wire_key)
           fetch_and_cache(state, key, wire_key, config, ttl_ms)
       end
     else
@@ -52,6 +53,18 @@ defmodule SupaCacherServer.Commands.PgrstQuery do
 
       {:error, reason} ->
         {Encoder.error("ERR fetch failed: #{inspect(reason)}"), state}
+    end
+  end
+
+  defp maybe_cold_read(tenant_id, wire_key) do
+    policy = PolicyStore.get(tenant_id, wire_key)
+
+    if not is_nil(policy.rewarm_s) do
+      :telemetry.execute(
+        [:supa_cacher_server, :rewarm, :cold_read],
+        %{count: 1},
+        %{tenant_id: tenant_id}
+      )
     end
   end
 
