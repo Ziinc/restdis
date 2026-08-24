@@ -170,7 +170,8 @@ phase because both rewrite `SupaCacherBuster.Worker` and `TenantTableConfig`.
    with `prefix:` passed per query.
 5. Read `default_ttl_s` and `persist_cap` from `tenants` through the injected repo, behind
    the tenant aggregate's config snapshot.
-6. Delete the `tenant_config_lookup` MFA and its configuration.
+6. Delete the `tenant_config_lookup` MFA and its configuration, leaving the `tenants` table
+   as the only source of tenant configuration.
 7. Define a `handler` behaviour receiving decoded WAL events.
 8. Replace the direct `SupaCacherCache.invalidate_by_row/3` and `flush_table/2` calls in
    `SupaCacherBuster.Worker` with a dispatch to the configured handler.
@@ -232,15 +233,17 @@ Delivers `restdis` on Hex as a package with no knowledge of this application.
 
 ---
 
-## Open Questions
-
-1. Should Phase 4 keep a read-through behaviour for tenant config as an escape hatch, or is
-   the repo the only supported source?
-2. Does the library live in a top-level directory of this repository, or in its own
-   repository? Phase 1 assumes the former with a `path:` dependency; a separate repository
-   is a stronger boundary but costs a two-repo change for every phase until Phase 6.
-
 ## Resolved Questions
+
+**The library lives in this repository,** as a top-level `restdis/` directory consumed by
+the umbrella as a `path:` dependency until Phase 6. One repository keeps every phase a
+single change; the boundary is enforced by the dependency list and the Phase 1 compile-time
+guard rather than by separate checkouts.
+
+**Tenant config comes only from the repo.** There is no read-through behaviour, MFA hook,
+or escape hatch for tenant configuration: a consumer of the library runs the migration and
+populates `tenants`. This is what makes Ecto a genuine requirement rather than one adapter
+among several.
 
 **The package is named `restdis`,** matching the repository, with `Restdis` as the public
 module namespace and `restdis` as the default schema prefix. The application keeps its
