@@ -9,7 +9,8 @@ defmodule SupaCacherCache.Application do
   def start(_type, _args) do
     children = [
       {Registry, keys: :unique, name: SupaCacherCache.TenantRegistry},
-      SupaCacherCache.TenantSupervisor
+      SupaCacherCache.TenantSupervisor,
+      SupaCacherCache.Replication.Receiver
     ]
 
     Supervisor.start_link(children, strategy: :one_for_one, name: SupaCacherCache.Supervisor)
