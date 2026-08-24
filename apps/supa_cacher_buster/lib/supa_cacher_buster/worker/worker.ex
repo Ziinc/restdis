@@ -72,7 +72,7 @@ defmodule SupaCacherBuster.Worker do
           %{op: op, schema: event.schema, table: event.table}
         )
 
-        SupaCacherCache.invalidate_by_row(config.tenant_id, event.table, pk)
+        apply_change(config, event, row, pk)
 
         :telemetry.execute(
           [:supa_cacher_buster, :invalidation, :latency],
@@ -123,6 +123,17 @@ defmodule SupaCacherBuster.Worker do
   end
 
   defp handle_ddl_message(_), do: :ok
+
+  defp apply_change(%{mode: "replication"} = config, event, row, _pk) do
+    case Application.get_env(:supa_cacher_buster, :replication_dispatcher) do
+      nil -> :ok
+      dispatcher -> dispatcher.dispatch(config, event.op, row)
+    end
+  end
+
+  defp apply_change(config, event, _row, pk) do
+    SupaCacherCache.invalidate_by_row(config.tenant_id, event.table, pk)
+  end
 
   defp elapsed_us(nil), do: 0
 

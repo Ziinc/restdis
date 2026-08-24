@@ -4,6 +4,7 @@ defmodule SupaCacherServer.Commands.Get do
   """
 
   alias SupaCacherCache.Key
+  alias SupaCacherReplicator.Dataset
   alias SupaCacherServer.PolicyStore
   alias SupaCacherServer.RESP.Encoder
   alias SupaCacherServer.Rewarm
@@ -26,11 +27,24 @@ defmodule SupaCacherServer.Commands.Get do
         end
 
       :error ->
-        {Encoder.error("ERR only PGRST.* keys are supported"), state}
+        replicated_get(state, wire_key)
     end
   end
 
   def run(state, _), do: {Encoder.error("ERR wrong number of arguments for 'get' command"), state}
+
+  defp replicated_get(state, wire_key) do
+    case Dataset.parse_wire_key(wire_key) do
+      {:ok, {table, pk}} ->
+        case SupaCacherReplicator.get(state.tenant_id, table, pk) do
+          {:ok, value} -> {Encoder.bulk_string(Jason.encode!(value)), state}
+          :miss -> {Encoder.bulk_string(nil), state}
+        end
+
+      :error ->
+        {Encoder.error("ERR only PGRST.* and <table>:<primary_key> keys are supported"), state}
+    end
+  end
 
   defp maybe_cold_read(tenant_id, wire_key) do
     policy = PolicyStore.get(tenant_id, wire_key)
