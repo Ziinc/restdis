@@ -1,0 +1,7 @@
+_build/
+deps/
+cache_data/
+test_cache_data/
+tmp/
+.git/
+.elixir_ls/

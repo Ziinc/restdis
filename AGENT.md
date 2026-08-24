@@ -141,3 +141,20 @@ socket = if connected?(socket), do: assign(socket, :val, val), else: socket
 - Avoid `String.to_atom/1` on user input (memory leak risk)
 - OTP primitives need names: `{DynamicSupervisor, name: Logflare.MySup}`
 - Use standard library for date/time (`DateTime`, `Date`, `Time`, `Calendar`)
+
+## Local Development
+
+`docker-compose.yml` provides a local dev stack:
+
+- `postgres` — Postgres 16 with `wal_level=logical` enabled (required for `supa_cacher_buster`'s WAL tailer), exposed on `5432`, database `supa_cacher_dev`.
+- `app` — the umbrella app running under `mix`, with `deps`/`_build`/`mix`/`hex` cached in named volumes so `mix deps.get` isn't re-run from scratch on every rebuild.
+
+Usage:
+
+```sh
+docker compose up          # start postgres + app
+docker compose run --rm app mix test
+docker compose exec app mix check
+```
+
+The `app` service sets `POSTGRES_HOSTNAME=postgres` so `config/dev.exs` connects to the compose service instead of `localhost` (used when running `mix` directly on the host with a local Postgres).
