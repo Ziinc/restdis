@@ -39,6 +39,7 @@ docker compose up --build
 | `RELEASE_AZ` | `local` | Availability zone advertised to the `:wal_fanout` `syn` scope |
 | `HTTP_PORT` | `4040` | HTTP endpoint port |
 | `RESP_PORT` | `6380` | Redis RESP port |
+| `RESP_LISTEN_IP` | `0.0.0.0` | RESP bind address (`:loopback` outside `:prod`) |
 | `POOL_SIZE` | `10` | Repo pool size |
 | `CACHE_DATA_DIR` | `/var/lib/supacacher/cache` | CubDB disk cache root (mount a volume here) |
 | `WAL_SLOT_NAME` | `supacacher_slot` | Replication slot name |

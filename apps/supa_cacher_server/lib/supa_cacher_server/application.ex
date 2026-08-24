@@ -8,6 +8,12 @@ defmodule SupaCacherServer.Application do
   @impl Application
   def start(_type, _args) do
     resp_port = Application.get_env(:supa_cacher_server, :resp_port, 6380)
+
+    resp_ip =
+      :supa_cacher_server
+      |> Application.get_env(:resp_listen_ip, :loopback)
+      |> SupaCacherServer.Listener.parse_ip()
+
     http_port = Application.get_env(:supa_cacher_server, :http_port, 4040)
 
     children = [
@@ -24,7 +30,7 @@ defmodule SupaCacherServer.Application do
       {ThousandIsland,
        port: resp_port,
        handler_module: SupaCacherServer.RESP.Handler,
-       transport_options: [ip: :loopback]},
+       transport_options: [ip: resp_ip]},
       {Bandit, plug: SupaCacherServer.HTTP.Endpoint, port: http_port}
     ]
 

@@ -7,10 +7,10 @@ defmodule SupaCacherRepo.ReleaseTest do
     assert Release.repos() == [SupaCacherRepo]
   end
 
-  test "migrations are shipped in the app priv directory" do
-    path = Path.join([Application.app_dir(:supa_cacher_repo), "priv", "repo", "migrations"])
+  test "the repo migrations path resolves to the shipped migrations" do
+    path = Ecto.Migrator.migrations_path(SupaCacherRepo)
 
-    assert File.dir?(path)
+    assert path == Path.join([Application.app_dir(:supa_cacher_repo), "priv/repo", "migrations"])
     assert Path.wildcard(Path.join(path, "*.exs")) != []
   end
 end

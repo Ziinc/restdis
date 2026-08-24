@@ -37,6 +37,7 @@ if config_env() == :prod do
 
   config :supa_cacher_server,
     resp_port: String.to_integer(System.get_env("RESP_PORT", "6380")),
+    resp_listen_ip: System.get_env("RESP_LISTEN_IP", "0.0.0.0"),
     http_port: String.to_integer(System.get_env("HTTP_PORT", "4040"))
 
   config :supa_cacher_repo, SupaCacherRepo,
