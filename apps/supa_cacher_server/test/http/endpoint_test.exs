@@ -91,4 +91,18 @@ defmodule SupaCacherServer.HTTP.EndpointTest do
     assert [content_type] = Req.Response.get_header(resp, "content-type")
     assert content_type =~ "text/plain"
   end
+
+  test "/metrics reflects telemetry events emitted by the application" do
+    :telemetry.execute(
+      [:supa_cacher_server, :rewarm, :cold_read],
+      %{count: 1},
+      %{tenant_id: @tenant_id}
+    )
+
+    {:ok, resp} = Req.get(req(), url: "/metrics", retry: false)
+
+    assert resp.status == 200
+    assert resp.body =~ "supa_cacher_server_rewarm_cold_read_count"
+    assert resp.body =~ ~s(tenant_id="#{@tenant_id}")
+  end
 end
