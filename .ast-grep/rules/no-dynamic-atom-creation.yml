@@ -1,0 +1,20 @@
+id: no-dynamic-atom-creation
+language: elixir
+severity: error
+message: Do not create atoms dynamically from external/runtime data.
+note: |
+  Functions like `String.to_atom/1` and `:erlang.binary_to_atom/1,2` create a
+  new atom for every unique input. Since atoms are never garbage collected,
+  feeding them runtime-controlled strings (e.g. request params) is an atom
+  exhaustion / memory leak risk. Use `String.to_existing_atom/1` against a
+  known, pre-populated set of atoms instead, or keep a static mapping.
+files:
+  - "apps/*/lib/**/*.ex"
+  - "apps/*/test/**/*.ex"
+  - "apps/*/test/**/*.exs"
+rule:
+  any:
+    - pattern: String.to_atom($$$)
+    - pattern: List.to_atom($$$)
+    - pattern: :erlang.binary_to_atom($$$)
+    - pattern: :erlang.list_to_atom($$$)
