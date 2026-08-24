@@ -1,43 +1,32 @@
 defmodule SupaCacherBuster.TenantTableConfig.Cache do
   @moduledoc """
-  Cached lookups of per-tenant table configuration used to decide invalidation mode.
-  """
+  Per-tenant table configuration read through the multi-layer cache.
 
-  use GenServer
+  The cache instance (`SupaCacherCache.ReadThrough`) is configured where it is
+  supervised; this module only maps a lookup onto it.
+  """
 
   import Ecto.Query
 
+  alias SupaCacherCache.ReadThrough
   alias SupaCacherRepo.TenantTableConfig, as: Schema
 
-  @table :supa_cacher_buster_table_config
+  @cache_name :tenant_table_config
 
   @doc """
-  Starts the read-through table configuration cache.
+  Returns the name of the read-through cache instance holding table configs.
   """
-  @spec start_link(keyword()) :: GenServer.on_start()
-  def start_link(opts) do
-    GenServer.start_link(__MODULE__, opts, name: __MODULE__)
-  end
+  @spec cache_name() :: atom()
+  def cache_name, do: @cache_name
 
   @doc """
   Returns the cached configuration, reading through to the database on a miss.
   """
   @spec lookup(String.t(), String.t()) :: {:ok, map()} | :not_found
   def lookup(schema, table_name) do
-    case :ets.lookup(@table, {schema, table_name}) do
-      [{_, config}] ->
-        {:ok, config}
-
-      [] ->
-        case fetch_from_db(schema, table_name) do
-          {:ok, config} ->
-            :ets.insert(@table, {{schema, table_name}, config})
-            {:ok, config}
-
-          :not_found ->
-            :not_found
-        end
-    end
+    ReadThrough.fetch(@cache_name, {schema, table_name}, fn ->
+      fetch_from_db(schema, table_name)
+    end)
   end
 
   @doc """
@@ -45,14 +34,7 @@ defmodule SupaCacherBuster.TenantTableConfig.Cache do
   """
   @spec invalidate(String.t(), String.t()) :: :ok
   def invalidate(schema, table_name) do
-    :ets.delete(@table, {schema, table_name})
-    :ok
-  end
-
-  @impl GenServer
-  def init(_opts) do
-    :ets.new(@table, [:named_table, :set, :public, read_concurrency: true])
-    {:ok, %{}}
+    ReadThrough.delete(@cache_name, {schema, table_name})
   end
 
   defp fetch_from_db(schema, table_name) do

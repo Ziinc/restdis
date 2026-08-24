@@ -1,15 +1,27 @@
 defmodule SupaCacherServer.TenantConfig.Cache do
   @moduledoc """
-  Cached tenant configuration lookups.
+  Tenant configuration lookups read through the multi-layer cache.
+
+  The cache instance itself (`SupaCacherCache.ReadThrough`) is configured where
+  it is supervised; this module owns the periodic refresh and the api-key index
+  used to invalidate a tenant's keys.
   """
 
   use GenServer
 
+  alias SupaCacherCache.ReadThrough
+
+  @cache_name :tenant_config
   @refresh_interval_ms 60_000
-  @table :supa_cacher_tenant_config
 
   @doc """
-  Starts the tenant configuration cache and its refresh timer.
+  Returns the name of the read-through cache instance holding tenant configs.
+  """
+  @spec cache_name() :: atom()
+  def cache_name, do: @cache_name
+
+  @doc """
+  Starts the tenant configuration refresher.
   """
   @spec start_link(keyword()) :: GenServer.on_start()
   def start_link(opts) do
@@ -21,10 +33,17 @@ defmodule SupaCacherServer.TenantConfig.Cache do
   """
   @spec lookup_by_api_key(String.t()) :: {:ok, map()} | {:error, :not_found}
   def lookup_by_api_key(api_key) do
-    case :ets.lookup(@table, {:api_key, api_key}) do
-      [{_, config}] -> {:ok, config}
-      [] -> fetch_and_cache_by_api_key(api_key)
-    end
+    ReadThrough.fetch(@cache_name, {:api_key, api_key}, fn ->
+      case store_mod().fetch_by_api_key(api_key) do
+        {:ok, config} ->
+          ReadThrough.put(@cache_name, {:tenant_id, config.tenant_id}, config)
+          index_api_key(config.tenant_id, api_key)
+          {:ok, config}
+
+        error ->
+          error
+      end
+    end)
   end
 
   @doc """
@@ -32,14 +51,13 @@ defmodule SupaCacherServer.TenantConfig.Cache do
   """
   @spec lookup_by_tenant_id(String.t()) :: {:ok, map()} | {:error, :not_found}
   def lookup_by_tenant_id(tenant_id) do
-    case :ets.lookup(@table, {:tenant_id, tenant_id}) do
-      [{_, config}] -> {:ok, config}
-      [] -> fetch_and_cache_by_tenant(tenant_id)
-    end
+    ReadThrough.fetch(@cache_name, {:tenant_id, tenant_id}, fn ->
+      store_mod().fetch_by_tenant(tenant_id)
+    end)
   end
 
   @doc """
-  Drops the cached configuration of `tenant_id`.
+  Drops the cached configuration of `tenant_id` and of its api keys.
   """
   @spec invalidate(String.t()) :: :ok
   def invalidate(tenant_id) do
@@ -56,22 +74,18 @@ defmodule SupaCacherServer.TenantConfig.Cache do
 
   @impl GenServer
   def init(_opts) do
-    table = :ets.new(@table, [:named_table, :set, :public, read_concurrency: true])
     schedule_refresh()
-    {:ok, %{table: table}}
+    {:ok, %{}}
   end
 
   @impl GenServer
   def handle_call({:invalidate, tenant_id}, _from, state) do
-    :ets.match_delete(@table, {{:tenant_id, tenant_id}, :_})
-
-    keys =
-      :ets.match(@table, {{:api_key_to_tenant, :"$1"}, tenant_id}) |> List.flatten()
-
-    Enum.each(keys, fn key ->
-      :ets.delete(@table, {:api_key, key})
-      :ets.delete(@table, {:api_key_to_tenant, key})
+    Enum.each(api_keys_of(tenant_id), fn api_key ->
+      ReadThrough.delete(@cache_name, {:api_key, api_key})
     end)
+
+    ReadThrough.delete(@cache_name, {:api_keys, tenant_id})
+    ReadThrough.delete(@cache_name, {:tenant_id, tenant_id})
 
     {:reply, :ok, state}
   end
@@ -88,40 +102,27 @@ defmodule SupaCacherServer.TenantConfig.Cache do
     {:noreply, state}
   end
 
-  defp fetch_and_cache_by_api_key(api_key) do
-    store = store_mod()
-
-    case store.fetch_by_api_key(api_key) do
-      {:ok, config} ->
-        :ets.insert(@table, {{:api_key, api_key}, config})
-        :ets.insert(@table, {{:tenant_id, config.tenant_id}, config})
-        {:ok, config}
-
-      error ->
-        error
-    end
-  end
-
-  defp fetch_and_cache_by_tenant(tenant_id) do
-    store = store_mod()
-
-    case store.fetch_by_tenant(tenant_id) do
-      {:ok, config} ->
-        :ets.insert(@table, {{:tenant_id, tenant_id}, config})
-        {:ok, config}
-
-      error ->
-        error
-    end
-  end
-
   defp do_refresh do
-    store = store_mod()
-    configs = store.list_all()
-
-    Enum.each(configs, fn config ->
-      :ets.insert(@table, {{:tenant_id, config.tenant_id}, config})
+    Enum.each(store_mod().list_all(), fn config ->
+      ReadThrough.put(@cache_name, {:tenant_id, config.tenant_id}, config)
     end)
+  end
+
+  defp index_api_key(tenant_id, api_key) do
+    keys = api_keys_of(tenant_id)
+
+    unless api_key in keys do
+      ReadThrough.put(@cache_name, {:api_keys, tenant_id}, [api_key | keys])
+    end
+
+    :ok
+  end
+
+  defp api_keys_of(tenant_id) do
+    case ReadThrough.fetch(@cache_name, {:api_keys, tenant_id}, fn -> :miss end) do
+      {:ok, keys} -> keys
+      _ -> []
+    end
   end
 
   defp store_mod do

@@ -69,11 +69,11 @@ defmodule SupaCacherBuster.WorkerTest do
 
   # Helper to seed the TenantTableConfig ETS table directly
   defp seed_config(schema, table, config) do
-    :ets.insert(:supa_cacher_buster_table_config, {{schema, table}, config})
+    TestUtils.seed_table_config(schema, table, config)
   end
 
   defp clear_config do
-    :ets.delete_all_objects(:supa_cacher_buster_table_config)
+    TestUtils.clear_table_config()
   end
 
   test "DML event for a configured table invalidates the cached entry" do

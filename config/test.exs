@@ -12,6 +12,10 @@ config :supa_cacher_buster,
     username: "postgres",
     password: "postgres",
     database: "supa_cacher_test"
+  ],
+  tenant_table_config_cache: [
+    data_dir: System.tmp_dir!() <> "/supacacher_test/control_plane",
+    ttl_ms: 60_000
   ]
 
 config :supa_cacher_replicator,
@@ -31,6 +35,10 @@ config :supa_cacher_server,
   resp_port: 0,
   http_port: 0,
   tenant_store: SupaCacherServer.TenantStore.InMemory,
+  tenant_config_cache: [
+    data_dir: System.tmp_dir!() <> "/supacacher_test/control_plane",
+    ttl_ms: 60_000
+  ],
   req_options: [plug: {Req.Test, SupaCacherServer.Finch}],
   rewarm_tick_ms: 50
 
