@@ -16,6 +16,7 @@ config :supa_cacher_buster,
 config :supa_cacher_cache,
   cache_data_dir: "./cache_data",
   origin: SupaCacherCache.Origin.Stub,
+  replication_transport: SupaCacherCache.Replication.Transport.Distribution,
   tenant_config_lookup: {SupaCacherServer.TenantConfig, :lookup_by_tenant_id, []}
 
 config :supa_cacher_server,

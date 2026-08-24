@@ -6,6 +6,7 @@ defmodule SupaCacherCache do
   alias SupaCacherCache.DiskCache
   alias SupaCacherCache.Key
   alias SupaCacherCache.QueryCache
+  alias SupaCacherCache.Replication
   alias SupaCacherCache.ReverseIndex
   alias SupaCacherCache.TenantId
   alias SupaCacherCache.TenantRegistry
@@ -40,15 +41,22 @@ defmodule SupaCacherCache do
 
   @doc """
   Removes `key` from every cache layer and from the reverse index.
+
+  Pass `replicated: true` in `opts` to apply a peer's delete without
+  re-broadcasting it.
   """
-  @spec delete(tenant_id(), Key.t()) :: :ok
-  def delete(tenant_id, key) do
+  @spec delete(tenant_id(), Key.t(), keyword()) :: :ok
+  def delete(tenant_id, key, opts \\ []) do
     TenantId.cast!(tenant_id)
     TenantSupervisor.ensure_started(tenant_id)
 
     case DiskCache.peek_meta(tenant_id, key) do
-      {:ok, %{persist: true}} -> decrement_persist(tenant_id)
-      _ -> :ok
+      {:ok, %{persist: true}} ->
+        decrement_persist(tenant_id)
+        maybe_broadcast(opts, tenant_id, {:delete, key})
+
+      _ ->
+        :ok
     end
 
     QueryCache.delete(tenant_id, key)
@@ -130,9 +138,13 @@ defmodule SupaCacherCache do
 
   @doc """
   Marks `key` as persisted or not, honouring the per-tenant persist cap.
+
+  Pass `replicated: true` in `opts` to apply a peer's change without
+  re-broadcasting it.
   """
-  @spec set_persist(tenant_id(), Key.t(), boolean()) :: :ok | {:error, :persist_cap | :not_found}
-  def set_persist(tenant_id, key, persist) do
+  @spec set_persist(tenant_id(), Key.t(), boolean(), keyword()) ::
+          :ok | {:error, :persist_cap | :not_found}
+  def set_persist(tenant_id, key, persist, opts \\ []) do
     TenantId.cast!(tenant_id)
     TenantSupervisor.ensure_started(tenant_id)
 
@@ -164,6 +176,8 @@ defmodule SupaCacherCache do
             tenant_id: tenant_id
           })
 
+          broadcast_persisted_value(tenant_id, key, opts)
+
           :ok
         end
 
@@ -176,6 +190,8 @@ defmodule SupaCacherCache do
         :telemetry.execute([:supa_cacher_cache, :persist, :count], %{count: new_count}, %{
           tenant_id: tenant_id
         })
+
+        maybe_broadcast(opts, tenant_id, {:set_persist, key, false})
 
         :ok
     end
@@ -244,6 +260,8 @@ defmodule SupaCacherCache do
           tenant_id: tenant_id
         })
 
+        maybe_broadcast(opts, tenant_id, {:put, key, value, opts})
+
         :ok
       end
     else
@@ -290,6 +308,21 @@ defmodule SupaCacherCache do
   end
 
   defp extract_pks(_, _), do: []
+
+  defp maybe_broadcast(opts, tenant_id, event) do
+    if opts[:replicated], do: :ok, else: Replication.broadcast(tenant_id, event)
+  end
+
+  defp broadcast_persisted_value(tenant_id, key, opts) do
+    if opts[:replicated], do: :ok, else: broadcast_persisted_value(tenant_id, key)
+  end
+
+  defp broadcast_persisted_value(tenant_id, key) do
+    case DiskCache.get(tenant_id, key) do
+      {:ok, value} -> Replication.broadcast(tenant_id, {:put, key, value, persist: true})
+      :miss -> :ok
+    end
+  end
 
   defp decrement_persist(tenant_id) do
     case :persistent_term.get({:sc_persist, tenant_id}, nil) do
