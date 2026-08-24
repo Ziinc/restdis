@@ -8,6 +8,8 @@ services:
       POSTGRES_DB: supa_cacher_dev
     ports:
       - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres"]
       interval: 2s
@@ -16,6 +18,7 @@ services:
 
   supacacher:
     build: .
+    profiles: ["release"]
     depends_on:
       db:
         condition: service_healthy
@@ -31,5 +34,37 @@ services:
     volumes:
       - cache_data:/var/lib/supacacher/cache
 
+  # Interactive dev server: runs the umbrella app under `mix` (not the
+  # release built by the production Dockerfile) so source changes on the
+  # host are picked up without rebuilding an image, and `mix test`/`mix
+  # check`/`iex` are available. Use this instead of `supacacher` for local
+  # development; use `supacacher` to exercise the production release build.
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    working_dir: /app
+    command: sh -c "mix deps.get && mix run --no-halt"
+    environment:
+      MIX_ENV: dev
+      POSTGRES_HOSTNAME: db
+    ports:
+      - "6380:6380"
+      - "4040:4040"
+    volumes:
+      - .:/app
+      - mix_deps:/app/deps
+      - mix_build:/app/_build
+      - mix_home:/root/.mix
+      - hex_home:/root/.hex
+    depends_on:
+      db:
+        condition: service_healthy
+
 volumes:
   cache_data:
+  postgres_data:
+  mix_deps:
+  mix_build:
+  mix_home:
+  hex_home:
