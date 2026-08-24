@@ -103,13 +103,12 @@ running against its existing tables.
 - `up` then `down` then `up` at every released version leaves the schema identical, under
   both the default and a custom prefix.
 - `up/1` called twice is a no-op the second time.
-- `mix ecto.reset` on the umbrella produces the same schema as before the change.
+- `mix ecto.reset` on the umbrella produces a schema the existing test suite passes
+  against.
 
-**Risks:**
-
-- Collapsing existing migrations changes the schema-creation path for any deployed
-  database. Verify the collapsed `V01` matches the current production schema column for
-  column before merging.
+The project is greenfield with no deployed database, so `V01` assumes a clean database.
+It replaces the four umbrella migrations outright rather than adopting a database that
+already ran them, and released `V0N` modules are only immutable from `0.1.0` onward.
 
 ## Phase 2: Migration Generator
 
@@ -207,5 +206,13 @@ Delivers `supa_cacher_core` on Hex.
    name (`supa_cache` / `SupaCache`)?
 2. Should Phase 3 keep a read-through behaviour for tenant config as an escape hatch, or is
    the repo the only supported source?
-3. Does the collapsed `V01` need to handle an existing database that already ran the four
-   umbrella migrations, or is a clean-database assumption acceptable for `0.1.0`?
+3. Should Phases 3 and 4 merge? Both rewrite `Worker` and `TenantTableConfig`, so splitting
+   them touches the same files twice.
+
+## Resolved Questions
+
+**Backwards compatibility is not a constraint.** The project is greenfield with no
+deployed database and no external consumers. Renames, schema changes, and migration
+rewrites are free up to the `0.1.0` publish in Phase 6, and no phase needs a compatibility
+shim or a deprecation path. Module and table names should be moved to their final form
+early rather than carried through the phases and renamed at the end.
