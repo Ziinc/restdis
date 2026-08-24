@@ -15,6 +15,19 @@ defmodule SupaCacherBuster.Singleton do
     GenServer.start_link(__MODULE__, opts, name: __MODULE__)
   end
 
+  @doc """
+  Asks the configured failover reconciler to close the WAL gap of this takeover.
+  """
+  @spec notify_ownership_acquired() :: :ok
+  def notify_ownership_acquired do
+    case Application.get_env(:supa_cacher_buster, :failover_reconciler) do
+      nil -> :ok
+      reconciler -> reconciler.reconcile_all()
+    end
+
+    :ok
+  end
+
   @impl GenServer
   def init(_opts) do
     send(self(), :try_register)
@@ -35,6 +48,7 @@ defmodule SupaCacherBuster.Singleton do
           {:ok, pid} ->
             Process.monitor(pid)
             Logger.info("[SupaCacherBuster] This node is the WAL tailer singleton")
+            notify_ownership_acquired()
             {:noreply, %{state | tailer: pid}}
 
           {:error, reason} ->

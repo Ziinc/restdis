@@ -5,12 +5,22 @@ config :supa_cacher_buster,
   publication_name: "supacacher_pub",
   az: "test",
   tenant_config_invalidator: nil,
+  replication_dispatcher: nil,
+  failover_reconciler: nil,
   replication_connection: [
     hostname: "localhost",
     username: "postgres",
     password: "postgres",
     database: "supa_cacher_test"
   ]
+
+config :supa_cacher_replicator,
+  origin: SupaCacherReplicator.Origin.Stub,
+  page_size: 2,
+  page_delay_ms: 0,
+  reconcile_stagger_ms: 0,
+  dataset_source: nil,
+  tenant_config_lookup: nil
 
 config :supa_cacher_cache,
   cache_data_dir: System.tmp_dir!() <> "/supacacher_test",

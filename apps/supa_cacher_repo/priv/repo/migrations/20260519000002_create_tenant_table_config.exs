@@ -3,9 +3,9 @@ defmodule SupaCacherRepo.Repo.Migrations.CreateTenantTableConfig do
 
   def change do
     create table(:tenant_table_config, primary_key: false) do
-      add(:tenant_id, :text, null: false)
-      add(:schema, :text, null: false, default: "public")
-      add(:table_name, :text, null: false)
+      add(:tenant_id, :text, null: false, primary_key: true)
+      add(:schema, :text, null: false, default: "public", primary_key: true)
+      add(:table_name, :text, null: false, primary_key: true)
       add(:mode, :text, null: false, default: "ttl")
       add(:pk_column, :text, null: false, default: "id")
       add(:filter, :text)
@@ -14,6 +14,5 @@ defmodule SupaCacherRepo.Repo.Migrations.CreateTenantTableConfig do
     end
 
     create(constraint(:tenant_table_config, :valid_mode, check: "mode IN ('ttl', 'replication')"))
-    create(primary_key(:tenant_table_config, [:tenant_id, :schema, :table_name]))
   end
 end

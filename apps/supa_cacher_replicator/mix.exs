@@ -1,9 +1,9 @@
-defmodule SupaCacherServer.MixProject do
+defmodule SupaCacherReplicator.MixProject do
   use Mix.Project
 
   def project do
     [
-      app: :supa_cacher_server,
+      app: :supa_cacher_replicator,
       version: "0.1.0",
       build_path: "../../_build",
       config_path: "../../config/config.exs",
@@ -16,27 +16,23 @@ defmodule SupaCacherServer.MixProject do
     ]
   end
 
-  defp elixirc_paths(:test), do: ["lib", "test/support"]
-  defp elixirc_paths(_), do: ["lib"]
-
   def application do
     [
       extra_applications: [:logger],
-      mod: {SupaCacherServer.Application, []}
+      mod: {SupaCacherReplicator.Application, []}
     ]
   end
+
+  defp elixirc_paths(:test), do: ["lib", "test/support"]
+  defp elixirc_paths(_), do: ["lib"]
 
   defp deps do
     [
       {:supa_cacher_cache, in_umbrella: true},
-      {:supa_cacher_replicator, in_umbrella: true},
       {:supa_cacher_repo, in_umbrella: true},
-      {:thousand_island, "~> 1.3"},
-      {:bandit, "~> 1.5"},
-      {:plug, "~> 1.16"},
       {:req, "~> 0.5"},
-      {:finch, "~> 0.18"},
       {:jason, "~> 1.4"},
+      {:telemetry, "~> 1.0"},
       {:stream_data, "~> 1.1", only: :test}
     ]
   end
