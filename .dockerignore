@@ -12,6 +12,7 @@ tmp
 **/*.beam
 erl_crash.dump
 Dockerfile
+Dockerfile.dev
 .dockerignore
 docker-compose.yml
 
