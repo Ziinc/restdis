@@ -1,4 +1,4 @@
-# RFC: SupaCacher Core Library Extraction
+# RFC: Restdis Core Library Extraction
 
 Companion to `PRD.md`. Where the two disagree on cache or WAL behaviour, `PRD.md` wins;
 this document only covers how that behaviour is packaged for reuse outside this repo.
@@ -19,7 +19,7 @@ are only usable as umbrella children of this application. Three things block reu
 ## Scope
 
 **In scope.** Extracting the cache engine and the WAL follower into a single published
-package, `supa_cacher_core`, with Ecto as a required dependency and Oban-style migrations.
+package, `restdis`, with Ecto as a required dependency and Oban-style migrations.
 
 **Out of scope.** The RESP server, the HTTP endpoint, PostgREST fetching, rewarm
 scheduling, and API-key auth. These stay in `supa_cacher_server` and remain application
@@ -28,10 +28,17 @@ packaging and dependency-inversion effort.
 
 ## Decisions
 
-**One package, two supervision trees.** `supa_cacher_core` ships `SupaCacher.Cache` and
-`SupaCacher.Wal` as independently mountable trees. A host may start either alone. They are
+**One package, two supervision trees.** `restdis` ships `Restdis.Cache` and
+`Restdis.Wal` as independently mountable trees. A host may start either alone. They are
 one package because both require Ecto, both read `tenants`, and splitting them would mean
 two version counters, two prefix options, and a cross-package foreign key.
+
+**The library is standalone.** It is published for consumers who do not run this
+application, so it depends on no umbrella app, reads no `:supa_cacher_*` application
+environment, and its documentation and examples stand on their own. This repository is
+one consumer of the package, not its host. The carve-out therefore happens first
+(Phase 1), so the remaining work is written inside the library rather than moved into it
+at the end.
 
 **Ecto is required, the repo is injected.** The library depends on `ecto_sql` but never
 defines a repo. The host passes `repo:` at start time and the library uses the host's pool,
@@ -53,15 +60,15 @@ is exposed as a separate documented helper rather than folded into a migration v
 
 ```elixir
 # In the host's supervision tree
-{SupaCacher.Cache,
+{Restdis.Cache,
   repo: MyApp.Repo,
-  prefix: "supa_cacher",
-  data_dir: "/var/lib/supacacher/cache",
+  prefix: "restdis",
+  data_dir: "/var/lib/restdis/cache",
   origin: MyApp.Origin}
 
-{SupaCacher.Wal,
+{Restdis.Wal,
   repo: MyApp.Repo,
-  prefix: "supa_cacher",
+  prefix: "restdis",
   replication: [url: System.fetch_env!("DATABASE_URL")],
   slot_name: "my_slot",
   publication: "my_pub",
@@ -70,33 +77,60 @@ is exposed as a separate documented helper rather than folded into a migration v
 
 ```elixir
 # One host migration, written once
-defmodule MyApp.Repo.Migrations.AddSupaCacher do
+defmodule MyApp.Repo.Migrations.AddRestdis do
   use Ecto.Migration
 
-  def up, do: SupaCacher.Migration.up(version: 1)
-  def down, do: SupaCacher.Migration.down(version: 1)
+  def up, do: Restdis.Migration.up(version: 1)
+  def down, do: Restdis.Migration.down(version: 1)
 end
 ```
 
 ---
 
-## Phase 1: Versioned Migrations
+## Phase 1: Standalone Project Carve-Out
+
+Delivers the library as its own Mix project that builds and tests with the umbrella
+absent. Everything after this phase is written inside the library, under its final module
+names, rather than moved at the end.
+
+1. Create a top-level `restdis/` Mix project with its own `mix.exs`, lockfile,
+   `config/`, formatter, and credo configuration, depending on nothing from `apps/`.
+2. Move the cache engine into it under its final module namespace. The cache has no code
+   references to the other umbrella apps, so it moves whole.
+3. Give the library its own `test_helper.exs` and test repo, independent of the umbrella's
+   `config/config.exs`.
+4. Add the library to the umbrella as a `path:` dependency and reduce
+   `apps/supa_cacher_cache` to nothing, deleting it.
+5. Add a CI job running the library's `mix check` and `mix test` from its own directory.
+6. Add a compile-time guard rejecting any reference from library code to an umbrella
+   module.
+
+**Completion criteria:**
+
+- `mix test` inside `restdis/` passes with `apps/` deleted from the checkout.
+- The umbrella's suite passes with the cache consumed as a `path:` dependency.
+- The library's dependency list contains no umbrella application.
+
+The WAL follower stays in `apps/supa_cacher_buster` until Phase 4, because it cannot move
+while it still calls `SupaCacherRepo` and `SupaCacherCache` directly.
+
+## Phase 2: Versioned Migrations
 
 Delivers the Oban-style migration surface. No runtime code changes; the umbrella keeps
 running against its existing tables.
 
-1. Add `SupaCacher.Migration` with `up/1`, `down/1` and `migrated_version/1`, accepting
+1. Add `Restdis.Migration` with `up/1`, `down/1` and `migrated_version/1`, accepting
    `:version`, `:prefix` and `:create_schema`.
-2. Add `SupaCacher.Migrations.Postgres` as the stepwise runner that reads the recorded
+2. Add `Restdis.Migrations.Postgres` as the stepwise runner that reads the recorded
    version and applies `V01..VN` in order, reversing for `down`.
-3. Add `SupaCacher.Migrations.Postgres.V01` creating `tenants`, `tenant_table_config` and
+3. Add `Restdis.Migrations.Postgres.V01` creating `tenants`, `tenant_table_config` and
    `wal_checkpoint`, collapsing the four existing table migrations minus `api_keys`.
 4. Record the applied version in a table comment on `tenants`, read back by
    `migrated_version/1`.
-5. Add `SupaCacher.Migration.create_publication/1` as a separate privileged helper,
+5. Add `Restdis.Migration.create_publication/1` as a separate privileged helper,
    replacing `20260519000003_create_publication.exs`.
 6. Replace the four umbrella migrations with a single migration calling
-   `SupaCacher.Migration.up/1`, leaving `api_keys` as an application migration.
+   `Restdis.Migration.up/1`, leaving `api_keys` as an application migration.
 
 **Completion criteria:**
 
@@ -110,21 +144,23 @@ The project is greenfield with no deployed database, so `V01` assumes a clean da
 It replaces the four umbrella migrations outright rather than adopting a database that
 already ran them, and released `V0N` modules are only immutable from `0.1.0` onward.
 
-## Phase 2: Migration Generator
+## Phase 3: Migration Generator
 
 Delivers the one-command install path for a host application.
 
-1. Add `mix supa_cacher.gen.migration` emitting a timestamped host migration that calls
-   `SupaCacher.Migration.up/1` at the current version.
+1. Add `mix restdis.gen.migration` emitting a timestamped host migration that calls
+   `Restdis.Migration.up/1` at the current version.
 2. Support `--prefix` and `--repo` flags on the generator.
 
 **Completion criteria:**
 
 - The generated file compiles and runs against a fresh database with no hand editing.
 
-## Phase 3: Injected Repo and Prefix
+## Phase 4: Dependency Inversion and WAL Carve-Out
 
-Delivers per-instance configuration for everything that touches the database.
+Delivers per-instance database configuration and a WAL follower that runs without the
+cache, then moves it into the library. Repo injection and the handler behaviour are one
+phase because both rewrite `SupaCacherBuster.Worker` and `TenantTableConfig`.
 
 1. Resolve start options into an instance config store at boot, keyed by instance name.
 2. Thread `repo:` and `prefix:` through `SupaCacherBuster.Infra.LsnStore`, replacing the
@@ -135,34 +171,30 @@ Delivers per-instance configuration for everything that touches the database.
 5. Read `default_ttl_s` and `persist_cap` from `tenants` through the injected repo, behind
    the tenant aggregate's config snapshot.
 6. Delete the `tenant_config_lookup` MFA and its configuration.
+7. Define a `handler` behaviour receiving decoded WAL events.
+8. Replace the direct `SupaCacherCache.invalidate_by_row/3` and `flush_table/2` calls in
+   `SupaCacherBuster.Worker` with a dispatch to the configured handler.
+9. Move the `public.tenants` and `public.tenant_table_config` special-casing out of the
+   worker into an application-level handler.
+10. Ship the cache-invalidating handler as a library module the host can opt into.
+11. Move the WAL follower into the library under its final module namespace and delete
+    `apps/supa_cacher_buster`.
 
 **Completion criteria:**
 
 - Two instances with different repos and prefixes run concurrently in one VM without
   interfering.
-- `persist_cap` comes from the `tenants` row, with no hardcoded 50,000 fallback in
-  `supa_cacher_cache.ex`.
+- `persist_cap` comes from the `tenants` row, with no hardcoded 50,000 fallback.
+- The WAL follower starts and delivers events with the cache tree not started.
+- The library's dependency list still contains no umbrella application.
 
 **Risks:**
 
 - The cache read path currently reaches tenant config synchronously. Adding a repo read
   behind it risks a latency regression on cold tenants; the config snapshot must be
   populated once at aggregate start, not per request.
-
-## Phase 4: Handler Behaviour
-
-Delivers a WAL follower that is usable without the cache.
-
-1. Define a `handler` behaviour receiving decoded WAL events.
-2. Replace the direct `SupaCacherCache.invalidate_by_row/3` and `flush_table/2` calls in
-   `SupaCacherBuster.Worker` with a dispatch to the configured handler.
-3. Move the `public.tenants` and `public.tenant_table_config` special-casing out of the
-   worker into an application-level handler.
-4. Ship the cache-invalidating handler as a library module the host can opt into.
-
-**Completion criteria:**
-
-- The WAL follower starts and delivers events with the cache application not loaded.
+- This is the largest phase. Steps 1-6 and 7-10 are separately committable and should be
+  landed as two runs of the red-green-refactor cycle, with step 11 last.
 
 ## Phase 5: Name Scoping and Explicit Start
 
@@ -180,21 +212,21 @@ Delivers safe co-existence with the host application.
 - Adding the library as a dependency starts no processes until the host mounts it.
 - The full umbrella test suite passes with both trees started by name.
 
-## Phase 6: Package and Publish
+## Phase 6: Publish
 
-Delivers `supa_cacher_core` on Hex.
+Delivers `restdis` on Hex as a package with no knowledge of this application.
 
-1. Move the library source to a top-level directory with its own `mix.exs` and lockfile,
-   referenced from the umbrella as a `path:` dependency.
-2. Move the library's tests, including the property-based cache tests, and give them a
-   configuration independent of `config/config.exs`.
-3. Add `package/0`, `docs/0`, licence, and `CHANGELOG.md`.
-4. Add a CI job running the library's own `mix check` and test suite.
-5. Publish `0.1.0`.
+1. Add `package/0`, `docs/0`, licence, and `CHANGELOG.md`.
+2. Write a README covering the two child specs, the migration install path, the handler
+   behaviour, and a worked example that does not reference SupaCacher the product.
+3. Verify `mix hex.build` ships only the library's own files.
+4. Publish `0.1.0` and switch the umbrella from the `path:` dependency to the released
+   version.
 
 **Completion criteria:**
 
-- The library's test suite passes from its own directory with the umbrella absent.
+- A scratch Mix project consuming the published package can start both trees, run the
+  generated migration, and cache a key, with this repository absent.
 - Generated docs cover the two child specs, the migration module, and the handler
   behaviour.
 
@@ -202,14 +234,17 @@ Delivers `supa_cacher_core` on Hex.
 
 ## Open Questions
 
-1. Package name: `supa_cacher_core`, or split the public module namespace from the package
-   name (`supa_cache` / `SupaCache`)?
-2. Should Phase 3 keep a read-through behaviour for tenant config as an escape hatch, or is
+1. Should Phase 4 keep a read-through behaviour for tenant config as an escape hatch, or is
    the repo the only supported source?
-3. Should Phases 3 and 4 merge? Both rewrite `Worker` and `TenantTableConfig`, so splitting
-   them touches the same files twice.
+2. Does the library live in a top-level directory of this repository, or in its own
+   repository? Phase 1 assumes the former with a `path:` dependency; a separate repository
+   is a stronger boundary but costs a two-repo change for every phase until Phase 6.
 
 ## Resolved Questions
+
+**The package is named `restdis`,** matching the repository, with `Restdis` as the public
+module namespace and `restdis` as the default schema prefix. The application keeps its
+`SupaCacher*` namespace; it is a consumer of the package, not the same thing.
 
 **Backwards compatibility is not a constraint.** The project is greenfield with no
 deployed database and no external consumers. Renames, schema changes, and migration
