@@ -36,6 +36,9 @@ defmodule SupaCacherServer.MixProject do
       {:req, "~> 0.5"},
       {:finch, "~> 0.18"},
       {:jason, "~> 1.4"},
+      {:telemetry_metrics, "~> 1.1"},
+      {:telemetry_metrics_prometheus_core, "~> 1.2"},
+      {:telemetry_poller, "~> 1.3"},
       {:stream_data, "~> 1.1", only: :test}
     ]
   end

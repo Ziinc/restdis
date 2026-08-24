@@ -83,4 +83,12 @@ defmodule SupaCacherServer.HTTP.EndpointTest do
     {:ok, resp} = Req.get(req(), url: "/health", retry: false)
     assert resp.status == 200
   end
+
+  test "/metrics returns 200 with Prometheus text exposition" do
+    {:ok, resp} = Req.get(req(), url: "/metrics", retry: false)
+
+    assert resp.status == 200
+    assert [content_type] = Req.Response.get_header(resp, "content-type")
+    assert content_type =~ "text/plain"
+  end
 end
