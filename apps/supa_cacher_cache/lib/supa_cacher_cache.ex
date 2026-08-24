@@ -1,4 +1,8 @@
 defmodule SupaCacherCache do
+  @moduledoc """
+  Public API of the cache bounded context: get, put, delete, peek and table flushes.
+  """
+
   alias SupaCacherCache.DiskCache
   alias SupaCacherCache.Key
   alias SupaCacherCache.QueryCache

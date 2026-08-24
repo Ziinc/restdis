@@ -1,4 +1,8 @@
 defmodule SupaCacherServer.Commands.Set do
+  @moduledoc """
+  Handles the RESP `SET` command.
+  """
+
   alias SupaCacherServer.RESP.Encoder
 
   @spec run(map(), [binary()]) :: {iodata(), map()}

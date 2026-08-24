@@ -1,4 +1,8 @@
 defmodule SupaCacherServer.Commands.Del do
+  @moduledoc """
+  Handles the RESP `DEL` command.
+  """
+
   alias SupaCacherCache.Key
   alias SupaCacherServer.RESP.Encoder
 

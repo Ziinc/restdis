@@ -1,4 +1,8 @@
 defmodule SupaCacherServer.HTTP.Plug.CacheHeaders do
+  @moduledoc """
+  Helpers for setting cache hit, miss and policy response headers.
+  """
+
   import Plug.Conn
 
   def init(opts), do: opts

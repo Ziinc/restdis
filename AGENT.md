@@ -71,7 +71,7 @@ A change is done only when:
 
 - All new functions have typespecs.
 - All new behavior has a failing-first test that now passes.
-- `mix test` is green and `mix format` is clean.
+- `mix test` is green and `mix lint` (`mix format --check-formatted` plus `mix credo --strict`) is clean.
 - No cross-context internal reach-ins were introduced.
 - The PR or task description cites the PRD section the change implements (e.g., "Phase 2, step 4: `PGRST.QUERY`").
 

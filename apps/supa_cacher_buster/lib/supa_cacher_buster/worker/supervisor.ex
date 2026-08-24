@@ -51,11 +51,9 @@ defmodule SupaCacherBuster.Worker.Supervisor do
   end
 
   defp ensure_table(name, opts) do
-    try do
-      :ets.new(name, opts)
-    rescue
-      ArgumentError -> name
-    end
+    :ets.new(name, opts)
+  rescue
+    ArgumentError -> name
   end
 
   @spec start_worker(Event.t()) :: :ok

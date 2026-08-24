@@ -1,4 +1,8 @@
 defmodule SupaCacherServer.TenantConfig.Cache do
+  @moduledoc """
+  Cached tenant configuration lookups.
+  """
+
   use GenServer
 
   @refresh_interval_ms 60_000

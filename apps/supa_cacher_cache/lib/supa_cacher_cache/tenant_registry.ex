@@ -1,4 +1,8 @@
 defmodule SupaCacherCache.TenantRegistry do
+  @moduledoc """
+  Registry resolving a tenant id to its running tenant aggregate process.
+  """
+
   @registry __MODULE__
 
   @type role :: :tenant | :query_cache | :disk_cache | :reverse_index

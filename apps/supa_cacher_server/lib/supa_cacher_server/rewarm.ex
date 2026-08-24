@@ -1,4 +1,8 @@
 defmodule SupaCacherServer.Rewarm do
+  @moduledoc """
+  Public API for scheduling and cancelling rewarms of cache keys.
+  """
+
   alias SupaCacherCache.Key
   alias SupaCacherServer.PolicyStore
   alias SupaCacherServer.Rewarm.Scheduler

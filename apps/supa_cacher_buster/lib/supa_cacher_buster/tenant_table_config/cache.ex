@@ -1,4 +1,8 @@
 defmodule SupaCacherBuster.TenantTableConfig.Cache do
+  @moduledoc """
+  Cached lookups of per-tenant table configuration used to decide invalidation mode.
+  """
+
   use GenServer
 
   import Ecto.Query

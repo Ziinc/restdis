@@ -1,4 +1,8 @@
 defmodule SupaCacherServer.HTTP.Plug.Auth do
+  @moduledoc """
+  Plug authenticating HTTP requests and assigning the tenant id.
+  """
+
   import Plug.Conn
 
   alias SupaCacherServer.TenantConfig

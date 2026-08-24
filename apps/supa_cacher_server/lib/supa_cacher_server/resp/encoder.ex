@@ -1,4 +1,8 @@
 defmodule SupaCacherServer.RESP.Encoder do
+  @moduledoc """
+  Encodes values into the RESP wire format.
+  """
+
   @spec simple_string(binary()) :: iodata()
   def simple_string(str), do: ["+", str, "\r\n"]
 

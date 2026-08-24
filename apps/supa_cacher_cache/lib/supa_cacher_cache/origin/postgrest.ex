@@ -1,4 +1,8 @@
 defmodule SupaCacherCache.Origin.PostgREST do
+  @moduledoc """
+  Origin implementation that fetches values from PostgREST.
+  """
+
   @behaviour SupaCacherCache.Origin
 
   alias SupaCacherCache.Key

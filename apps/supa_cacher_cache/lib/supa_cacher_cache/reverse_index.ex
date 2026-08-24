@@ -1,4 +1,8 @@
 defmodule SupaCacherCache.ReverseIndex do
+  @moduledoc """
+  Maps `{table, primary key}` pairs back to the cache keys that depend on them.
+  """
+
   use GenServer
 
   alias SupaCacherCache.Key

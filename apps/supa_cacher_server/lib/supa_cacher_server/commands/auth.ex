@@ -1,4 +1,8 @@
 defmodule SupaCacherServer.Commands.Auth do
+  @moduledoc """
+  Handles the RESP `AUTH` command.
+  """
+
   alias SupaCacherServer.RESP.Encoder
   alias SupaCacherServer.TenantConfig
 

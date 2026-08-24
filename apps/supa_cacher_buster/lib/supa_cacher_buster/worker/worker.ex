@@ -1,4 +1,8 @@
 defmodule SupaCacherBuster.Worker do
+  @moduledoc """
+  Per-event worker that invalidates or refreshes the cache entries affected by a WAL event.
+  """
+
   use Task, restart: :temporary
 
   alias SupaCacherBuster.Infra.LsnStore

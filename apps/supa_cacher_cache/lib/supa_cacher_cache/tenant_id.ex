@@ -1,4 +1,8 @@
 defmodule SupaCacherCache.TenantId do
+  @moduledoc """
+  Validation and normalisation of tenant identifiers.
+  """
+
   @pattern ~r/\A[A-Za-z0-9_-]{1,64}\z/
 
   @spec valid?(String.t()) :: boolean()

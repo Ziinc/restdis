@@ -1,4 +1,8 @@
 defmodule SupaCacherServer.RESP.Parser do
+  @moduledoc """
+  Incremental parser for RESP commands.
+  """
+
   @type command :: [binary() | nil]
 
   @type parse_result ::
@@ -17,9 +21,8 @@ defmodule SupaCacherServer.RESP.Parser do
   end
 
   defp do_parse(<<"*", rest::binary>>) do
-    with {:ok, count, rest} <- parse_integer_line(rest),
-         {:ok, items, rest} <- parse_bulk_array(count, rest, []) do
-      {:ok, items, rest}
+    with {:ok, count, rest} <- parse_integer_line(rest) do
+      parse_bulk_array(count, rest, [])
     end
   end
 

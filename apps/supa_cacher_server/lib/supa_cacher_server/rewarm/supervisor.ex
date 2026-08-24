@@ -1,4 +1,8 @@
 defmodule SupaCacherServer.Rewarm.Supervisor do
+  @moduledoc """
+  Supervises the rewarm schedulers and their task supervisor.
+  """
+
   use Supervisor
 
   def start_link(opts) do

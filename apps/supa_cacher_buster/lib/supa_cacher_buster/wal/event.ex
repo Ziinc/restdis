@@ -1,4 +1,8 @@
 defmodule SupaCacherBuster.WAL.Event do
+  @moduledoc """
+  Struct describing a single decoded WAL change (schema, table, operation, primary key).
+  """
+
   @type op :: :insert | :update | :delete | :truncate | :message
 
   @type t :: %__MODULE__{

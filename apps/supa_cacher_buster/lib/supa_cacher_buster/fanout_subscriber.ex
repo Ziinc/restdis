@@ -1,4 +1,8 @@
 defmodule SupaCacherBuster.FanoutSubscriber do
+  @moduledoc """
+  Subscribes a node to the `wal_fanout` topic and dispatches received WAL events locally.
+  """
+
   use GenServer
 
   alias SupaCacherBuster.Infra.SlotConfig

@@ -1,4 +1,8 @@
 defmodule SupaCacherCache.Tenant do
+  @moduledoc """
+  Tenant aggregate owning the query cache, disk cache, reverse index and config snapshot.
+  """
+
   use Supervisor
 
   alias SupaCacherCache.DiskCache

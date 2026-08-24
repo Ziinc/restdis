@@ -1,4 +1,8 @@
 defmodule SupaCacherServer.PostgREST.Fetcher do
+  @moduledoc """
+  Behaviour and helpers for fetching a cache key from PostgREST.
+  """
+
   alias SupaCacherCache.Key
 
   @callback fetch(tenant_id :: String.t(), key :: Key.t(), config :: map()) ::

@@ -1,4 +1,8 @@
 defmodule SupaCacherBuster.Singleton do
+  @moduledoc """
+  Cluster-wide singleton registration for the `wal_tailer`, backed by `:syn`.
+  """
+
   use GenServer
 
   require Logger

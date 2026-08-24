@@ -44,28 +44,26 @@ defmodule SupaCacherBuster.Worker.CoalesceSweeper do
         :ok
 
       _ ->
-        :ets.foldl(
-          fn {{tenant_id, tbl} = key, count}, _acc ->
-            if count > 0 do
-              # Best-effort reset: subtract the observed count so we don't lose
-              # events recorded between fold visit and reset.
-              :ets.update_counter(table, key, {2, -count}, {key, 0})
-              SupaCacherCache.flush_table(tenant_id, tbl)
-
-              :telemetry.execute(
-                [:supa_cacher_buster, :backpressure, :flushed],
-                %{coalesced_count: count},
-                %{tenant_id: tenant_id, table: tbl}
-              )
-            end
-
-            :ok
-          end,
-          :ok,
-          table
-        )
+        :ets.foldl(fn entry, _acc -> flush_entry(table, entry) end, :ok, table)
 
         :ok
     end
+  end
+
+  defp flush_entry(_table, {_key, count}) when count <= 0, do: :ok
+
+  defp flush_entry(table, {{tenant_id, tbl} = key, count}) do
+    # Best-effort reset: subtract the observed count so we don't lose
+    # events recorded between fold visit and reset.
+    :ets.update_counter(table, key, {2, -count}, {key, 0})
+    SupaCacherCache.flush_table(tenant_id, tbl)
+
+    :telemetry.execute(
+      [:supa_cacher_buster, :backpressure, :flushed],
+      %{coalesced_count: count},
+      %{tenant_id: tenant_id, table: tbl}
+    )
+
+    :ok
   end
 end

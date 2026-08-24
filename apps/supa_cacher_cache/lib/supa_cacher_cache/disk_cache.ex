@@ -1,4 +1,8 @@
 defmodule SupaCacherCache.DiskCache do
+  @moduledoc """
+  CubDB-backed disk cache for persisted entries of a tenant.
+  """
+
   use GenServer
 
   alias SupaCacherCache.Key

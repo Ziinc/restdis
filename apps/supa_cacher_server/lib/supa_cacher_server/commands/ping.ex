@@ -1,4 +1,8 @@
 defmodule SupaCacherServer.Commands.Ping do
+  @moduledoc """
+  Handles the RESP `PING` command.
+  """
+
   alias SupaCacherServer.RESP.Encoder
 
   @spec run(map(), [binary()]) :: {iodata(), map()}

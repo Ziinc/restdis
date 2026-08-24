@@ -1,8 +1,12 @@
 defmodule SupaCacherServer.Commands.PgrstPolicy do
+  @moduledoc """
+  Handles the RESP `PGRST.POLICY` command, updating TTL, rewarm and persist policy.
+  """
+
   alias SupaCacherCache.Key
   alias SupaCacherCache.QueryCache
-  alias SupaCacherServer.RESP.Encoder
   alias SupaCacherServer.PolicyStore
+  alias SupaCacherServer.RESP.Encoder
   alias SupaCacherServer.Rewarm
 
   @spec run(map(), [binary()]) :: {iodata(), map()}
@@ -63,30 +67,20 @@ defmodule SupaCacherServer.Commands.PgrstPolicy do
   defp parse_opts(opts) do
     opts
     |> Enum.chunk_every(2)
-    |> Enum.reduce(%{}, fn
-      [k, v], acc when is_binary(k) ->
-        case String.upcase(k) do
-          "TTL" ->
-            case Integer.parse(v) do
-              {s, ""} -> Map.put(acc, :ttl_ms, s * 1000)
-              _ -> acc
-            end
-
-          "REWARM" ->
-            case Integer.parse(v) do
-              {s, ""} -> Map.put(acc, :rewarm_s, s)
-              _ -> acc
-            end
-
-          _ ->
-            acc
-        end
-
-      [k], acc when is_binary(k) ->
-        if String.upcase(k) == "PERSIST", do: Map.put(acc, :persist, true), else: acc
-
-      _, acc ->
-        acc
-    end)
+    |> Enum.reduce(%{}, &put_opt/2)
   end
+
+  defp put_opt([k, v], acc) when is_binary(k) do
+    case {String.upcase(k), Integer.parse(v)} do
+      {"TTL", {s, ""}} -> Map.put(acc, :ttl_ms, s * 1000)
+      {"REWARM", {s, ""}} -> Map.put(acc, :rewarm_s, s)
+      _ -> acc
+    end
+  end
+
+  defp put_opt([k], acc) when is_binary(k) do
+    if String.upcase(k) == "PERSIST", do: Map.put(acc, :persist, true), else: acc
+  end
+
+  defp put_opt(_pair, acc), do: acc
 end

@@ -1,4 +1,8 @@
 defmodule SupaCacherCache.Key do
+  @moduledoc """
+  Cache key construction, encoding and decoding of the wire representation.
+  """
+
   @type scope :: :table | :rpc | :view
 
   @type t :: %__MODULE__{

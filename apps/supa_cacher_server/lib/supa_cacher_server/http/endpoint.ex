@@ -1,4 +1,8 @@
 defmodule SupaCacherServer.HTTP.Endpoint do
+  @moduledoc """
+  Plug router exposing the HTTP cache endpoints.
+  """
+
   use Plug.Router
 
   alias SupaCacherCache.Key
@@ -96,45 +100,45 @@ defmodule SupaCacherServer.HTTP.Endpoint do
 
   defp handle_pgrst_policy(conn, params) do
     wire_key = params["key"]
-    tenant_id = conn.assigns.tenant_id
 
     case wire_key && Key.decode(wire_key) do
       {:ok, key} ->
-        ttl_s = params["ttl_s"]
-        rewarm = params["rewarm"]
-        persist = params["persist"]
-
-        existing = PolicyStore.get(tenant_id, wire_key)
-
-        new_policy = %{
-          rewarm_s: if(is_integer(rewarm), do: rewarm, else: existing.rewarm_s),
-          persist: if(is_boolean(persist), do: persist, else: existing.persist)
-        }
-
-        PolicyStore.put(tenant_id, wire_key, new_policy)
-        Rewarm.policy_changed(tenant_id, wire_key, key, new_policy)
-
-        conn =
-          if is_integer(ttl_s) and ttl_s > 0 do
-            case SupaCacherCache.peek(tenant_id, key) do
-              {:ok, value} ->
-                SupaCacherCache.put(tenant_id, key, value, ttl_ms: ttl_s * 1000)
-
-              :miss ->
-                :ok
-            end
-
-            CacheHeaders.put_policy_ok(conn, ttl_s)
-          else
-            conn
-          end
-
-        send_resp(conn, 200, Jason.encode!(%{ok: true}))
+        conn
+        |> apply_policy(wire_key, key, params)
+        |> send_resp(200, Jason.encode!(%{ok: true}))
 
       _ ->
         send_resp(conn, 400, Jason.encode!(%{error: "invalid or missing 'key'"}))
     end
   end
+
+  defp apply_policy(conn, wire_key, key, params) do
+    tenant_id = conn.assigns.tenant_id
+    rewarm = params["rewarm"]
+    persist = params["persist"]
+    existing = PolicyStore.get(tenant_id, wire_key)
+
+    new_policy = %{
+      rewarm_s: if(is_integer(rewarm), do: rewarm, else: existing.rewarm_s),
+      persist: if(is_boolean(persist), do: persist, else: existing.persist)
+    }
+
+    PolicyStore.put(tenant_id, wire_key, new_policy)
+    Rewarm.policy_changed(tenant_id, wire_key, key, new_policy)
+
+    apply_ttl(conn, tenant_id, key, params["ttl_s"])
+  end
+
+  defp apply_ttl(conn, tenant_id, key, ttl_s) when is_integer(ttl_s) and ttl_s > 0 do
+    case SupaCacherCache.peek(tenant_id, key) do
+      {:ok, value} -> SupaCacherCache.put(tenant_id, key, value, ttl_ms: ttl_s * 1000)
+      :miss -> :ok
+    end
+
+    CacheHeaders.put_policy_ok(conn, ttl_s)
+  end
+
+  defp apply_ttl(conn, _tenant_id, _key, _ttl_s), do: conn
 
   defp maybe_cold_read(tenant_id, wire_key) do
     policy = PolicyStore.get(tenant_id, wire_key)

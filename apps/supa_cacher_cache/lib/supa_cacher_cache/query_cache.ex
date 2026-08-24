@@ -1,4 +1,8 @@
 defmodule SupaCacherCache.QueryCache do
+  @moduledoc """
+  Per-tenant ETS query cache holding cached PostgREST responses and their TTLs.
+  """
+
   use GenServer
 
   alias SupaCacherCache.Key

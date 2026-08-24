@@ -1,4 +1,8 @@
 defmodule SupaCacherServer.Rewarm.Scheduler do
+  @moduledoc """
+  Per-tenant scheduler refetching keys whose rewarm interval has elapsed.
+  """
+
   use GenServer
 
   alias SupaCacherCache.Key
@@ -186,22 +190,27 @@ defmodule SupaCacherServer.Rewarm.Scheduler do
       tenant_id = state.tenant_id
 
       Task.Supervisor.start_child(SupaCacherServer.Rewarm.TaskSupervisor, fn ->
-        started_at_us = mono_us()
-
-        case TenantConfig.lookup_by_tenant_id(tenant_id) do
-          {:ok, config} ->
-            case Fetcher.fetch(tenant_id, entry.key, config) do
-              {:ok, body} ->
-                GenServer.cast(scheduler_pid, {:refetch_ok, wire_key, body, started_at_us})
-
-              {:error, reason} ->
-                GenServer.cast(scheduler_pid, {:refetch_err, wire_key, reason})
-            end
-
-          {:error, _} ->
-            GenServer.cast(scheduler_pid, {:refetch_err, wire_key, :no_config})
-        end
+        refetch(scheduler_pid, tenant_id, wire_key, entry.key)
       end)
+    end
+  end
+
+  defp refetch(scheduler_pid, tenant_id, wire_key, key) do
+    started_at_us = mono_us()
+
+    case TenantConfig.lookup_by_tenant_id(tenant_id) do
+      {:ok, config} ->
+        cast_fetch_result(scheduler_pid, tenant_id, wire_key, key, config, started_at_us)
+
+      {:error, _reason} ->
+        GenServer.cast(scheduler_pid, {:refetch_err, wire_key, :no_config})
+    end
+  end
+
+  defp cast_fetch_result(scheduler_pid, tenant_id, wire_key, key, config, started_at_us) do
+    case Fetcher.fetch(tenant_id, key, config) do
+      {:ok, body} -> GenServer.cast(scheduler_pid, {:refetch_ok, wire_key, body, started_at_us})
+      {:error, reason} -> GenServer.cast(scheduler_pid, {:refetch_err, wire_key, reason})
     end
   end
 

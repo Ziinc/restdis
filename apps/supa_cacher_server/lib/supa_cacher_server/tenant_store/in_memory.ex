@@ -1,4 +1,8 @@
 defmodule SupaCacherServer.TenantStore.InMemory do
+  @moduledoc """
+  In-memory tenant store used in tests and local runs.
+  """
+
   @behaviour SupaCacherServer.TenantStore
 
   @type config :: SupaCacherServer.TenantStore.tenant_config()

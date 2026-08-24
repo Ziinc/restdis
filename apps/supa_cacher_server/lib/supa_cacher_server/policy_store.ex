@@ -1,4 +1,8 @@
 defmodule SupaCacherServer.PolicyStore do
+  @moduledoc """
+  Per-tenant store of rewarm and persist policy for cache keys.
+  """
+
   use GenServer
 
   @table :supa_cacher_policy_store

@@ -1,4 +1,8 @@
 defmodule SupaCacherServer.Commands.Get do
+  @moduledoc """
+  Handles the RESP `GET` command.
+  """
+
   alias SupaCacherCache.Key
   alias SupaCacherServer.PolicyStore
   alias SupaCacherServer.RESP.Encoder

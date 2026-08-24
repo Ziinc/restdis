@@ -1,4 +1,8 @@
 defmodule SupaCacherBuster.Application do
+  @moduledoc """
+  OTP application for the WAL ingestion and invalidation bounded context.
+  """
+
   use Application
 
   @impl Application

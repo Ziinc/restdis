@@ -1,4 +1,8 @@
 defmodule SupaCacherCache.Origin.Stub do
+  @moduledoc """
+  Origin implementation returning canned values, used in tests and local runs.
+  """
+
   @behaviour SupaCacherCache.Origin
 
   @impl SupaCacherCache.Origin

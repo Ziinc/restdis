@@ -1,4 +1,8 @@
 defmodule SupaCacherCache.Application do
+  @moduledoc """
+  OTP application for the cache bounded context.
+  """
+
   use Application
 
   @impl Application

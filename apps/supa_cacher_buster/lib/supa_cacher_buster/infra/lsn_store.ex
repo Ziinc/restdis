@@ -5,6 +5,7 @@ defmodule SupaCacherBuster.Infra.LsnStore do
 
   require Logger
 
+  alias Ecto.Adapters.SQL
   alias SupaCacherBuster.Infra.SlotConfig
 
   @persist_interval_ms 1_000
@@ -101,65 +102,59 @@ defmodule SupaCacherBuster.Infra.LsnStore do
   end
 
   defp ensure_row_and_read(slot) do
-    try do
-      repo = SupaCacherRepo
-      now = NaiveDateTime.utc_now() |> NaiveDateTime.truncate(:second)
+    repo = SupaCacherRepo
+    now = NaiveDateTime.utc_now() |> NaiveDateTime.truncate(:second)
 
-      Ecto.Adapters.SQL.query!(
-        repo,
-        "INSERT INTO #{@table} (slot_name, lsn, inserted_at, updated_at) VALUES ($1, 0, $2, $2) ON CONFLICT (slot_name) DO NOTHING",
-        [slot, now]
-      )
+    SQL.query!(
+      repo,
+      "INSERT INTO #{@table} (slot_name, lsn, inserted_at, updated_at) VALUES ($1, 0, $2, $2) ON CONFLICT (slot_name) DO NOTHING",
+      [slot, now]
+    )
 
-      read_persisted(slot)
-    rescue
-      e ->
-        Logger.warning("LsnStore: degraded mode (DB unavailable): #{Exception.message(e)}")
-        0
-    catch
-      kind, reason ->
-        Logger.warning("LsnStore: degraded mode (#{kind}): #{inspect(reason)}")
-        0
-    end
+    read_persisted(slot)
+  rescue
+    e ->
+      Logger.warning("LsnStore: degraded mode (DB unavailable): #{Exception.message(e)}")
+      0
+  catch
+    kind, reason ->
+      Logger.warning("LsnStore: degraded mode (#{kind}): #{inspect(reason)}")
+      0
   end
 
   defp read_persisted(slot) do
-    try do
-      %{rows: rows} =
-        Ecto.Adapters.SQL.query!(
-          SupaCacherRepo,
-          "SELECT lsn FROM #{@table} WHERE slot_name = $1",
-          [slot]
-        )
+    %{rows: rows} =
+      SQL.query!(
+        SupaCacherRepo,
+        "SELECT lsn FROM #{@table} WHERE slot_name = $1",
+        [slot]
+      )
 
-      case rows do
-        [[lsn]] when is_integer(lsn) -> lsn
-        _ -> 0
-      end
-    rescue
+    case rows do
+      [[lsn]] when is_integer(lsn) -> lsn
       _ -> 0
-    catch
-      _, _ -> 0
     end
+  rescue
+    _ -> 0
+  catch
+    _, _ -> 0
   end
 
   defp write_persisted(slot, lsn) do
-    try do
-      now = NaiveDateTime.utc_now() |> NaiveDateTime.truncate(:second)
+    now = NaiveDateTime.utc_now() |> NaiveDateTime.truncate(:second)
 
-      Ecto.Adapters.SQL.query!(
-        SupaCacherRepo,
-        "UPDATE #{@table} SET lsn = $1, updated_at = $2 WHERE slot_name = $3",
-        [lsn, now, slot]
-      )
+    SQL.query!(
+      SupaCacherRepo,
+      "UPDATE #{@table} SET lsn = $1, updated_at = $2 WHERE slot_name = $3",
+      [lsn, now, slot]
+    )
 
-      :ok
-    rescue
-      e ->
-        Logger.warning("LsnStore: persist failed: #{Exception.message(e)}")
-        :error
-    catch
-      _, _ -> :error
-    end
+    :ok
+  rescue
+    e ->
+      Logger.warning("LsnStore: persist failed: #{Exception.message(e)}")
+      :error
+  catch
+    _, _ -> :error
   end
 end

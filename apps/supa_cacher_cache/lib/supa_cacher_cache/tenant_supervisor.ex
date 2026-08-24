@@ -1,4 +1,8 @@
 defmodule SupaCacherCache.TenantSupervisor do
+  @moduledoc """
+  Dynamic supervisor starting one tenant aggregate per tenant.
+  """
+
   use DynamicSupervisor
 
   alias SupaCacherCache.Tenant
