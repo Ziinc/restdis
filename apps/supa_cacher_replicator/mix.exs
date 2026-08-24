@@ -30,7 +30,7 @@ defmodule SupaCacherReplicator.MixProject do
     [
       {:supa_cacher_cache, in_umbrella: true},
       {:supa_cacher_repo, in_umbrella: true},
-      {:req, "~> 0.5"},
+      {:req, "~> 0.6"},
       {:jason, "~> 1.4"},
       {:telemetry, "~> 1.0"},
       {:stream_data, "~> 1.1", only: :test}
