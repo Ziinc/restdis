@@ -7,7 +7,7 @@
         excluded: [~r"/_build/", ~r"/deps/", ~r"apps/[^/]+/priv/"]
       },
       plugins: [],
-      requires: [],
+      requires: [".credo/checks/module_file_path.ex"],
       strict: true,
       parse_timeout: 5000,
       color: true,
@@ -17,6 +17,7 @@
           ## Consistency Checks
           #
           {Credo.Check.Consistency.ExceptionNames, []},
+          {Credo.Check.Consistency.ModuleFilePath, []},
           {Credo.Check.Consistency.LineEndings, []},
           {Credo.Check.Consistency.ParameterPatternMatching, []},
           {Credo.Check.Consistency.SpaceAroundOperators, []},
