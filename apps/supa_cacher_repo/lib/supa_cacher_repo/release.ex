@@ -5,9 +5,11 @@ defmodule SupaCacherRepo.Release do
 
   @app :supa_cacher_repo
 
+  @doc "Repos configured for migration."
   @spec repos() :: [module()]
   def repos, do: Application.fetch_env!(@app, :ecto_repos)
 
+  @doc "Runs all pending migrations for every configured repo."
   @spec migrate() :: :ok
   def migrate do
     load_app()
@@ -19,6 +21,7 @@ defmodule SupaCacherRepo.Release do
     :ok
   end
 
+  @doc "Rolls `repo` back to `version`."
   @spec rollback(module(), non_neg_integer()) :: :ok
   def rollback(repo, version) do
     load_app()
