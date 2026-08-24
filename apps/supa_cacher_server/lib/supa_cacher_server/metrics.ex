@@ -1,0 +1,89 @@
+defmodule SupaCacherServer.Metrics do
+  @moduledoc """
+  Telemetry.Metrics definitions exported via the `/metrics` Prometheus endpoint.
+  """
+
+  import Telemetry.Metrics
+
+  @doc """
+  Returns the list of `Telemetry.Metrics` definitions scraped by
+  `TelemetryMetricsPrometheus.Core`.
+  """
+  @spec definitions() :: [Telemetry.Metrics.t()]
+  def definitions do
+    [
+      # HTTP / RESP rewarm
+      counter("supa_cacher_server.rewarm.cold_read.count", tags: [:tenant_id]),
+      distribution("supa_cacher_server.rewarm.refetch.duration_us",
+        tags: [:tenant_id],
+        unit: :microsecond,
+        reporter_options: [buckets: [1_000, 5_000, 10_000, 50_000, 100_000, 500_000, 1_000_000]]
+      ),
+      counter("supa_cacher_server.rewarm.error.count", tags: [:tenant_id, :reason]),
+      counter("supa_cacher_server.rewarm.evicted.count", tags: [:tenant_id, :reason]),
+
+      # Cache persistence
+      counter("supa_cacher_cache.persist.cap_reached.count", tags: [:tenant_id]),
+      last_value("supa_cacher_cache.persist.count.count", tags: [:tenant_id]),
+
+      # Reverse index
+      counter("supa_cacher_buster.reverse_index.miss.count", tags: [:tenant_id, :table]),
+      sum("supa_cacher_buster.reverse_index.hit.keys", tags: [:tenant_id, :table]),
+
+      # WAL tailer
+      sum("supa_cacher_buster.wal.received.bytes", unit: :byte),
+      sum("supa_cacher_buster.wal.received.count"),
+      sum("supa_cacher_buster.wal.decoded.count"),
+      last_value("supa_cacher_buster.tailer.lag.lag_us", unit: :microsecond),
+
+      # Singleton election
+      last_value("supa_cacher_buster.singleton.owner.is_owner", tags: [:node]),
+
+      # Backpressure / coalescing
+      counter("supa_cacher_buster.backpressure.triggered.count", tags: [:tenant_id, :table]),
+      sum("supa_cacher_buster.backpressure.flushed.coalesced_count",
+        tags: [:tenant_id, :table]
+      ),
+
+      # Change events / invalidation
+      counter("supa_cacher_buster.event.processed.count", tags: [:op, :schema, :table]),
+      distribution("supa_cacher_buster.event.processed.duration_us",
+        tags: [:op, :schema, :table],
+        unit: :microsecond,
+        reporter_options: [buckets: [100, 500, 1_000, 5_000, 10_000, 50_000, 100_000]]
+      ),
+      distribution("supa_cacher_buster.invalidation.latency.duration_us",
+        tags: [:tenant_id, :table, :op],
+        unit: :microsecond,
+        reporter_options: [buckets: [100, 500, 1_000, 5_000, 10_000, 50_000, 100_000]]
+      ),
+
+      # VM measurements
+      last_value("vm.memory.total", unit: :byte),
+      last_value("vm.total_run_queue_lengths.total")
+    ]
+  end
+
+  @doc """
+  Periodic measurements polled by `:telemetry_poller` on top of the
+  ad-hoc `:telemetry.execute/3` calls made throughout the application.
+  """
+  @spec periodic_measurements() :: [:telemetry_poller.measurement()]
+  def periodic_measurements do
+    [
+      {SupaCacherServer.Metrics, :dispatch_vm_metrics, []}
+    ]
+  end
+
+  @doc false
+  @spec dispatch_vm_metrics() :: :ok
+  def dispatch_vm_metrics do
+    :telemetry.execute([:vm, :memory], %{total: :erlang.memory(:total)}, %{})
+
+    :telemetry.execute(
+      [:vm, :total_run_queue_lengths],
+      %{total: :erlang.statistics(:total_run_queue_lengths_all)},
+      %{}
+    )
+  end
+end
