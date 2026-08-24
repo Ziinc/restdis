@@ -12,8 +12,7 @@ end
 config :otel_metric_exporter, resource: %{"service.name" => service_name}
 
 if System.get_env("RESTDIS_JSON_LOGGER", "false") in ~w(true 1) do
-  config :logger, :default_handler,
-    formatter: LoggerJSON.Formatters.Basic.new(metadata: :all)
+  config :logger, :default_handler, formatter: {LoggerJSON.Formatters.Basic, metadata: :all}
 end
 
 if config_env() == :prod do
