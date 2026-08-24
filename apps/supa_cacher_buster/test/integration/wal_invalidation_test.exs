@@ -44,6 +44,7 @@ defmodule SupaCacherBuster.Integration.WalInvalidationTest do
                 {:ok, c} ->
                   drop_slot(c)
                   Postgrex.query(c, "DROP TABLE IF EXISTS #{@test_schema}.#{@test_table}", [])
+
                   Postgrex.query(
                     c,
                     "DELETE FROM tenant_table_config WHERE tenant_id = $1 AND table_name = $2",

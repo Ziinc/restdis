@@ -17,7 +17,8 @@ defmodule SupaCacherServer.Commands.PgrstPolicy do
     end
   end
 
-  def run(state, _), do: {Encoder.error("ERR wrong number of arguments for 'PGRST.POLICY' command"), state}
+  def run(state, _),
+    do: {Encoder.error("ERR wrong number of arguments for 'PGRST.POLICY' command"), state}
 
   defp apply_policy(state, wire_key, key, parsed) do
     existing_policy = PolicyStore.get(state.tenant_id, wire_key)
@@ -43,7 +44,9 @@ defmodule SupaCacherServer.Commands.PgrstPolicy do
 
       _ ->
         if ttl_ms = parsed[:ttl_ms] do
-          QueryCache.put(state.tenant_id, key, get_current_value(state.tenant_id, key), ttl_ms: ttl_ms)
+          QueryCache.put(state.tenant_id, key, get_current_value(state.tenant_id, key),
+            ttl_ms: ttl_ms
+          )
         end
 
         {Encoder.simple_string("OK"), state}

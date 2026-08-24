@@ -30,7 +30,8 @@ defmodule SupaCacherServer.Commands.PgrstQuery do
     end
   end
 
-  def run(state, _), do: {Encoder.error("ERR wrong number of arguments for 'PGRST.QUERY' command"), state}
+  def run(state, _),
+    do: {Encoder.error("ERR wrong number of arguments for 'PGRST.QUERY' command"), state}
 
   defp fetch_and_cache(state, key, wire_key, config, ttl_ms) do
     default_ttl_ms = (config.default_ttl_s || 60) * 1000
@@ -39,7 +40,10 @@ defmodule SupaCacherServer.Commands.PgrstQuery do
 
     case Fetcher.fetch(state.tenant_id, key, config) do
       {:ok, body} ->
-        case SupaCacherCache.put(state.tenant_id, key, body, ttl_ms: effective_ttl_ms, persist: policy.persist) do
+        case SupaCacherCache.put(state.tenant_id, key, body,
+               ttl_ms: effective_ttl_ms,
+               persist: policy.persist
+             ) do
           :ok ->
             Rewarm.touch(state.tenant_id, wire_key, key)
             {Encoder.bulk_string(wire_key), state}

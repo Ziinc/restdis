@@ -44,9 +44,15 @@ defmodule SupaCacherServer.Integration.RewarmE2ETest do
     {:ok, state: state, agent: agent}
   end
 
-  test "REWARM 1: exactly one refetch fires within 1.2s after a cache hit", %{state: state, agent: agent} do
+  test "REWARM 1: exactly one refetch fires within 1.2s after a cache hit", %{
+    state: state,
+    agent: agent
+  } do
     {reply, _} = Dispatcher.dispatch(state, ["PGRST.QUERY", "/widgets?select=*"])
-    wire_key = reply |> IO.iodata_to_binary() |> String.trim_leading("+") |> String.trim_trailing("\r\n")
+
+    wire_key =
+      reply |> IO.iodata_to_binary() |> String.trim_leading("+") |> String.trim_trailing("\r\n")
+
     assert wire_key =~ "pgrst:"
 
     {_ok, _} = Dispatcher.dispatch(state, ["PGRST.POLICY", wire_key, "REWARM", "1"])

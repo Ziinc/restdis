@@ -43,9 +43,10 @@ defmodule SupaCacherBuster.TenantTableConfig.Cache do
 
   defp fetch_from_db(schema, table_name) do
     case SupaCacherRepo.one(
-           from ttc in Schema,
-           where: ttc.schema == ^schema and ttc.table_name == ^table_name,
-           limit: 1
+           from(ttc in Schema,
+             where: ttc.schema == ^schema and ttc.table_name == ^table_name,
+             limit: 1
+           )
          ) do
       nil ->
         :not_found

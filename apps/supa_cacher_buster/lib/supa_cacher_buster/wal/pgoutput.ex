@@ -118,7 +118,15 @@ defmodule SupaCacherBuster.WAL.Pgoutput do
       Enum.flat_map(oids, fn oid ->
         case RelationCache.lookup(cache, oid) do
           {:ok, rel} ->
-            [%Event{schema: rel.schema, table: rel.table, op: :truncate, lsn: txn_lsn, received_at: now}]
+            [
+              %Event{
+                schema: rel.schema,
+                table: rel.table,
+                op: :truncate,
+                lsn: txn_lsn,
+                received_at: now
+              }
+            ]
 
           :not_found ->
             []

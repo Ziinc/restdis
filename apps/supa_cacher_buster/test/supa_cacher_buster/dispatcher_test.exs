@@ -29,14 +29,17 @@ defmodule SupaCacherBuster.DispatcherTest do
 
     # Spawn a second subscriber
     parent = self()
-    {:ok, second} = Task.start(fn ->
-      :syn.join(:wal_fanout, {:az, az}, self())
-      receive do
-        {:wal_event, event} -> send(parent, {:second_got, event})
-      after
-        500 -> send(parent, :second_timeout)
-      end
-    end)
+
+    {:ok, second} =
+      Task.start(fn ->
+        :syn.join(:wal_fanout, {:az, az}, self())
+
+        receive do
+          {:wal_event, event} -> send(parent, {:second_got, event})
+        after
+          500 -> send(parent, :second_timeout)
+        end
+      end)
 
     # Give the Task time to join
     Process.sleep(50)

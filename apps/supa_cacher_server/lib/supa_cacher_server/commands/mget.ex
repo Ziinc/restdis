@@ -21,5 +21,6 @@ defmodule SupaCacherServer.Commands.Mget do
     {Encoder.array(values), state}
   end
 
-  def run(state, _), do: {Encoder.error("ERR wrong number of arguments for 'mget' command"), state}
+  def run(state, _),
+    do: {Encoder.error("ERR wrong number of arguments for 'mget' command"), state}
 end

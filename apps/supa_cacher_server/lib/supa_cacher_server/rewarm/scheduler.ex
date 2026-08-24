@@ -42,11 +42,13 @@ defmodule SupaCacherServer.Rewarm.Scheduler do
     entry =
       case :ets.lookup(state.table, wire_key) do
         [{^wire_key, existing}] ->
-          %{existing |
-            rewarm_s: rewarm_s,
-            persist: persist,
-            last_read_ms: now,
-            next_due_ms: max(existing.next_due_ms, now + rewarm_s * 1000)}
+          %{
+            existing
+            | rewarm_s: rewarm_s,
+              persist: persist,
+              last_read_ms: now,
+              next_due_ms: max(existing.next_due_ms, now + rewarm_s * 1000)
+          }
 
         [] ->
           %__MODULE__{
@@ -75,7 +77,10 @@ defmodule SupaCacherServer.Rewarm.Scheduler do
             _ -> 60_000
           end
 
-        SupaCacherCache.put(state.tenant_id, entry.key, body, ttl_ms: ttl_ms, persist: entry.persist)
+        SupaCacherCache.put(state.tenant_id, entry.key, body,
+          ttl_ms: ttl_ms,
+          persist: entry.persist
+        )
 
         now_us = mono_us()
 
@@ -112,10 +117,12 @@ defmodule SupaCacherServer.Rewarm.Scheduler do
       entry =
         case :ets.lookup(state.table, wire_key) do
           [{^wire_key, existing}] ->
-            %{existing |
-              rewarm_s: policy.rewarm_s,
-              persist: policy.persist,
-              next_due_ms: max(existing.next_due_ms, now + policy.rewarm_s * 1000)}
+            %{
+              existing
+              | rewarm_s: policy.rewarm_s,
+                persist: policy.persist,
+                next_due_ms: max(existing.next_due_ms, now + policy.rewarm_s * 1000)
+            }
 
           [] ->
             %__MODULE__{

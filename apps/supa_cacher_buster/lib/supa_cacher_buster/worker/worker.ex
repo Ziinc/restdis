@@ -114,6 +114,7 @@ defmodule SupaCacherBuster.Worker do
   defp handle_ddl_message(_), do: :ok
 
   defp elapsed_us(nil), do: 0
+
   defp elapsed_us(received_at) when is_integer(received_at) do
     System.monotonic_time(:microsecond) - received_at
   end

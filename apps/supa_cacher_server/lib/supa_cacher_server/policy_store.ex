@@ -32,7 +32,14 @@ defmodule SupaCacherServer.PolicyStore do
 
   @impl GenServer
   def init(_opts) do
-    :ets.new(@table, [:named_table, :set, :public, read_concurrency: true, write_concurrency: true])
+    :ets.new(@table, [
+      :named_table,
+      :set,
+      :public,
+      read_concurrency: true,
+      write_concurrency: true
+    ])
+
     {:ok, %{}}
   end
 end

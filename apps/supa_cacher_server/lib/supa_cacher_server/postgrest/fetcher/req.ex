@@ -9,7 +9,11 @@ defmodule SupaCacherServer.PostgREST.Fetcher.Req do
     path = Fetcher.path_for(key)
 
     extra = Application.get_env(:supa_cacher_server, :req_options, [])
-    req = Req.new([base_url: base_url, headers: [{"apikey", config.pgrst_api_key}], retry: false] ++ extra)
+
+    req =
+      Req.new(
+        [base_url: base_url, headers: [{"apikey", config.pgrst_api_key}], retry: false] ++ extra
+      )
 
     case Req.get(req, url: path) do
       {:ok, %{status: 200, body: body}} -> {:ok, body}

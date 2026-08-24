@@ -9,11 +9,12 @@ defmodule SupaCacherServer.TenantStore.Repo do
   @impl SupaCacherServer.TenantStore
   def fetch_by_api_key(api_key) do
     query =
-      from a in ApiKeys,
+      from(a in ApiKeys,
         join: t in Tenants,
         on: t.tenant_id == a.tenant_id,
         where: a.api_key == ^api_key and a.status == "active",
         select: t
+      )
 
     case SupaCacherRepo.one(query) do
       nil -> {:error, :not_found}

@@ -20,6 +20,7 @@ defmodule SupaCacherBuster.Infra.LsnStore do
 
   @spec applied(non_neg_integer() | nil) :: :ok
   def applied(nil), do: :ok
+
   def applied(lsn) when is_integer(lsn) and lsn >= 0 do
     ref = ref()
     if ref, do: bump(ref, lsn)

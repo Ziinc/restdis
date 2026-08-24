@@ -1,8 +1,6 @@
 defmodule SupaCacherBuster.Tailer do
   use Postgrex.ReplicationConnection
 
-  require Logger
-
   alias SupaCacherBuster.Dispatcher
   alias SupaCacherBuster.Infra.LSN
   alias SupaCacherBuster.Infra.LsnStore
@@ -48,7 +46,10 @@ defmodule SupaCacherBuster.Tailer do
     stream(state)
   end
 
-  def handle_result(%Postgrex.Error{postgres: %{code: :duplicate_object}}, %{step: :create_slot} = state) do
+  def handle_result(
+        %Postgrex.Error{postgres: %{code: :duplicate_object}},
+        %{step: :create_slot} = state
+      ) do
     stream(state)
   end
 
@@ -110,7 +111,10 @@ defmodule SupaCacherBuster.Tailer do
     slot = SlotConfig.slot_name()
     pub = SlotConfig.publication_name()
     start_lsn = format_lsn(LsnStore.persisted())
-    query = "START_REPLICATION SLOT #{slot} LOGICAL #{start_lsn} (proto_version '1', publication_names '#{pub}')"
+
+    query =
+      "START_REPLICATION SLOT #{slot} LOGICAL #{start_lsn} (proto_version '1', publication_names '#{pub}')"
+
     {:stream, query, [], %{state | step: :streaming}}
   end
 
