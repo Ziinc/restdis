@@ -1,4 +1,8 @@
 defmodule SupaCacherCache.QueryCache do
+  @moduledoc """
+  Per-tenant ETS query cache holding cached PostgREST responses and their TTLs.
+  """
+
   use GenServer
 
   alias SupaCacherCache.Key
@@ -6,6 +10,9 @@ defmodule SupaCacherCache.QueryCache do
 
   @sweep_interval_ms 30_000
 
+  @doc """
+  Returns the child spec of the query cache for `tenant_id`.
+  """
   @spec child_spec(String.t()) :: Supervisor.child_spec()
   def child_spec(tenant_id) do
     %{
@@ -16,11 +23,17 @@ defmodule SupaCacherCache.QueryCache do
     }
   end
 
+  @doc """
+  Starts the query cache for `tenant_id`.
+  """
   @spec start_link(String.t()) :: GenServer.on_start()
   def start_link(tenant_id) do
     GenServer.start_link(__MODULE__, tenant_id, name: TenantRegistry.via(tenant_id, :query_cache))
   end
 
+  @doc """
+  Reads `key`, treating an expired entry as a miss.
+  """
   @spec get(String.t(), Key.t()) :: {:ok, term()} | :miss
   def get(tenant_id, key) do
     tid = table(tenant_id)
@@ -42,6 +55,9 @@ defmodule SupaCacherCache.QueryCache do
     end
   end
 
+  @doc """
+  Writes `value` under `key`, expiring it after `opts[:ttl_ms]`.
+  """
   @spec put(String.t(), Key.t(), term(), keyword()) :: :ok
   def put(tenant_id, key, value, opts \\ []) do
     tid = table(tenant_id)
@@ -56,12 +72,18 @@ defmodule SupaCacherCache.QueryCache do
     :ok
   end
 
+  @doc """
+  Removes `key` from the query cache.
+  """
   @spec delete(String.t(), Key.t()) :: :ok
   def delete(tenant_id, key) do
     :ets.delete(table(tenant_id), key)
     :ok
   end
 
+  @doc """
+  Removes every entry from the query cache.
+  """
   @spec flush(String.t()) :: :ok
   def flush(tenant_id) do
     :ets.delete_all_objects(table(tenant_id))

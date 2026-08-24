@@ -1,7 +1,9 @@
 defmodule SupaCacherServer.StubFetcher do
+  @moduledoc false
+
   @behaviour SupaCacherServer.PostgREST.Fetcher
 
-  @impl true
+  @impl SupaCacherServer.PostgREST.Fetcher
   def fetch(_tenant_id, _key, _config) do
     case Application.get_env(:supa_cacher_server, :stub_fetcher_agent) do
       nil -> :ok

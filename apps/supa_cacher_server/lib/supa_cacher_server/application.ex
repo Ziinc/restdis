@@ -1,4 +1,8 @@
 defmodule SupaCacherServer.Application do
+  @moduledoc """
+  OTP application for the protocol and rewarm bounded context.
+  """
+
   use Application
 
   @impl Application

@@ -1,4 +1,8 @@
 defmodule SupaCacherServer.TenantConfig do
+  @moduledoc """
+  Lookup of tenant configuration used to serve and refetch cache entries.
+  """
+
   alias SupaCacherServer.TenantConfig.Cache
 
   @spec lookup_by_api_key(String.t()) :: {:ok, map()} | {:error, :not_found}

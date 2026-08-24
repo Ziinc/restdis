@@ -1,9 +1,14 @@
 defmodule SupaCacherCache.TenantInvalidator do
-  @moduledoc false
+  @moduledoc """
+  Implements `SupaCacherBuster.TenantConfigInvalidator` by convention.
 
-  # Implements SupaCacherBuster.TenantConfigInvalidator by convention
-  # (no @behaviour to avoid a reverse umbrella dep on supa_cacher_buster).
+  No `@behaviour` is declared, to avoid a reverse umbrella dependency on
+  `supa_cacher_buster`.
+  """
 
+  @doc """
+  Flushes every cache layer of `tenant_id` after its config changed.
+  """
   @spec invalidate(String.t()) :: :ok
   def invalidate(tenant_id) do
     SupaCacherCache.flush_tenant(tenant_id)

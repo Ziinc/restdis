@@ -1,19 +1,24 @@
 defmodule SupaCacherServer.Commands.Dispatcher do
+  @moduledoc """
+  Routes a parsed RESP command to its handler, enforcing authentication first.
+  """
+
   alias SupaCacherServer.Commands
   alias SupaCacherServer.RESP.Encoder
 
   @noauth_commands ~w(PING AUTH)
 
+  @doc """
+  Routes a parsed command to its handler, rejecting unauthenticated connections.
+  """
   @spec dispatch(map(), [binary()]) :: {iodata(), map()}
   def dispatch(state, [cmd | args]) do
     upcmd = String.upcase(cmd)
 
-    cond do
-      not state.authenticated? and upcmd not in @noauth_commands ->
-        {Encoder.error("NOAUTH Authentication required"), state}
-
-      true ->
-        run(state, upcmd, args)
+    if not state.authenticated? and upcmd not in @noauth_commands do
+      {Encoder.error("NOAUTH Authentication required"), state}
+    else
+      run(state, upcmd, args)
     end
   end
 

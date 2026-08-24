@@ -1,4 +1,8 @@
 defmodule SupaCacherBuster.Tailer do
+  @moduledoc """
+  Logical replication connection that tails the WAL and hands decoded events to the dispatcher.
+  """
+
   use Postgrex.ReplicationConnection
 
   alias SupaCacherBuster.Dispatcher
@@ -14,6 +18,10 @@ defmodule SupaCacherBuster.Tailer do
           last_wal_end: non_neg_integer()
         }
 
+  @doc """
+  Starts the replication connection that tails the WAL.
+  """
+  @spec start_link(keyword()) :: {:ok, pid()} | {:error, term()}
   def start_link(opts \\ []) do
     conn_opts =
       SlotConfig.replication_conn_opts()
@@ -23,7 +31,7 @@ defmodule SupaCacherBuster.Tailer do
     Postgrex.ReplicationConnection.start_link(__MODULE__, :ok, conn_opts)
   end
 
-  @impl true
+  @impl Postgrex.ReplicationConnection
   def init(:ok) do
     state = %{
       step: :create_slot,
@@ -34,14 +42,14 @@ defmodule SupaCacherBuster.Tailer do
     {:ok, state}
   end
 
-  @impl true
+  @impl Postgrex.ReplicationConnection
   def handle_connect(state) do
     slot = SlotConfig.slot_name()
     query = "CREATE_REPLICATION_SLOT #{slot} LOGICAL pgoutput NOEXPORT_SNAPSHOT"
     {:query, query, %{state | step: :create_slot}}
   end
 
-  @impl true
+  @impl Postgrex.ReplicationConnection
   def handle_result([_result], %{step: :create_slot} = state) do
     stream(state)
   end
@@ -57,7 +65,7 @@ defmodule SupaCacherBuster.Tailer do
     {:noreply, state}
   end
 
-  @impl true
+  @impl Postgrex.ReplicationConnection
   # XLogData: WAL record
   def handle_data(<<?w, _wal_start::64, wal_end::64, _clock::64, rest::binary>>, state) do
     :telemetry.execute(

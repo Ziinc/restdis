@@ -1,4 +1,8 @@
 defmodule SupaCacherServer.TenantStore do
+  @moduledoc """
+  Behaviour for resolving tenants and API keys.
+  """
+
   @type api_key :: String.t()
   @type tenant_id :: String.t()
 

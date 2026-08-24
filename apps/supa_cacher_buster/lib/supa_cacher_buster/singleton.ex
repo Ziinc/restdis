@@ -1,8 +1,16 @@
 defmodule SupaCacherBuster.Singleton do
+  @moduledoc """
+  Cluster-wide singleton registration for the `wal_tailer`, backed by `:syn`.
+  """
+
   use GenServer
 
   require Logger
 
+  @doc """
+  Starts the singleton owner process that registers the `wal_tailer`.
+  """
+  @spec start_link(keyword()) :: GenServer.on_start()
   def start_link(opts) do
     GenServer.start_link(__MODULE__, opts, name: __MODULE__)
   end

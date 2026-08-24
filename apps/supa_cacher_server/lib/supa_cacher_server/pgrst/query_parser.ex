@@ -1,15 +1,22 @@
 defmodule SupaCacherServer.PGRST.QueryParser do
+  @moduledoc """
+  Parses a PostgREST request path into a cache key and its query params.
+  """
+
   alias SupaCacherCache.Key
 
   @type parse_result :: {:ok, Key.t(), params_map :: map()} | {:error, reason :: term()}
 
+  @doc """
+  Parses a PostgREST path into a cache key and the decoded query params.
+  """
   @spec parse(String.t()) :: parse_result()
   def parse(path) when is_binary(path) do
     uri = URI.parse(path)
 
-    with {:ok, ident} <- extract_ident(uri.path),
-         scope = infer_scope(uri.path),
-         params = decode_params(uri.query) do
+    with {:ok, ident} <- extract_ident(uri.path) do
+      scope = infer_scope(uri.path)
+      params = decode_params(uri.query)
       {:ok, Key.build(scope, ident, params), params}
     end
   end

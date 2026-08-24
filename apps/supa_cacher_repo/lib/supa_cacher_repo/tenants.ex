@@ -16,6 +16,9 @@ defmodule SupaCacherRepo.Tenants do
     timestamps()
   end
 
+  @doc """
+  Builds a changeset casting and validating tenant attributes.
+  """
   @spec changeset(%__MODULE__{}, map()) :: Ecto.Changeset.t()
   def changeset(tenant, attrs) do
     tenant

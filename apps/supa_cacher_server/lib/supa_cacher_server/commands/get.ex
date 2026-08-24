@@ -1,9 +1,16 @@
 defmodule SupaCacherServer.Commands.Get do
+  @moduledoc """
+  Handles the RESP `GET` command.
+  """
+
   alias SupaCacherCache.Key
   alias SupaCacherServer.PolicyStore
   alias SupaCacherServer.RESP.Encoder
   alias SupaCacherServer.Rewarm
 
+  @doc """
+  Replies with the cached value of `wire_key`, or a null bulk string on a miss.
+  """
   @spec run(map(), [binary()]) :: {iodata(), map()}
   def run(state, [wire_key]) do
     case Key.decode(wire_key) do

@@ -1,4 +1,8 @@
 defmodule SupaCacherRepo.Application do
+  @moduledoc """
+  OTP application supervising the Ecto repository.
+  """
+
   use Application
 
   @impl Application

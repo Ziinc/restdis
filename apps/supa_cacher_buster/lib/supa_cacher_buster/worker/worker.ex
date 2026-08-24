@@ -1,4 +1,8 @@
 defmodule SupaCacherBuster.Worker do
+  @moduledoc """
+  Per-event worker that invalidates or refreshes the cache entries affected by a WAL event.
+  """
+
   use Task, restart: :temporary
 
   alias SupaCacherBuster.Infra.LsnStore
@@ -9,6 +13,10 @@ defmodule SupaCacherBuster.Worker do
   @tenants_table "tenants"
   @table_config_table "tenant_table_config"
 
+  @doc """
+  Starts a worker task for `event`.
+  """
+  @spec start_link(Event.t()) :: {:ok, pid()}
   def start_link(%Event{} = event) do
     Task.start_link(__MODULE__, :run, [event])
   end
@@ -16,6 +24,9 @@ defmodule SupaCacherBuster.Worker do
   defp ack(%Event{lsn: nil}), do: :ok
   defp ack(%Event{lsn: lsn}), do: LsnStore.applied(lsn)
 
+  @doc """
+  Applies `event` to the cache, then acknowledges its LSN.
+  """
   @spec run(Event.t()) :: :ok
   def run(%Event{op: op, schema: @infra_schema, table: @tenants_table} = event)
       when op in [:insert, :update, :delete] do

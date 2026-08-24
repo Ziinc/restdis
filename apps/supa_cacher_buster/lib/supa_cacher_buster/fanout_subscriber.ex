@@ -1,10 +1,18 @@
 defmodule SupaCacherBuster.FanoutSubscriber do
+  @moduledoc """
+  Subscribes a node to the `wal_fanout` topic and dispatches received WAL events locally.
+  """
+
   use GenServer
 
   alias SupaCacherBuster.Infra.SlotConfig
   alias SupaCacherBuster.WAL.Event
   alias SupaCacherBuster.Worker.Supervisor, as: WorkerSupervisor
 
+  @doc """
+  Starts the fanout subscriber for this node.
+  """
+  @spec start_link(keyword()) :: GenServer.on_start()
   def start_link(opts) do
     GenServer.start_link(__MODULE__, opts, name: __MODULE__)
   end

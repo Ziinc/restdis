@@ -1,4 +1,8 @@
 defmodule SupaCacherCache do
+  @moduledoc """
+  Public API of the cache bounded context: get, put, delete, peek and table flushes.
+  """
+
   alias SupaCacherCache.DiskCache
   alias SupaCacherCache.Key
   alias SupaCacherCache.QueryCache
@@ -10,6 +14,9 @@ defmodule SupaCacherCache do
   @type tenant_id :: String.t()
   @type primary_key :: term()
 
+  @doc """
+  Reads `key`, falling back from the query cache to the disk cache to the origin.
+  """
   @spec get(tenant_id(), Key.t()) :: {:ok, term()} | :miss
   def get(tenant_id, key) do
     TenantId.cast!(tenant_id)
@@ -21,6 +28,9 @@ defmodule SupaCacherCache do
     end
   end
 
+  @doc """
+  Writes `value` under `key`. Pass `:ttl_ms` and `:persist` in `opts`.
+  """
   @spec put(tenant_id(), Key.t(), term(), keyword()) :: :ok | {:error, :persist_cap}
   def put(tenant_id, key, value, opts \\ []) do
     TenantId.cast!(tenant_id)
@@ -28,6 +38,9 @@ defmodule SupaCacherCache do
     do_put(tenant_id, key, value, opts)
   end
 
+  @doc """
+  Removes `key` from every cache layer and from the reverse index.
+  """
   @spec delete(tenant_id(), Key.t()) :: :ok
   def delete(tenant_id, key) do
     TenantId.cast!(tenant_id)
@@ -44,6 +57,9 @@ defmodule SupaCacherCache do
     :ok
   end
 
+  @doc """
+  Stops the tenant aggregate and deletes its on-disk data.
+  """
   @spec flush_tenant(tenant_id()) :: :ok
   def flush_tenant(tenant_id) do
     TenantId.cast!(tenant_id)
@@ -61,6 +77,9 @@ defmodule SupaCacherCache do
     :ok
   end
 
+  @doc """
+  Invalidates every cache key that depends on `table`.
+  """
   @spec flush_table(tenant_id(), String.t()) :: :ok
   def flush_table(tenant_id, table) do
     TenantId.cast!(tenant_id)
@@ -81,6 +100,9 @@ defmodule SupaCacherCache do
     end
   end
 
+  @doc """
+  Invalidates every cache key that depends on the row `{table, pk}`.
+  """
   @spec invalidate_by_row(tenant_id(), String.t(), primary_key()) :: :ok
   def invalidate_by_row(tenant_id, table, pk) do
     TenantId.cast!(tenant_id)
@@ -95,6 +117,9 @@ defmodule SupaCacherCache do
     :ok
   end
 
+  @doc """
+  Returns the number of persisted entries held for the tenant.
+  """
   @spec persist_count(tenant_id()) :: non_neg_integer()
   def persist_count(tenant_id) do
     case :persistent_term.get({:sc_persist, tenant_id}, nil) do
@@ -103,6 +128,9 @@ defmodule SupaCacherCache do
     end
   end
 
+  @doc """
+  Marks `key` as persisted or not, honouring the per-tenant persist cap.
+  """
   @spec set_persist(tenant_id(), Key.t(), boolean()) :: :ok | {:error, :persist_cap | :not_found}
   def set_persist(tenant_id, key, persist) do
     TenantId.cast!(tenant_id)
@@ -153,6 +181,9 @@ defmodule SupaCacherCache do
     end
   end
 
+  @doc """
+  Reads `key` from the cache layers without falling back to the origin.
+  """
   @spec peek(tenant_id(), Key.t()) :: {:ok, term()} | :miss
   def peek(tenant_id, key) do
     TenantId.cast!(tenant_id)

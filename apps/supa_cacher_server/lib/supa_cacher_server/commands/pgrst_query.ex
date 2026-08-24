@@ -1,4 +1,8 @@
 defmodule SupaCacherServer.Commands.PgrstQuery do
+  @moduledoc """
+  Handles the RESP `PGRST.QUERY` command, serving cached PostgREST responses.
+  """
+
   alias SupaCacherCache.Key
   alias SupaCacherServer.PGRST.QueryParser
   alias SupaCacherServer.PolicyStore
@@ -7,6 +11,9 @@ defmodule SupaCacherServer.Commands.PgrstQuery do
   alias SupaCacherServer.Rewarm
   alias SupaCacherServer.TenantConfig
 
+  @doc """
+  Serves a PostgREST query, fetching from the origin and caching it on a miss.
+  """
   @spec run(map(), [binary()]) :: {iodata(), map()}
   def run(state, [path | opts]) do
     ttl_ms = parse_ttl_opt(opts)
@@ -75,17 +82,15 @@ defmodule SupaCacherServer.Commands.PgrstQuery do
   defp parse_ttl_opt(opts) do
     opts
     |> Enum.chunk_every(2)
-    |> Enum.find_value(fn
-      [k, v] when is_binary(k) ->
-        if String.upcase(k) == "TTL" do
-          case Integer.parse(v) do
-            {s, ""} -> s * 1000
-            _ -> nil
-          end
-        end
-
-      _ ->
-        nil
-    end)
+    |> Enum.find_value(&ttl_ms/1)
   end
+
+  defp ttl_ms([k, v]) when is_binary(k) do
+    case {String.upcase(k), Integer.parse(v)} do
+      {"TTL", {s, ""}} -> s * 1000
+      _ -> nil
+    end
+  end
+
+  defp ttl_ms(_pair), do: nil
 end

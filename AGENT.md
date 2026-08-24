@@ -60,6 +60,17 @@ If a task cannot be expressed as a clear assertion, it is not ready — split it
 - **Test helpers** live in a single `test/support/test_utils.ex` per app, compiled via `elixirc_paths` in that app's `mix.exs`. Examples: tenant setup, ETS table fixtures, CubDB temp directories, WAL event factories. No copy-pasted setup blocks across test files.
 - **Before adding a helper**, grep the existing common module and `test_utils.ex` — reuse first.
 
+## Code quality checks
+
+`mix check` runs the whole gate and is what CI runs, one job per step:
+
+- `mix check.compile` — `mix compile --force --warnings-as-errors`
+- `mix check.format` — `mix format --check-formatted`
+- `mix check.lint` — `mix credo --strict` plus `ast-grep scan`
+
+ast-grep enforces the `@doc`, `@spec` and single-line-comment rules in
+`.ast-grep/rules/`. Install it once with `npm install -g @ast-grep/cli`.
+
 ## Shell command hygiene
 
 - Do not append `echo "EXIT:$?"` to commands. Same for variants like `; echo $?`, `&& echo OK || echo FAIL`. The shell already surfaces exit codes; the extra echo pollutes output and masks the real status from tooling.
@@ -71,7 +82,7 @@ A change is done only when:
 
 - All new functions have typespecs.
 - All new behavior has a failing-first test that now passes.
-- `mix test` is green and `mix format` is clean.
+- `mix test` is green and `mix check` is clean.
 - No cross-context internal reach-ins were introduced.
 - The PR or task description cites the PRD section the change implements (e.g., "Phase 2, step 4: `PGRST.QUERY`").
 
@@ -94,8 +105,9 @@ A change is done only when:
 12. `def`
 
 **General style**:
-- Create typespecs for new functions; prefer typespecs over verbose docs
-- Avoid inline comments; rely on clear logic and typespecs
+- Every public function has an `@spec` and a `@doc` (`@doc false` when it is public only for callers inside the same context); extra clauses inherit the first clause's `@doc` and `@spec`
+- Keep docs short; prefer typespecs over verbose prose
+- Inline comments are limited to a single line; longer explanations belong in `@doc` or `@moduledoc`
 - No `@moduledoc` (or `@moduledoc false`) in test files
 - Predicate functions end with `?` (e.g., `valid?/1`); reserve `is_` prefix for guards
 

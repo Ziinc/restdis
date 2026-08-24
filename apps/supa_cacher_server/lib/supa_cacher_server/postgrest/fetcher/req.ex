@@ -1,9 +1,13 @@
 defmodule SupaCacherServer.PostgREST.Fetcher.Req do
+  @moduledoc """
+  Fetcher implementation issuing HTTP requests to PostgREST with Req.
+  """
+
   @behaviour SupaCacherServer.PostgREST.Fetcher
 
   alias SupaCacherServer.PostgREST.Fetcher
 
-  @impl true
+  @impl SupaCacherServer.PostgREST.Fetcher
   def fetch(_tenant_id, key, config) do
     base_url = config[:replica_url] || config.pgrst_base_url
     path = Fetcher.path_for(key)

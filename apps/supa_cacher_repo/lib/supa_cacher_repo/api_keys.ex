@@ -13,6 +13,9 @@ defmodule SupaCacherRepo.ApiKeys do
     timestamps()
   end
 
+  @doc """
+  Builds a changeset casting and validating API key attributes.
+  """
   @spec changeset(%__MODULE__{}, map()) :: Ecto.Changeset.t()
   def changeset(api_key, attrs) do
     api_key

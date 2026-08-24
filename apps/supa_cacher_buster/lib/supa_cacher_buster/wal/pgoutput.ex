@@ -26,8 +26,7 @@ defmodule SupaCacherBuster.WAL.Pgoutput do
     {events, new_cache}
   end
 
-  # Begin: capture the transaction's final LSN so it can be stamped on
-  # the row events that follow before the matching Commit frame.
+  # Begin: capture the final LSN to stamp on the row events up to the Commit.
   defp do_decode(<<?B, fin_lsn::64, _ts::64, _xid::32, _rest::binary>>, {cache, _}) do
     {[], {cache, fin_lsn}}
   end

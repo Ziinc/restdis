@@ -1,7 +1,14 @@
 defmodule SupaCacherServer.Commands.Ttl do
+  @moduledoc """
+  Handles the RESP `TTL` command.
+  """
+
   alias SupaCacherCache.Key
   alias SupaCacherServer.RESP.Encoder
 
+  @doc """
+  Replies with the seconds remaining before `wire_key` expires.
+  """
   @spec run(map(), [binary()]) :: {iodata(), map()}
   def run(state, [wire_key]) do
     case Key.decode(wire_key) do

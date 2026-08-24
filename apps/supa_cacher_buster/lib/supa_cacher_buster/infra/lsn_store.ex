@@ -5,19 +5,26 @@ defmodule SupaCacherBuster.Infra.LsnStore do
 
   require Logger
 
+  alias Ecto.Adapters.SQL
   alias SupaCacherBuster.Infra.SlotConfig
 
   @persist_interval_ms 1_000
   @table "wal_checkpoint"
 
-  # The atomic is module-global so callers (workers, tailers) can read/write
-  # without a GenServer hop. The GenServer owns persistence.
+  # Module-global so workers and tailers read/write without a GenServer hop.
   @ref_key {__MODULE__, :ref}
 
+  @doc """
+  Starts the LSN store, which owns the atomic holding the applied LSN.
+  """
+  @spec start_link(keyword()) :: GenServer.on_start()
   def start_link(opts \\ []) do
     GenServer.start_link(__MODULE__, opts, name: __MODULE__)
   end
 
+  @doc """
+  Records `lsn` as applied. A `nil` LSN is ignored.
+  """
   @spec applied(non_neg_integer() | nil) :: :ok
   def applied(nil), do: :ok
 
@@ -27,6 +34,9 @@ defmodule SupaCacherBuster.Infra.LsnStore do
     :ok
   end
 
+  @doc """
+  Returns the LSN applied so far, or `0` when the store is not running.
+  """
   @spec current_applied() :: non_neg_integer()
   def current_applied do
     case ref() do
@@ -35,6 +45,9 @@ defmodule SupaCacherBuster.Infra.LsnStore do
     end
   end
 
+  @doc """
+  Reads the LSN last persisted to the checkpoint table.
+  """
   @spec persisted() :: non_neg_integer()
   def persisted do
     slot = SlotConfig.slot_name()
@@ -101,65 +114,59 @@ defmodule SupaCacherBuster.Infra.LsnStore do
   end
 
   defp ensure_row_and_read(slot) do
-    try do
-      repo = SupaCacherRepo
-      now = NaiveDateTime.utc_now() |> NaiveDateTime.truncate(:second)
+    repo = SupaCacherRepo
+    now = NaiveDateTime.utc_now() |> NaiveDateTime.truncate(:second)
 
-      Ecto.Adapters.SQL.query!(
-        repo,
-        "INSERT INTO #{@table} (slot_name, lsn, inserted_at, updated_at) VALUES ($1, 0, $2, $2) ON CONFLICT (slot_name) DO NOTHING",
-        [slot, now]
-      )
+    SQL.query!(
+      repo,
+      "INSERT INTO #{@table} (slot_name, lsn, inserted_at, updated_at) VALUES ($1, 0, $2, $2) ON CONFLICT (slot_name) DO NOTHING",
+      [slot, now]
+    )
 
-      read_persisted(slot)
-    rescue
-      e ->
-        Logger.warning("LsnStore: degraded mode (DB unavailable): #{Exception.message(e)}")
-        0
-    catch
-      kind, reason ->
-        Logger.warning("LsnStore: degraded mode (#{kind}): #{inspect(reason)}")
-        0
-    end
+    read_persisted(slot)
+  rescue
+    e ->
+      Logger.warning("LsnStore: degraded mode (DB unavailable): #{Exception.message(e)}")
+      0
+  catch
+    kind, reason ->
+      Logger.warning("LsnStore: degraded mode (#{kind}): #{inspect(reason)}")
+      0
   end
 
   defp read_persisted(slot) do
-    try do
-      %{rows: rows} =
-        Ecto.Adapters.SQL.query!(
-          SupaCacherRepo,
-          "SELECT lsn FROM #{@table} WHERE slot_name = $1",
-          [slot]
-        )
+    %{rows: rows} =
+      SQL.query!(
+        SupaCacherRepo,
+        "SELECT lsn FROM #{@table} WHERE slot_name = $1",
+        [slot]
+      )
 
-      case rows do
-        [[lsn]] when is_integer(lsn) -> lsn
-        _ -> 0
-      end
-    rescue
+    case rows do
+      [[lsn]] when is_integer(lsn) -> lsn
       _ -> 0
-    catch
-      _, _ -> 0
     end
+  rescue
+    _ -> 0
+  catch
+    _, _ -> 0
   end
 
   defp write_persisted(slot, lsn) do
-    try do
-      now = NaiveDateTime.utc_now() |> NaiveDateTime.truncate(:second)
+    now = NaiveDateTime.utc_now() |> NaiveDateTime.truncate(:second)
 
-      Ecto.Adapters.SQL.query!(
-        SupaCacherRepo,
-        "UPDATE #{@table} SET lsn = $1, updated_at = $2 WHERE slot_name = $3",
-        [lsn, now, slot]
-      )
+    SQL.query!(
+      SupaCacherRepo,
+      "UPDATE #{@table} SET lsn = $1, updated_at = $2 WHERE slot_name = $3",
+      [lsn, now, slot]
+    )
 
-      :ok
-    rescue
-      e ->
-        Logger.warning("LsnStore: persist failed: #{Exception.message(e)}")
-        :error
-    catch
-      _, _ -> :error
-    end
+    :ok
+  rescue
+    e ->
+      Logger.warning("LsnStore: persist failed: #{Exception.message(e)}")
+      :error
+  catch
+    _, _ -> :error
   end
 end

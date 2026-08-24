@@ -1,4 +1,8 @@
 defmodule SupaCacherServer.TenantStore.Repo do
+  @moduledoc """
+  Tenant store backed by the control-plane database.
+  """
+
   @behaviour SupaCacherServer.TenantStore
 
   import Ecto.Query

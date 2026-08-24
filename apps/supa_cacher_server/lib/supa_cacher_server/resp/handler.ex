@@ -1,4 +1,8 @@
 defmodule SupaCacherServer.RESP.Handler do
+  @moduledoc """
+  ThousandIsland handler running the RESP protocol over a TCP connection.
+  """
+
   use ThousandIsland.Handler
 
   alias SupaCacherServer.Commands.Dispatcher

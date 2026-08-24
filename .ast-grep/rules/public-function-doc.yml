@@ -1,0 +1,34 @@
+id: public-function-requires-doc
+language: elixir
+severity: error
+message: Public functions must have a @doc.
+note: |
+  Every public function needs a @doc; use `@doc false` when it is public only
+  for other modules in the same context. Extra clauses of a function are
+  exempt (they carry the first clause's @doc), as are @impl callbacks.
+files:
+  - "apps/*/lib/**/*.ex"
+rule:
+  all:
+    - any:
+        - pattern: 'def $NAME($$$ARGS) when $$$GUARD'
+        - pattern: 'def $NAME($$$ARGS)'
+        - pattern: 'def $NAME'
+    - not:
+        follows:
+          stopBy:
+            not:
+              any:
+                - kind: comment
+                - kind: unary_operator
+          any:
+            - pattern: '@doc $$$DOC'
+            - pattern: '@impl $$$IMPL'
+    - not:
+        follows:
+          stopBy:
+            not:
+              kind: comment
+          any:
+            - pattern: 'def $NAME($$$PREVARGS) when $$$PREVGUARD'
+            - pattern: 'def $NAME($$$PREVARGS)'
