@@ -40,6 +40,12 @@ defmodule SupaCacherServer.MixProject do
       {:telemetry_metrics, "~> 1.1"},
       {:telemetry_metrics_prometheus_core, "~> 1.2"},
       {:telemetry_poller, "~> 1.3"},
+      {:opentelemetry_api, "~> 1.4"},
+      {:opentelemetry, "~> 1.5"},
+      {:opentelemetry_exporter, "~> 1.7"},
+      {:opentelemetry_semantic_conventions, "~> 1.27"},
+      {:otel_metric_exporter, "~> 0.3"},
+      {:logger_json, "~> 6.2"},
       {:stream_data, "~> 1.1", only: :test}
     ]
   end

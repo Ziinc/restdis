@@ -3,6 +3,8 @@ defmodule SupaCacherServer.Commands.Get do
   Handles the RESP `GET` command.
   """
 
+  require OpenTelemetry.Tracer
+
   alias SupaCacherCache.Key
   alias SupaCacherReplicator.Dataset
   alias SupaCacherServer.PolicyStore
@@ -14,20 +16,26 @@ defmodule SupaCacherServer.Commands.Get do
   """
   @spec run(map(), [binary()]) :: {iodata(), map()}
   def run(state, [wire_key]) do
-    case Key.decode(wire_key) do
-      {:ok, key} ->
-        case SupaCacherCache.get(state.tenant_id, key) do
-          {:ok, value} ->
-            Rewarm.touch(state.tenant_id, wire_key, key)
-            {Encoder.bulk_string(Jason.encode!(value)), state}
+    OpenTelemetry.Tracer.with_span "resp.get", %{
+      attributes: %{"restdis.tenant_id" => state.tenant_id, "restdis.wire_key" => wire_key}
+    } do
+      case Key.decode(wire_key) do
+        {:ok, key} ->
+          case SupaCacherCache.get(state.tenant_id, key) do
+            {:ok, value} ->
+              OpenTelemetry.Tracer.set_attribute("restdis.cache_result", "hit")
+              Rewarm.touch(state.tenant_id, wire_key, key)
+              {Encoder.bulk_string(Jason.encode!(value)), state}
 
-          :miss ->
-            maybe_cold_read(state.tenant_id, wire_key)
-            {Encoder.bulk_string(nil), state}
-        end
+            :miss ->
+              OpenTelemetry.Tracer.set_attribute("restdis.cache_result", "miss")
+              maybe_cold_read(state.tenant_id, wire_key)
+              {Encoder.bulk_string(nil), state}
+          end
 
-      :error ->
-        replicated_get(state, wire_key)
+        :error ->
+          replicated_get(state, wire_key)
+      end
     end
   end
 

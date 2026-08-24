@@ -39,4 +39,25 @@ config :supa_cacher_replicator,
 config :supa_cacher_repo,
   ecto_repos: [SupaCacherRepo]
 
+config :opentelemetry,
+  span_processor: :batch,
+  traces_exporter: :otlp
+
+config :opentelemetry_exporter,
+  otlp_protocol: :http_protobuf,
+  otlp_endpoint: "http://localhost:4318"
+
+config :otel_metric_exporter,
+  otlp_endpoint: "http://localhost:4318",
+  export_period: 10_000,
+  resource: %{"service.name" => "restdis"},
+  metrics: [
+    %{
+      event_name: [:supa_cacher_server, :rewarm, :cold_read],
+      metric_name: [:supa_cacher_server, :rewarm, :cold_read],
+      measurement: :count,
+      kind: :counter
+    }
+  ]
+
 import_config "#{config_env()}.exs"

@@ -1,5 +1,21 @@
 import Config
 
+service_name = System.get_env("OTEL_SERVICE_NAME", "restdis")
+
+config :opentelemetry, resource: %{"service.name" => service_name}
+
+if otlp_endpoint = System.get_env("OTEL_EXPORTER_OTLP_ENDPOINT") do
+  config :opentelemetry_exporter, otlp_endpoint: otlp_endpoint
+  config :otel_metric_exporter, otlp_endpoint: otlp_endpoint
+end
+
+config :otel_metric_exporter, resource: %{"service.name" => service_name}
+
+if System.get_env("RESTDIS_JSON_LOGGER", "false") in ~w(true 1) do
+  config :logger, :default_handler,
+    formatter: LoggerJSON.Formatters.Basic.new(metadata: :all)
+end
+
 if config_env() == :prod do
   config :supa_cacher_buster,
     az: System.get_env("RELEASE_AZ", "local"),
