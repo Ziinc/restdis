@@ -6,6 +6,9 @@ defmodule SupaCacherServer.Commands.Auth do
   alias SupaCacherServer.RESP.Encoder
   alias SupaCacherServer.TenantConfig
 
+  @doc """
+  Authenticates the connection with an API key and binds it to a tenant.
+  """
   @spec run(map(), [binary()]) :: {iodata(), map()}
   def run(state, [api_key]) do
     case TenantConfig.lookup_by_api_key(api_key) do

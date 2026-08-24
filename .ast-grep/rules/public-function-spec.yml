@@ -1,0 +1,33 @@
+id: public-function-requires-spec
+language: elixir
+severity: error
+message: Public functions must have an @spec.
+note: |
+  Every public function needs an @spec. Extra clauses of a function are exempt
+  (they are covered by the first clause's @spec), as are @impl callbacks.
+files:
+  - "apps/*/lib/**/*.ex"
+rule:
+  all:
+    - any:
+        - pattern: 'def $NAME($$$ARGS) when $$$GUARD'
+        - pattern: 'def $NAME($$$ARGS)'
+        - pattern: 'def $NAME'
+    - not:
+        follows:
+          stopBy:
+            not:
+              any:
+                - kind: comment
+                - kind: unary_operator
+          any:
+            - pattern: '@spec $$$SPEC'
+            - pattern: '@impl $$$IMPL'
+    - not:
+        follows:
+          stopBy:
+            not:
+              kind: comment
+          any:
+            - pattern: 'def $NAME($$$PREVARGS) when $$$PREVGUARD'
+            - pattern: 'def $NAME($$$PREVARGS)'

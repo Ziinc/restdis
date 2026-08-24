@@ -36,9 +36,7 @@ defmodule SupaCacherBuster.Worker.BackpressureTest do
     TenantSupervisor.ensure_started(@tenant)
     seed_config()
 
-    # The application-level CoalesceSweeper runs on a 1s timer and would race
-    # with assertions that observe the coalesce ETS table. Stop it for the
-    # duration of the test; the umbrella's top supervisor will restart it.
+    # The CoalesceSweeper's 1s timer races the ETS assertions; it restarts later.
     sweeper_pid = Process.whereis(CoalesceSweeper)
 
     if sweeper_pid do

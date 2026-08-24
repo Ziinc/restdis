@@ -10,8 +10,12 @@ defmodule SupaCacherServer.RESP.Parser do
           | {:more, rest :: binary()}
           | {:error, reason :: term()}
 
-  # Returns {:more, original_data} when the buffer is incomplete so callers
-  # can safely append more bytes and retry without losing prefix bytes.
+  @doc """
+  Parses one command off `data`.
+
+  Returns `{:more, data}` with the original buffer when it is incomplete, so
+  callers can append more bytes and retry without losing the prefix.
+  """
   @spec parse(binary()) :: parse_result()
   def parse(data) do
     case do_parse(data) do

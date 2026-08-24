@@ -11,6 +11,9 @@ defmodule SupaCacherServer.Commands.PgrstQuery do
   alias SupaCacherServer.Rewarm
   alias SupaCacherServer.TenantConfig
 
+  @doc """
+  Serves a PostgREST query, fetching from the origin and caching it on a miss.
+  """
   @spec run(map(), [binary()]) :: {iodata(), map()}
   def run(state, [path | opts]) do
     ttl_ms = parse_ttl_opt(opts)

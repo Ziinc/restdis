@@ -10,6 +10,9 @@ defmodule SupaCacherServer.Rewarm do
   @registry SupaCacherServer.Rewarm.Registry
   @dynamic_sup SupaCacherServer.Rewarm.DynamicSupervisor
 
+  @doc """
+  Records a read of `wire_key` so its rewarm interval is tracked.
+  """
   @spec touch(String.t(), binary(), Key.t()) :: :ok
   def touch(tenant_id, wire_key, %Key{} = key) do
     policy = PolicyStore.get(tenant_id, wire_key)
@@ -31,6 +34,9 @@ defmodule SupaCacherServer.Rewarm do
     end
   end
 
+  @doc """
+  Applies a policy change to the tenant scheduler, starting or clearing rewarms.
+  """
   @spec policy_changed(String.t(), binary(), Key.t(), map()) :: :ok
   def policy_changed(tenant_id, wire_key, %Key{} = key, new_policy) do
     if is_nil(new_policy.rewarm_s) do
@@ -47,6 +53,9 @@ defmodule SupaCacherServer.Rewarm do
     end
   end
 
+  @doc """
+  Stops the rewarm scheduler of `tenant_id`.
+  """
   @spec stop_tenant(String.t()) :: :ok
   def stop_tenant(tenant_id) do
     case lookup(tenant_id) do

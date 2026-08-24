@@ -11,14 +11,20 @@ defmodule SupaCacherBuster.Infra.LsnStore do
   @persist_interval_ms 1_000
   @table "wal_checkpoint"
 
-  # The atomic is module-global so callers (workers, tailers) can read/write
-  # without a GenServer hop. The GenServer owns persistence.
+  # Module-global so workers and tailers read/write without a GenServer hop.
   @ref_key {__MODULE__, :ref}
 
+  @doc """
+  Starts the LSN store, which owns the atomic holding the applied LSN.
+  """
+  @spec start_link(keyword()) :: GenServer.on_start()
   def start_link(opts \\ []) do
     GenServer.start_link(__MODULE__, opts, name: __MODULE__)
   end
 
+  @doc """
+  Records `lsn` as applied. A `nil` LSN is ignored.
+  """
   @spec applied(non_neg_integer() | nil) :: :ok
   def applied(nil), do: :ok
 
@@ -28,6 +34,9 @@ defmodule SupaCacherBuster.Infra.LsnStore do
     :ok
   end
 
+  @doc """
+  Returns the LSN applied so far, or `0` when the store is not running.
+  """
   @spec current_applied() :: non_neg_integer()
   def current_applied do
     case ref() do
@@ -36,6 +45,9 @@ defmodule SupaCacherBuster.Infra.LsnStore do
     end
   end
 
+  @doc """
+  Reads the LSN last persisted to the checkpoint table.
+  """
   @spec persisted() :: non_neg_integer()
   def persisted do
     slot = SlotConfig.slot_name()

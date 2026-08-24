@@ -29,9 +29,22 @@ defmodule SupaCacherBuster.Worker.Supervisor do
   @tenants_table "tenants"
   @table_config_table "tenant_table_config"
 
+  @doc """
+  Returns the name of the ETS table holding per-tenant semaphores.
+  """
+  @spec semaphores_table() :: atom()
   def semaphores_table, do: @semaphores_table
+
+  @doc """
+  Returns the name of the ETS table holding coalesced `(tenant_id, table)` counts.
+  """
+  @spec coalesce_table() :: atom()
   def coalesce_table, do: @coalesce_table
 
+  @doc """
+  Starts the worker supervisor and its ETS tables.
+  """
+  @spec start_link(keyword()) :: Supervisor.on_start()
   def start_link(opts) do
     DynamicSupervisor.start_link(__MODULE__, opts, name: __MODULE__)
   end
@@ -56,6 +69,9 @@ defmodule SupaCacherBuster.Worker.Supervisor do
     ArgumentError -> name
   end
 
+  @doc """
+  Runs `event` in a worker, dropping it when the tenant is over its concurrency cap.
+  """
   @spec start_worker(Event.t()) :: :ok
   @spec start_worker(Event.t(), (Event.t() -> any())) :: :ok
   def start_worker(event, runner \\ &SupaCacherBuster.Worker.run/1)

@@ -6,6 +6,9 @@ defmodule SupaCacherServer.Commands.Del do
   alias SupaCacherCache.Key
   alias SupaCacherServer.RESP.Encoder
 
+  @doc """
+  Deletes the given cache keys and replies with the number removed.
+  """
   @spec run(map(), [binary()]) :: {iodata(), map()}
   def run(state, [_ | _] = wire_keys) do
     deleted =

@@ -6,6 +6,9 @@ defmodule SupaCacherServer.Commands.Exists do
   alias SupaCacherCache.Key
   alias SupaCacherServer.RESP.Encoder
 
+  @doc """
+  Replies with the number of the given cache keys that are cached.
+  """
   @spec run(map(), [binary()]) :: {iodata(), map()}
   def run(state, [_ | _] = wire_keys) do
     count = Enum.count(wire_keys, &cached?(state.tenant_id, &1))

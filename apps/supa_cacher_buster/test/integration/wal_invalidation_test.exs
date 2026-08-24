@@ -38,8 +38,7 @@ defmodule SupaCacherBuster.Integration.WalInvalidationTest do
             reset_replication_slot(conn)
 
             on_exit(fn ->
-              # Re-open a short-lived connection because the setup_all
-              # connection is gone by the time on_exit runs.
+              # The setup_all connection is gone by the time on_exit runs.
               case Postgrex.start_link(conn_opts) do
                 {:ok, c} ->
                   drop_slot(c)
@@ -73,8 +72,7 @@ defmodule SupaCacherBuster.Integration.WalInvalidationTest do
   setup _ctx do
     TenantSupervisor.ensure_started(@tenant_id)
     SupaCacherCache.flush_tenant(@tenant_id)
-    # The table-config cache is read-through; invalidate so the worker
-    # re-fetches our fixture row.
+    # The table-config cache is read-through; invalidate to refetch the fixture.
     SupaCacherBuster.TenantTableConfig.invalidate(@test_schema, @test_table)
     :ok
   end
@@ -154,9 +152,7 @@ defmodule SupaCacherBuster.Integration.WalInvalidationTest do
            "Cache entry was not invalidated after tailer restart"
   end
 
-  # ----------------------------------------------------------------------
   # Helpers
-  # ----------------------------------------------------------------------
 
   defp wait_until(predicate, deadline_ms, poll_ms) do
     deadline = System.monotonic_time(:millisecond) + deadline_ms
@@ -202,8 +198,7 @@ defmodule SupaCacherBuster.Integration.WalInvalidationTest do
       []
     )
 
-    # Ensure the table has REPLICA IDENTITY FULL or default; default works
-    # for tables with a primary key, which we have.
+    # The default REPLICA IDENTITY is enough for a table with a primary key.
 
     Postgrex.query!(
       conn,
@@ -216,15 +211,12 @@ defmodule SupaCacherBuster.Integration.WalInvalidationTest do
       [@tenant_id, @test_schema, @test_table]
     )
 
-    # publication is FOR ALL TABLES (see migration 20260519000003) so
-    # the test table is included automatically.
+    # The publication is FOR ALL TABLES, so the test table is included.
     :ok
   end
 
   defp reset_replication_slot(conn) do
-    # Stop the running tailer (if any) so it releases the slot, then drop
-    # the slot. The Singleton will respawn the tailer which will recreate
-    # the slot on its next handle_connect.
+    # Stop the tailer so it releases the slot; the Singleton respawns it.
     case :syn.lookup(:wal, :wal_tailer) do
       {pid, _meta} when is_pid(pid) ->
         ref = Process.monitor(pid)

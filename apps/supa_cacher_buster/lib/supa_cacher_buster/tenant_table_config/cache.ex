@@ -11,10 +11,17 @@ defmodule SupaCacherBuster.TenantTableConfig.Cache do
 
   @table :supa_cacher_buster_table_config
 
+  @doc """
+  Starts the read-through table configuration cache.
+  """
+  @spec start_link(keyword()) :: GenServer.on_start()
   def start_link(opts) do
     GenServer.start_link(__MODULE__, opts, name: __MODULE__)
   end
 
+  @doc """
+  Returns the cached configuration, reading through to the database on a miss.
+  """
   @spec lookup(String.t(), String.t()) :: {:ok, map()} | :not_found
   def lookup(schema, table_name) do
     case :ets.lookup(@table, {schema, table_name}) do
@@ -33,6 +40,9 @@ defmodule SupaCacherBuster.TenantTableConfig.Cache do
     end
   end
 
+  @doc """
+  Removes the cached entry so the next lookup reads through to the database.
+  """
   @spec invalidate(String.t(), String.t()) :: :ok
   def invalidate(schema, table_name) do
     :ets.delete(@table, {schema, table_name})

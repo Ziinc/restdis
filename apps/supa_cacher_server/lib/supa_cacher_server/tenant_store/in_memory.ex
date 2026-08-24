@@ -1,14 +1,14 @@
 defmodule SupaCacherServer.TenantStore.InMemory do
   @moduledoc """
   In-memory tenant store used in tests and local runs.
+
+  Entries live in the process dictionary for test isolation; call `seed/1` from
+  test setup to populate them.
   """
 
   @behaviour SupaCacherServer.TenantStore
 
   @type config :: SupaCacherServer.TenantStore.tenant_config()
-
-  # Keys stored in the process dictionary for test isolation; call seed/1 from
-  # test setup to populate.
 
   @impl SupaCacherServer.TenantStore
   def fetch_by_api_key(api_key) do
@@ -35,12 +35,18 @@ defmodule SupaCacherServer.TenantStore.InMemory do
     :persistent_term.get({__MODULE__, :entries}, []) |> Enum.map(&strip_api_key/1)
   end
 
+  @doc """
+  Replaces the stored tenant entries; call from test setup.
+  """
   @spec seed([map()]) :: :ok
   def seed(entries) do
     :persistent_term.put({__MODULE__, :entries}, entries)
     :ok
   end
 
+  @doc """
+  Removes every stored tenant entry.
+  """
   @spec clear() :: :ok
   def clear do
     :persistent_term.erase({__MODULE__, :entries})

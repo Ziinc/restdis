@@ -16,16 +16,25 @@ defmodule SupaCacherCache.Key do
   @scope_to_wire %{table: "t", rpc: "r", view: "v"}
   @wire_to_scope %{"t" => :table, "r" => :rpc, "v" => :view}
 
+  @doc """
+  Builds a cache key from a scope, identifier and query params.
+  """
   @spec build(scope(), String.t(), map()) :: t()
   def build(scope, ident, params) when scope in [:table, :rpc, :view] do
     %__MODULE__{scope: scope, ident: ident, params_hash: :erlang.phash2(params)}
   end
 
+  @doc """
+  Encodes a key into its wire representation.
+  """
   @spec encode(t()) :: String.t()
   def encode(%__MODULE__{scope: scope, ident: ident, params_hash: hash}) do
     "pgrst:#{@scope_to_wire[scope]}:#{URI.encode(ident)}:#{hash}"
   end
 
+  @doc """
+  Decodes a wire key back into a `t:t/0`.
+  """
   @spec decode(String.t()) :: {:ok, t()} | :error
   def decode("pgrst:" <> rest) do
     case String.split(rest, ":", parts: 3) do

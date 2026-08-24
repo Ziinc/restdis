@@ -7,6 +7,10 @@ defmodule SupaCacherBuster.Singleton do
 
   require Logger
 
+  @doc """
+  Starts the singleton owner process that registers the `wal_tailer`.
+  """
+  @spec start_link(keyword()) :: GenServer.on_start()
   def start_link(opts) do
     GenServer.start_link(__MODULE__, opts, name: __MODULE__)
   end

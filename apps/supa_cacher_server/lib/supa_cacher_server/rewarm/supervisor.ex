@@ -5,6 +5,10 @@ defmodule SupaCacherServer.Rewarm.Supervisor do
 
   use Supervisor
 
+  @doc """
+  Starts the rewarm supervision tree.
+  """
+  @spec start_link(keyword()) :: Supervisor.on_start()
   def start_link(opts) do
     Supervisor.start_link(__MODULE__, opts, name: __MODULE__)
   end

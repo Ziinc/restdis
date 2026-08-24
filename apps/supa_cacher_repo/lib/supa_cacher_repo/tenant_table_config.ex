@@ -17,6 +17,9 @@ defmodule SupaCacherRepo.TenantTableConfig do
 
   @type t :: %__MODULE__{}
 
+  @doc """
+  Builds a changeset casting and validating table configuration params.
+  """
   @spec changeset(t(), map()) :: Ecto.Changeset.t()
   def changeset(struct, params) do
     struct

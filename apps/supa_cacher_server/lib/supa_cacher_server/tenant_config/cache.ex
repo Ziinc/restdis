@@ -8,11 +8,17 @@ defmodule SupaCacherServer.TenantConfig.Cache do
   @refresh_interval_ms 60_000
   @table :supa_cacher_tenant_config
 
+  @doc """
+  Starts the tenant configuration cache and its refresh timer.
+  """
   @spec start_link(keyword()) :: GenServer.on_start()
   def start_link(opts) do
     GenServer.start_link(__MODULE__, opts, name: __MODULE__)
   end
 
+  @doc """
+  Returns the tenant configuration for `api_key`, reading through on a miss.
+  """
   @spec lookup_by_api_key(String.t()) :: {:ok, map()} | {:error, :not_found}
   def lookup_by_api_key(api_key) do
     case :ets.lookup(@table, {:api_key, api_key}) do
@@ -21,6 +27,9 @@ defmodule SupaCacherServer.TenantConfig.Cache do
     end
   end
 
+  @doc """
+  Returns the tenant configuration for `tenant_id`, reading through on a miss.
+  """
   @spec lookup_by_tenant_id(String.t()) :: {:ok, map()} | {:error, :not_found}
   def lookup_by_tenant_id(tenant_id) do
     case :ets.lookup(@table, {:tenant_id, tenant_id}) do
@@ -29,11 +38,17 @@ defmodule SupaCacherServer.TenantConfig.Cache do
     end
   end
 
+  @doc """
+  Drops the cached configuration of `tenant_id`.
+  """
   @spec invalidate(String.t()) :: :ok
   def invalidate(tenant_id) do
     GenServer.call(__MODULE__, {:invalidate, tenant_id})
   end
 
+  @doc """
+  Reloads every cached tenant configuration.
+  """
   @spec refresh() :: :ok
   def refresh do
     GenServer.call(__MODULE__, :refresh)

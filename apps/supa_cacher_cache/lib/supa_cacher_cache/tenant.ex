@@ -10,6 +10,10 @@ defmodule SupaCacherCache.Tenant do
   alias SupaCacherCache.ReverseIndex
   alias SupaCacherCache.TenantRegistry
 
+  @doc """
+  Returns the child spec of the tenant aggregate for the tenant given in `opts`.
+  """
+  @spec child_spec(keyword()) :: Supervisor.child_spec()
   def child_spec(opts) do
     tenant_id = Keyword.fetch!(opts, :tenant_id)
 
@@ -21,6 +25,10 @@ defmodule SupaCacherCache.Tenant do
     }
   end
 
+  @doc """
+  Starts the tenant aggregate and its cache processes.
+  """
+  @spec start_link(keyword()) :: Supervisor.on_start()
   def start_link(opts) do
     tenant_id = Keyword.fetch!(opts, :tenant_id)
     Supervisor.start_link(__MODULE__, opts, name: TenantRegistry.via(tenant_id, :tenant))

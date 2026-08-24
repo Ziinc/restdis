@@ -8,6 +8,9 @@ defmodule SupaCacherServer.Commands.Dispatcher do
 
   @noauth_commands ~w(PING AUTH)
 
+  @doc """
+  Routes a parsed command to its handler, rejecting unauthenticated connections.
+  """
   @spec dispatch(map(), [binary()]) :: {iodata(), map()}
   def dispatch(state, [cmd | args]) do
     upcmd = String.upcase(cmd)

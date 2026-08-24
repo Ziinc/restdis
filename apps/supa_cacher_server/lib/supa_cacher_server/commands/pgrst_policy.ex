@@ -9,6 +9,9 @@ defmodule SupaCacherServer.Commands.PgrstPolicy do
   alias SupaCacherServer.RESP.Encoder
   alias SupaCacherServer.Rewarm
 
+  @doc """
+  Applies TTL, rewarm and persist policy to a cache key.
+  """
   @spec run(map(), [binary()]) :: {iodata(), map()}
   def run(state, [wire_key | opts]) do
     case Key.decode(wire_key) do

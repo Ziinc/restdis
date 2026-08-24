@@ -5,8 +5,7 @@ defmodule SupaCacherBuster.Infra.LsnStoreTest do
   alias SupaCacherBuster.Infra.LsnStore
 
   setup do
-    # The application starts LsnStore. If it's not running (e.g. degraded DB),
-    # start a fresh one for the test.
+    # The application starts LsnStore; start a fresh one if the DB was degraded.
     case Process.whereis(LsnStore) do
       nil ->
         {:ok, _} = LsnStore.start_link([])

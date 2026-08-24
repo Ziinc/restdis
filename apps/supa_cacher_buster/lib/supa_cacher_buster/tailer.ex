@@ -18,6 +18,10 @@ defmodule SupaCacherBuster.Tailer do
           last_wal_end: non_neg_integer()
         }
 
+  @doc """
+  Starts the replication connection that tails the WAL.
+  """
+  @spec start_link(keyword()) :: {:ok, pid()} | {:error, term()}
   def start_link(opts \\ []) do
     conn_opts =
       SlotConfig.replication_conn_opts()

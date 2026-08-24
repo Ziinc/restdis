@@ -6,6 +6,9 @@ defmodule SupaCacherServer.Commands.Mget do
   alias SupaCacherCache.Key
   alias SupaCacherServer.RESP.Encoder
 
+  @doc """
+  Replies with the cached values of the given keys, using nil for misses.
+  """
   @spec run(map(), [binary()]) :: {iodata(), map()}
   def run(state, [_ | _] = wire_keys) do
     values = Enum.map(wire_keys, &fetch_encoded(state.tenant_id, &1))

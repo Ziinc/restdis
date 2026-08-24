@@ -11,6 +11,9 @@ defmodule SupaCacherServer.Rewarm.Scheduler do
 
   defstruct [:key, :rewarm_s, :persist, :last_read_ms, :last_rewarm_ms, :next_due_ms]
 
+  @doc """
+  Starts the rewarm scheduler for the tenant given in `opts`.
+  """
   @spec start_link(keyword()) :: GenServer.on_start()
   def start_link(opts) do
     tenant_id = Keyword.fetch!(opts, :tenant_id)
@@ -20,11 +23,17 @@ defmodule SupaCacherServer.Rewarm.Scheduler do
     )
   end
 
+  @doc """
+  Records a read of `wire_key`, scheduling its next rewarm.
+  """
   @spec upsert(pid(), binary(), Key.t(), map()) :: :ok
   def upsert(pid, wire_key, key, policy) do
     GenServer.cast(pid, {:touch, wire_key, key, policy})
   end
 
+  @doc """
+  Applies a policy change to a scheduled key.
+  """
   @spec policy_changed(pid(), binary(), Key.t(), map()) :: :ok
   def policy_changed(pid, wire_key, key, policy) do
     GenServer.call(pid, {:policy_changed, wire_key, key, policy})

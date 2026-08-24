@@ -15,6 +15,10 @@ defmodule SupaCacherBuster.Worker.CoalesceSweeper do
 
   @default_interval_ms 1_000
 
+  @doc """
+  Starts the sweeper on its periodic timer.
+  """
+  @spec start_link(keyword()) :: GenServer.on_start()
   def start_link(opts) do
     GenServer.start_link(__MODULE__, opts, name: Keyword.get(opts, :name, __MODULE__))
   end
@@ -53,8 +57,7 @@ defmodule SupaCacherBuster.Worker.CoalesceSweeper do
   defp flush_entry(_table, {_key, count}) when count <= 0, do: :ok
 
   defp flush_entry(table, {{tenant_id, tbl} = key, count}) do
-    # Best-effort reset: subtract the observed count so we don't lose
-    # events recorded between fold visit and reset.
+    # Subtract the observed count so events recorded mid-fold are not lost.
     :ets.update_counter(table, key, {2, -count}, {key, 0})
     SupaCacherCache.flush_table(tenant_id, tbl)
 

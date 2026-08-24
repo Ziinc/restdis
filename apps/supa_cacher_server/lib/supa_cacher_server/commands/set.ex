@@ -5,6 +5,9 @@ defmodule SupaCacherServer.Commands.Set do
 
   alias SupaCacherServer.RESP.Encoder
 
+  @doc """
+  Rejects the command; only `PGRST.*` keys are writable.
+  """
   @spec run(map(), [binary()]) :: {iodata(), map()}
   def run(state, _args) do
     _ = state

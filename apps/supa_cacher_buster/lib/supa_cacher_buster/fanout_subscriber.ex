@@ -9,6 +9,10 @@ defmodule SupaCacherBuster.FanoutSubscriber do
   alias SupaCacherBuster.WAL.Event
   alias SupaCacherBuster.Worker.Supervisor, as: WorkerSupervisor
 
+  @doc """
+  Starts the fanout subscriber for this node.
+  """
+  @spec start_link(keyword()) :: GenServer.on_start()
   def start_link(opts) do
     GenServer.start_link(__MODULE__, opts, name: __MODULE__)
   end

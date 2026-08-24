@@ -3,12 +3,16 @@ defmodule SupaCacherServer.HTTP.Plug.Auth do
   Plug authenticating HTTP requests and assigning the tenant id.
   """
 
+  @behaviour Plug
+
   import Plug.Conn
 
   alias SupaCacherServer.TenantConfig
 
+  @impl Plug
   def init(opts), do: opts
 
+  @impl Plug
   def call(conn, _opts) do
     with ["Bearer " <> api_key] <- get_req_header(conn, "authorization"),
          {:ok, config} <- TenantConfig.lookup_by_api_key(api_key) do

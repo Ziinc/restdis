@@ -8,6 +8,10 @@ defmodule SupaCacherCache.TenantSupervisor do
   alias SupaCacherCache.Tenant
   alias SupaCacherCache.TenantRegistry
 
+  @doc """
+  Starts the supervisor of the tenant aggregates.
+  """
+  @spec start_link(keyword()) :: Supervisor.on_start()
   def start_link(opts) do
     DynamicSupervisor.start_link(__MODULE__, opts, name: __MODULE__)
   end
@@ -17,6 +21,9 @@ defmodule SupaCacherCache.TenantSupervisor do
     DynamicSupervisor.init(strategy: :one_for_one)
   end
 
+  @doc """
+  Starts the tenant aggregate for `tenant_id` unless it is already running.
+  """
   @spec ensure_started(String.t()) :: :ok
   def ensure_started(tenant_id) do
     case TenantRegistry.whereis(tenant_id, :tenant) do

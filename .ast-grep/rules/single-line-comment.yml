@@ -1,0 +1,16 @@
+id: inline-comment-single-line
+language: elixir
+severity: error
+message: Inline comments are limited to a single line.
+note: |
+  Consecutive comment lines are not allowed. Explain the why in one line, or
+  move the explanation into a @doc or @moduledoc.
+files:
+  - "apps/*/lib/**/*.ex"
+  - "apps/*/test/**/*.ex"
+  - "apps/*/test/**/*.exs"
+  - "config/**/*.exs"
+rule:
+  kind: comment
+  follows:
+    kind: comment
