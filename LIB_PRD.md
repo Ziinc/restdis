@@ -18,27 +18,29 @@ are only usable as umbrella children of this application. Three things block reu
 
 ## Scope
 
-**In scope.** Extracting the cache engine and the WAL follower into a single published
-package, `restdis`, with Ecto as a required dependency and Oban-style migrations.
+**In scope.** Extracting the cache engine and the WAL follower into a single standalone
+project, `restdis`, with Ecto as a required dependency and Oban-style migrations.
 
 **Out of scope.** The RESP server, the HTTP endpoint, PostgREST fetching, rewarm
 scheduling, and API-key auth. These stay in `supa_cacher_server` and remain application
 concerns. No behaviour change to the cache or the WAL follower is in scope; this is a
-packaging and dependency-inversion effort.
+packaging and dependency-inversion effort. Publishing to Hex is also out of scope: the
+application depends on the library by path.
 
 ## Decisions
 
-**One package, two supervision trees.** `restdis` ships `Restdis.Cache` and
+**One project, two supervision trees.** `restdis` ships `Restdis.Cache` and
 `Restdis.Wal` as independently mountable trees. A host may start either alone. They are
-one package because both require Ecto, both read `tenants`, and splitting them would mean
-two version counters, two prefix options, and a cross-package foreign key.
+one project because both require Ecto, both read `tenants`, and splitting them would mean
+two version counters, two prefix options, and a foreign key across the split.
 
-**The library is standalone.** It is published for consumers who do not run this
-application, so it depends on no umbrella app, reads no `:supa_cacher_*` application
-environment, and its documentation and examples stand on their own. This repository is
-one consumer of the package, not its host. The carve-out therefore happens first
-(Phase 1), so the remaining work is written inside the library rather than moved into it
-at the end.
+**The library is standalone, but not yet published.** It is built so a consumer who does
+not run this application could adopt it: it depends on no umbrella app, reads no
+`:supa_cacher_*` application environment, and its documentation and examples stand on their
+own. Publishing to Hex is deliberately out of scope; the application consumes the library
+by path and the two stay in lockstep. Hex metadata, a changelog, and a release process are
+a later effort, unblocked by this one. The carve-out therefore happens first (Phase 1), so
+the remaining work is written inside the library rather than moved into it at the end.
 
 **Ecto is required, the repo is injected.** The library depends on `ecto_sql` but never
 defines a repo. The host passes `repo:` at start time and the library uses the host's pool,
@@ -212,45 +214,31 @@ Delivers safe co-existence with the host application.
 
 - Adding the library as a dependency starts no processes until the host mounts it.
 - The full umbrella test suite passes with both trees started by name.
-
-## Phase 6: Publish
-
-Delivers `restdis` on Hex as a package with no knowledge of this application.
-
-1. Add `package/0`, `docs/0`, licence, and `CHANGELOG.md`.
-2. Write a README covering the two child specs, the migration install path, the handler
-   behaviour, and a worked example that does not reference SupaCacher the product.
-3. Verify `mix hex.build` ships only the library's own files.
-4. Publish `0.1.0` and switch the umbrella from the `path:` dependency to the released
-   version.
-
-**Completion criteria:**
-
-- A scratch Mix project consuming the published package can start both trees, run the
-  generated migration, and cache a key, with this repository absent.
-- Generated docs cover the two child specs, the migration module, and the handler
-  behaviour.
+- A scratch Mix project outside the umbrella can depend on `restdis/` by path, run the
+  generated migration, start both trees, and cache a key.
 
 ---
 
 ## Resolved Questions
 
 **The library lives in this repository,** as a top-level `restdis/` directory consumed by
-the umbrella as a `path:` dependency until Phase 6. One repository keeps every phase a
-single change; the boundary is enforced by the dependency list and the Phase 1 compile-time
-guard rather than by separate checkouts.
+the umbrella as a `path:` dependency. The application always consumes the library by path,
+never by a published version, so the two move together in one change and there is no
+release step in the critical path. One repository keeps every phase a single change; the
+boundary is enforced by the dependency list and the Phase 1 compile-time guard rather than
+by separate checkouts.
 
 **Tenant config comes only from the repo.** There is no read-through behaviour, MFA hook,
 or escape hatch for tenant configuration: a consumer of the library runs the migration and
 populates `tenants`. This is what makes Ecto a genuine requirement rather than one adapter
 among several.
 
-**The package is named `restdis`,** matching the repository, with `Restdis` as the public
+**The project is named `restdis`,** matching the repository, with `Restdis` as the public
 module namespace and `restdis` as the default schema prefix. The application keeps its
-`SupaCacher*` namespace; it is a consumer of the package, not the same thing.
+`SupaCacher*` namespace; it is a consumer of the library, not the same thing.
 
 **Backwards compatibility is not a constraint.** The project is greenfield with no
 deployed database and no external consumers. Renames, schema changes, and migration
-rewrites are free up to the `0.1.0` publish in Phase 6, and no phase needs a compatibility
-shim or a deprecation path. Module and table names should be moved to their final form
-early rather than carried through the phases and renamed at the end.
+rewrites are free, and no phase needs a compatibility shim or a deprecation path. Module
+and table names should be moved to their final form early rather than carried through the
+phases and renamed at the end.
