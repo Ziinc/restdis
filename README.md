@@ -45,6 +45,9 @@ docker compose up --build
 | `WAL_SLOT_NAME` | `supacacher_slot` | Replication slot name |
 | `WAL_PUBLICATION_NAME` | `supacacher_pub` | Publication name |
 | `MIGRATE_ON_BOOT` | `true` | Run migrations before starting the release |
+| `REPLICATION_PAGE_SIZE` | `1000` | Rows per page when replicating a dataset |
+| `REPLICATION_PAGE_DELAY_MS` | `50` | Delay between replication pages |
+| `REPLICATION_RECONCILE_STAGGER_MS` | `1000` | Stagger between reconcile passes |
 
 ### Release commands
 

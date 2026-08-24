@@ -23,6 +23,7 @@ defmodule Supacacher.MixProject do
         applications: [
           supa_cacher_repo: :permanent,
           supa_cacher_cache: :permanent,
+          supa_cacher_replicator: :permanent,
           supa_cacher_server: :permanent,
           supa_cacher_buster: :permanent
         ]
