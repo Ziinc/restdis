@@ -47,7 +47,8 @@ defmodule SupaCacherServer.PostgREST.FetcherTest do
         Req.Test.json(conn, body)
       end)
 
-      assert {:ok, ^body} = FetcherReq.fetch(@tenant_id, %Key{scope: :table, ident: "users"}, base_config())
+      assert {:ok, ^body} =
+               FetcherReq.fetch(@tenant_id, %Key{scope: :table, ident: "users"}, base_config())
     end
 
     test "500 returns {:error, {:status, 500}}" do
@@ -106,7 +107,8 @@ defmodule SupaCacherServer.PostgREST.FetcherTest do
         Req.Test.json(conn, [])
       end)
 
-      assert {:ok, _} = FetcherReq.fetch(@tenant_id, %Key{scope: :table, ident: "users"}, base_config())
+      assert {:ok, _} =
+               FetcherReq.fetch(@tenant_id, %Key{scope: :table, ident: "users"}, base_config())
     end
   end
 
@@ -118,7 +120,8 @@ defmodule SupaCacherServer.PostgREST.FetcherTest do
         Req.Test.json(conn, body)
       end)
 
-      assert {:ok, ^body} = Fetcher.fetch(@tenant_id, %Key{scope: :table, ident: "products"}, base_config())
+      assert {:ok, ^body} =
+               Fetcher.fetch(@tenant_id, %Key{scope: :table, ident: "products"}, base_config())
     end
   end
 end

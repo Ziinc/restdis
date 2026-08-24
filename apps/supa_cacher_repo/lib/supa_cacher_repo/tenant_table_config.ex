@@ -5,12 +5,12 @@ defmodule SupaCacherRepo.TenantTableConfig do
 
   @primary_key false
   schema "tenant_table_config" do
-    field :tenant_id, :string, primary_key: true
-    field :schema, :string, primary_key: true, default: "public"
-    field :table_name, :string, primary_key: true
-    field :mode, :string, default: "ttl"
-    field :pk_column, :string, default: "id"
-    field :filter, :string
+    field(:tenant_id, :string, primary_key: true)
+    field(:schema, :string, primary_key: true, default: "public")
+    field(:table_name, :string, primary_key: true)
+    field(:mode, :string, default: "ttl")
+    field(:pk_column, :string, default: "id")
+    field(:filter, :string)
 
     timestamps()
   end

@@ -9,10 +9,26 @@ defmodule SupaCacherBuster.WorkerTest do
   # Stub TenantTableConfig to avoid DB calls
   defmodule StubTableConfig do
     def lookup("public", "products"),
-      do: {:ok, %{tenant_id: "tenant1", schema: "public", table_name: "products", pk_column: "id", mode: "ttl"}}
+      do:
+        {:ok,
+         %{
+           tenant_id: "tenant1",
+           schema: "public",
+           table_name: "products",
+           pk_column: "id",
+           mode: "ttl"
+         }}
 
     def lookup("public", "orders"),
-      do: {:ok, %{tenant_id: "tenant2", schema: "public", table_name: "orders", pk_column: "order_id", mode: "ttl"}}
+      do:
+        {:ok,
+         %{
+           tenant_id: "tenant2",
+           schema: "public",
+           table_name: "orders",
+           pk_column: "order_id",
+           mode: "ttl"
+         }}
 
     def lookup(_, _), do: :not_found
     def invalidate(_, _), do: :ok
@@ -26,6 +42,7 @@ defmodule SupaCacherBuster.WorkerTest do
 
   setup do
     Process.register(self(), :worker_test)
+
     on_exit(fn ->
       try do
         Process.unregister(:worker_test)
@@ -41,10 +58,12 @@ defmodule SupaCacherBuster.WorkerTest do
     # Start tenants used in tests
     TenantSupervisor.ensure_started("tenant1")
     TenantSupervisor.ensure_started("tenant2")
+
     on_exit(fn ->
       SupaCacherCache.flush_tenant("tenant1")
       SupaCacherCache.flush_tenant("tenant2")
     end)
+
     :ok
   end
 
@@ -58,7 +77,14 @@ defmodule SupaCacherBuster.WorkerTest do
   end
 
   test "DML event for a configured table invalidates the cached entry" do
-    config = %{tenant_id: "tenant1", schema: "public", table_name: "products", pk_column: "id", mode: "ttl"}
+    config = %{
+      tenant_id: "tenant1",
+      schema: "public",
+      table_name: "products",
+      pk_column: "id",
+      mode: "ttl"
+    }
+
     seed_config("public", "products", config)
     on_exit(&clear_config/0)
 
@@ -67,14 +93,26 @@ defmodule SupaCacherBuster.WorkerTest do
 
     assert {:ok, _} = SupaCacherCache.peek("tenant1", key)
 
-    event = TestUtils.update_event("products", "public", %{"id" => "42"}, %{"id" => "42", "name" => "Updated"})
+    event =
+      TestUtils.update_event("products", "public", %{"id" => "42"}, %{
+        "id" => "42",
+        "name" => "Updated"
+      })
+
     Worker.run(event)
 
     assert :miss = SupaCacherCache.peek("tenant1", key)
   end
 
   test "DML event with string PK coerced to integer matches integer PK in index" do
-    config = %{tenant_id: "tenant1", schema: "public", table_name: "products", pk_column: "id", mode: "ttl"}
+    config = %{
+      tenant_id: "tenant1",
+      schema: "public",
+      table_name: "products",
+      pk_column: "id",
+      mode: "ttl"
+    }
+
     seed_config("public", "products", config)
     on_exit(&clear_config/0)
 
@@ -102,7 +140,14 @@ defmodule SupaCacherBuster.WorkerTest do
   end
 
   test "Truncate event flushes table cache" do
-    config = %{tenant_id: "tenant1", schema: "public", table_name: "products", pk_column: "id", mode: "ttl"}
+    config = %{
+      tenant_id: "tenant1",
+      schema: "public",
+      table_name: "products",
+      pk_column: "id",
+      mode: "ttl"
+    }
+
     seed_config("public", "products", config)
     on_exit(&clear_config/0)
 
@@ -122,14 +167,23 @@ defmodule SupaCacherBuster.WorkerTest do
     Application.put_env(:supa_cacher_buster, :tenant_config_invalidator, StubInvalidator)
     on_exit(fn -> Application.put_env(:supa_cacher_buster, :tenant_config_invalidator, nil) end)
 
-    event = TestUtils.update_event("tenants", "public", %{"tenant_id" => "t1"}, %{"tenant_id" => "t1"})
+    event =
+      TestUtils.update_event("tenants", "public", %{"tenant_id" => "t1"}, %{"tenant_id" => "t1"})
+
     Worker.run(event)
 
     assert_receive {:invalidate_called, "t1"}, 200
   end
 
   test "WAL event on public.tenant_table_config flushes that table's cache" do
-    config = %{tenant_id: "tenant1", schema: "public", table_name: "products", pk_column: "id", mode: "ttl"}
+    config = %{
+      tenant_id: "tenant1",
+      schema: "public",
+      table_name: "products",
+      pk_column: "id",
+      mode: "ttl"
+    }
+
     seed_config("public", "products", config)
     on_exit(&clear_config/0)
 
@@ -148,7 +202,14 @@ defmodule SupaCacherBuster.WorkerTest do
   end
 
   test "config table flush does not affect a different table's cache" do
-    config = %{tenant_id: "tenant2", schema: "public", table_name: "orders", pk_column: "order_id", mode: "ttl"}
+    config = %{
+      tenant_id: "tenant2",
+      schema: "public",
+      table_name: "orders",
+      pk_column: "order_id",
+      mode: "ttl"
+    }
+
     seed_config("public", "orders", config)
     on_exit(&clear_config/0)
 

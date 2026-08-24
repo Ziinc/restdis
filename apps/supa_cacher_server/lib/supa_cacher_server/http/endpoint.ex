@@ -9,9 +9,9 @@ defmodule SupaCacherServer.HTTP.Endpoint do
   alias SupaCacherServer.PostgREST.Fetcher
   alias SupaCacherServer.Rewarm
 
-  plug Plug.Logger
-  plug :match
-  plug :dispatch
+  plug(Plug.Logger)
+  plug(:match)
+  plug(:dispatch)
 
   get "/health" do
     send_resp(conn, 200, "ok")
@@ -161,5 +161,4 @@ defmodule SupaCacherServer.HTTP.Endpoint do
       -2
     end
   end
-
 end

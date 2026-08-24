@@ -30,7 +30,10 @@ defmodule SupaCacherBuster.Singleton do
             {:noreply, %{state | tailer: pid}}
 
           {:error, reason} ->
-            Logger.warning("[SupaCacherBuster] Failed to start Tailer: #{inspect(reason)}, retrying in 2s")
+            Logger.warning(
+              "[SupaCacherBuster] Failed to start Tailer: #{inspect(reason)}, retrying in 2s"
+            )
+
             :syn.unregister(:wal, :wal_tailer)
             Process.send_after(self(), :try_register, 2_000)
             {:noreply, state}

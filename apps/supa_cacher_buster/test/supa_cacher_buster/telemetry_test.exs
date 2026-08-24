@@ -56,7 +56,8 @@ defmodule SupaCacherBuster.TelemetryTest do
     event = TestUtils.update_event("tel_products", "public", %{"id" => "5"}, %{"id" => "5"})
     Worker.run(event)
 
-    assert_receive {:telemetry, [:supa_cacher_buster, :event, :processed], measurements, metadata},
+    assert_receive {:telemetry, [:supa_cacher_buster, :event, :processed], measurements,
+                    metadata},
                    500
 
     assert measurements.count == 1

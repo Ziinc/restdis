@@ -28,7 +28,10 @@ defmodule SupaCacherServer.Commands.PgrstPolicyTest do
     SupaCacherCache.put(@tenant_id, key, [%{"id" => 1}], ttl_ms: 60_000)
     wire_key = Key.encode(key)
 
-    {:ok, state: %{authenticated?: true, tenant_id: @tenant_id, buffer: <<>>}, wire_key: wire_key, key: key}
+    {:ok,
+     state: %{authenticated?: true, tenant_id: @tenant_id, buffer: <<>>},
+     wire_key: wire_key,
+     key: key}
   end
 
   test "PGRST.POLICY updates TTL observable via TTL command", %{state: state, wire_key: wire_key} do
@@ -41,7 +44,10 @@ defmodule SupaCacherServer.Commands.PgrstPolicyTest do
     assert remaining > 100 and remaining <= 120
   end
 
-  test "PGRST.POLICY stores rewarm and persist flags ephemerally", %{state: state, wire_key: wire_key} do
+  test "PGRST.POLICY stores rewarm and persist flags ephemerally", %{
+    state: state,
+    wire_key: wire_key
+  } do
     {reply, _} = Dispatcher.dispatch(state, ["PGRST.POLICY", wire_key, "REWARM", "30", "PERSIST"])
     assert IO.iodata_to_binary(reply) == "+OK\r\n"
 

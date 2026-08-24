@@ -7,8 +7,8 @@ defmodule SupaCacherRepo.ApiKeys do
   @timestamps_opts [type: :utc_datetime_usec]
 
   schema "api_keys" do
-    field :tenant_id, :string
-    field :status, :string, default: "active"
+    field(:tenant_id, :string)
+    field(:status, :string, default: "active")
 
     timestamps()
   end

@@ -4,9 +4,14 @@ defmodule SupaCacherServer.PostgREST.Fetcher do
   @callback fetch(tenant_id :: String.t(), key :: Key.t(), config :: map()) ::
               {:ok, body :: term()} | {:error, {:status, integer()} | term()}
 
-  @spec fetch(String.t(), Key.t(), map()) :: {:ok, term()} | {:error, {:status, integer()} | term()}
+  @spec fetch(String.t(), Key.t(), map()) ::
+          {:ok, term()} | {:error, {:status, integer()} | term()}
   def fetch(tenant_id, key, config) do
-    Application.get_env(:supa_cacher_server, :postgrest_fetcher, SupaCacherServer.PostgREST.Fetcher.Req).fetch(
+    Application.get_env(
+      :supa_cacher_server,
+      :postgrest_fetcher,
+      SupaCacherServer.PostgREST.Fetcher.Req
+    ).fetch(
       tenant_id,
       key,
       config

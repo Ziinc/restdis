@@ -41,6 +41,7 @@ defmodule SupaCacherBuster.WAL.PgoutputTest do
 
     # count by parsing, simpler: just pass pre-built col_values_bin with an explicit count
     {count, _} = count_col_values(col_values_bin, 0)
+
     <<
       ?I,
       oid::32,
@@ -53,11 +54,16 @@ defmodule SupaCacherBuster.WAL.PgoutputTest do
   defp count_col_values(<<>>, n), do: {n, <<>>}
   defp count_col_values(<<?n, rest::binary>>, n), do: count_col_values(rest, n + 1)
   defp count_col_values(<<?u, rest::binary>>, n), do: count_col_values(rest, n + 1)
-  defp count_col_values(<<?t, len::32, _::binary-size(len), rest::binary>>, n), do: count_col_values(rest, n + 1)
-  defp count_col_values(<<?b, len::32, _::binary-size(len), rest::binary>>, n), do: count_col_values(rest, n + 1)
+
+  defp count_col_values(<<?t, len::32, _::binary-size(len), rest::binary>>, n),
+    do: count_col_values(rest, n + 1)
+
+  defp count_col_values(<<?b, len::32, _::binary-size(len), rest::binary>>, n),
+    do: count_col_values(rest, n + 1)
 
   defp delete_frame(oid, col_values_bin) do
     {count, _} = count_col_values(col_values_bin, 0)
+
     <<
       ?D,
       oid::32,
@@ -172,7 +178,8 @@ defmodule SupaCacherBuster.WAL.PgoutputTest do
     new_values = <<text_col("1")::binary, text_col("New")::binary>>
     {new_count, _} = count_col_values(new_values, 0)
 
-    frame = <<?U, 10::32, ?K, old_count::16, old_values::binary, ?N, new_count::16, new_values::binary>>
+    frame =
+      <<?U, 10::32, ?K, old_count::16, old_values::binary, ?N, new_count::16, new_values::binary>>
 
     {[event], _} = Pgoutput.decode(frame, cache)
     assert event.op == :update

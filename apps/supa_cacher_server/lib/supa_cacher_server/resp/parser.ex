@@ -58,7 +58,7 @@ defmodule SupaCacherServer.RESP.Parser do
     needed = len + 2
 
     if byte_size(data) >= needed do
-      <<bulk::binary-size(len), "\r\n", rest::binary>> = data
+      <<bulk::binary-size(^len), "\r\n", rest::binary>> = data
       {:ok, bulk, rest}
     else
       {:more, data}

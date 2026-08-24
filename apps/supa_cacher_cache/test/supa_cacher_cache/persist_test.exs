@@ -40,14 +40,18 @@ defmodule SupaCacherCache.PersistTest do
     assert 0 = SupaCacherCache.persist_count(tenant_id)
   end
 
-  test "cap enforcement: 3rd persist put returns error and count stays at cap", %{tenant_id: tenant_id} do
+  test "cap enforcement: 3rd persist put returns error and count stays at cap", %{
+    tenant_id: tenant_id
+  } do
     key1 = Key.build(:table, "t", %{"a" => "1"})
     key2 = Key.build(:table, "t", %{"a" => "2"})
     key3 = Key.build(:table, "t", %{"a" => "3"})
 
     assert :ok = SupaCacherCache.put(tenant_id, key1, "v1", persist: true, persist_cap: 2)
     assert :ok = SupaCacherCache.put(tenant_id, key2, "v2", persist: true, persist_cap: 2)
-    assert {:error, :persist_cap} = SupaCacherCache.put(tenant_id, key3, "v3", persist: true, persist_cap: 2)
+
+    assert {:error, :persist_cap} =
+             SupaCacherCache.put(tenant_id, key3, "v3", persist: true, persist_cap: 2)
 
     assert 2 = SupaCacherCache.persist_count(tenant_id)
   end

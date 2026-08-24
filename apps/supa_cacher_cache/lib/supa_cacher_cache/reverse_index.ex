@@ -62,7 +62,11 @@ defmodule SupaCacherCache.ReverseIndex do
   end
 
   @impl GenServer
-  def handle_call({:purge_row, table, pk}, _from, %{fwd: fwd, rev: rev, tenant_id: tenant_id} = state) do
+  def handle_call(
+        {:purge_row, table, pk},
+        _from,
+        %{fwd: fwd, rev: rev, tenant_id: tenant_id} = state
+      ) do
     keys = :ets.lookup(fwd, {table, pk}) |> Enum.map(fn {_, key} -> key end)
 
     case keys do

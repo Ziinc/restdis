@@ -47,6 +47,7 @@ defmodule SupaCacherCache do
   @spec flush_tenant(tenant_id()) :: :ok
   def flush_tenant(tenant_id) do
     TenantId.cast!(tenant_id)
+
     case TenantRegistry.whereis(tenant_id, :tenant) do
       nil -> :ok
       pid -> Supervisor.stop(pid, :normal)
@@ -122,11 +123,19 @@ defmodule SupaCacherCache do
 
         if new_count > cap do
           :counters.sub(ref, 1, 1)
-          :telemetry.execute([:supa_cacher_cache, :persist, :cap_reached], %{count: 1}, %{tenant_id: tenant_id})
+
+          :telemetry.execute([:supa_cacher_cache, :persist, :cap_reached], %{count: 1}, %{
+            tenant_id: tenant_id
+          })
+
           {:error, :persist_cap}
         else
           :ok = DiskCache.set_persist(tenant_id, key, true)
-          :telemetry.execute([:supa_cacher_cache, :persist, :count], %{count: new_count}, %{tenant_id: tenant_id})
+
+          :telemetry.execute([:supa_cacher_cache, :persist, :count], %{count: new_count}, %{
+            tenant_id: tenant_id
+          })
+
           :ok
         end
 
@@ -135,7 +144,11 @@ defmodule SupaCacherCache do
         ref = :persistent_term.get({:sc_persist, tenant_id})
         :counters.sub(ref, 1, 1)
         new_count = :counters.get(ref, 1)
-        :telemetry.execute([:supa_cacher_cache, :persist, :count], %{count: new_count}, %{tenant_id: tenant_id})
+
+        :telemetry.execute([:supa_cacher_cache, :persist, :count], %{count: new_count}, %{
+          tenant_id: tenant_id
+        })
+
         :ok
     end
   end
@@ -185,13 +198,21 @@ defmodule SupaCacherCache do
 
       if new_count > persist_cap do
         :counters.sub(ref, 1, 1)
-        :telemetry.execute([:supa_cacher_cache, :persist, :cap_reached], %{count: 1}, %{tenant_id: tenant_id})
+
+        :telemetry.execute([:supa_cacher_cache, :persist, :cap_reached], %{count: 1}, %{
+          tenant_id: tenant_id
+        })
+
         {:error, :persist_cap}
       else
         QueryCache.put(tenant_id, key, value, opts)
         DiskCache.put(tenant_id, key, value, persist: true)
         index_value(tenant_id, key, value, opts)
-        :telemetry.execute([:supa_cacher_cache, :persist, :count], %{count: new_count}, %{tenant_id: tenant_id})
+
+        :telemetry.execute([:supa_cacher_cache, :persist, :count], %{count: new_count}, %{
+          tenant_id: tenant_id
+        })
+
         :ok
       end
     else
@@ -247,7 +268,11 @@ defmodule SupaCacherCache do
       ref ->
         :counters.sub(ref, 1, 1)
         new_count = :counters.get(ref, 1)
-        :telemetry.execute([:supa_cacher_cache, :persist, :count], %{count: new_count}, %{tenant_id: tenant_id})
+
+        :telemetry.execute([:supa_cacher_cache, :persist, :count], %{count: new_count}, %{
+          tenant_id: tenant_id
+        })
+
         :ok
     end
   end

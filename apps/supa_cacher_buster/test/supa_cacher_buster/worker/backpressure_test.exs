@@ -102,8 +102,7 @@ defmodule SupaCacherBuster.Worker.BackpressureTest do
     # The third event should be coalesced — no Task should run.
     :ok = WorkerSupervisor.start_worker(event3, blocking_runner)
 
-    assert_receive {:triggered, ^ref, %{count: 1},
-                    %{tenant_id: @tenant, table: @table}},
+    assert_receive {:triggered, ^ref, %{count: 1}, %{tenant_id: @tenant, table: @table}},
                    1_000
 
     refute_receive {:running, ^ref, _}, 100
@@ -144,8 +143,7 @@ defmodule SupaCacherBuster.Worker.BackpressureTest do
 
     assert :miss = SupaCacherCache.peek(@tenant, key)
 
-    assert_receive {:flushed, ^ref, %{coalesced_count: 3},
-                    %{tenant_id: @tenant, table: @table}},
+    assert_receive {:flushed, ^ref, %{coalesced_count: 3}, %{tenant_id: @tenant, table: @table}},
                    500
 
     # Counter should be reset to 0.

@@ -4,23 +4,26 @@ defmodule SupaCacherBuster.SingletonTest do
   test ":syn :wal scope allows only one registration per name" do
     parent = self()
 
-    p1 = spawn(fn ->
-      result = :syn.register(:wal, :test_tailer, self())
-      send(parent, {:p1_register, result})
-      receive do
-        :stop -> :ok
-      after
-        2_000 -> :ok
-      end
-    end)
+    p1 =
+      spawn(fn ->
+        result = :syn.register(:wal, :test_tailer, self())
+        send(parent, {:p1_register, result})
+
+        receive do
+          :stop -> :ok
+        after
+          2_000 -> :ok
+        end
+      end)
 
     # Wait for p1 to register
     assert_receive {:p1_register, :ok}, 500
 
-    p2 = spawn(fn ->
-      result = :syn.register(:wal, :test_tailer, self())
-      send(parent, {:p2_register, result})
-    end)
+    p2 =
+      spawn(fn ->
+        result = :syn.register(:wal, :test_tailer, self())
+        send(parent, {:p2_register, result})
+      end)
 
     assert_receive {:p2_register, {:error, :taken}}, 500
 
@@ -28,15 +31,17 @@ defmodule SupaCacherBuster.SingletonTest do
     send(p1, :stop)
     Process.sleep(100)
 
-    p3 = spawn(fn ->
-      result = :syn.register(:wal, :test_tailer, self())
-      send(parent, {:p3_register, result})
-      receive do
-        :stop -> :ok
-      after
-        500 -> :ok
-      end
-    end)
+    p3 =
+      spawn(fn ->
+        result = :syn.register(:wal, :test_tailer, self())
+        send(parent, {:p3_register, result})
+
+        receive do
+          :stop -> :ok
+        after
+          500 -> :ok
+        end
+      end)
 
     assert_receive {:p3_register, :ok}, 500
     send(p3, :stop)
@@ -49,23 +54,27 @@ defmodule SupaCacherBuster.SingletonTest do
     az = "singleton_test_az"
     parent = self()
 
-    sub1 = spawn(fn ->
-      :syn.join(:wal_fanout, {:az, az}, self())
-      receive do
-        msg -> send(parent, {:sub1, msg})
-      after
-        500 -> send(parent, :sub1_timeout)
-      end
-    end)
+    sub1 =
+      spawn(fn ->
+        :syn.join(:wal_fanout, {:az, az}, self())
 
-    sub2 = spawn(fn ->
-      :syn.join(:wal_fanout, {:az, az}, self())
-      receive do
-        msg -> send(parent, {:sub2, msg})
-      after
-        500 -> send(parent, :sub2_timeout)
-      end
-    end)
+        receive do
+          msg -> send(parent, {:sub1, msg})
+        after
+          500 -> send(parent, :sub1_timeout)
+        end
+      end)
+
+    sub2 =
+      spawn(fn ->
+        :syn.join(:wal_fanout, {:az, az}, self())
+
+        receive do
+          msg -> send(parent, {:sub2, msg})
+        after
+          500 -> send(parent, :sub2_timeout)
+        end
+      end)
 
     Process.sleep(50)
 
