@@ -16,7 +16,17 @@ if System.get_env("RESTDIS_JSON_LOGGER", "false") in ~w(true 1) do
 end
 
 if config_env() == :prod do
+  control_plane_cache_dir =
+    Path.join(System.get_env("CACHE_DATA_DIR", "/var/lib/supacacher/cache"), "control_plane")
+
+  control_plane_cache_ttl_ms =
+    String.to_integer(System.get_env("CONTROL_PLANE_CACHE_TTL_MS", "60000"))
+
   config :supa_cacher_buster,
+    tenant_table_config_cache: [
+      data_dir: control_plane_cache_dir,
+      ttl_ms: control_plane_cache_ttl_ms
+    ],
     az: System.get_env("RELEASE_AZ", "local"),
     slot_name: System.get_env("WAL_SLOT_NAME", "supacacher_slot"),
     publication_name: System.get_env("WAL_PUBLICATION_NAME", "supacacher_pub"),
@@ -38,7 +48,11 @@ if config_env() == :prod do
   config :supa_cacher_server,
     resp_port: String.to_integer(System.get_env("RESP_PORT", "6380")),
     resp_listen_ip: System.get_env("RESP_LISTEN_IP", "0.0.0.0"),
-    http_port: String.to_integer(System.get_env("HTTP_PORT", "4040"))
+    http_port: String.to_integer(System.get_env("HTTP_PORT", "4040")),
+    tenant_config_cache: [
+      data_dir: control_plane_cache_dir,
+      ttl_ms: control_plane_cache_ttl_ms
+    ]
 
   config :supa_cacher_repo, SupaCacherRepo,
     url: System.fetch_env!("DATABASE_URL"),

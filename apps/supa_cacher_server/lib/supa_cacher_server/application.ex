@@ -5,6 +5,9 @@ defmodule SupaCacherServer.Application do
 
   use Application
 
+  alias SupaCacherCache.ReadThrough
+  alias SupaCacherServer.TenantConfig
+
   @impl Application
   def start(_type, _args) do
     resp_port = Application.get_env(:supa_cacher_server, :resp_port, 6380)
@@ -17,7 +20,8 @@ defmodule SupaCacherServer.Application do
     http_port = Application.get_env(:supa_cacher_server, :http_port, 4040)
 
     children = [
-      SupaCacherServer.TenantConfig.Cache,
+      tenant_config_cache_spec(),
+      TenantConfig.Cache,
       SupaCacherServer.PolicyStore,
       SupaCacherServer.Rewarm.Supervisor,
       {Finch, name: SupaCacherServer.Finch},
@@ -38,5 +42,14 @@ defmodule SupaCacherServer.Application do
       strategy: :one_for_one,
       name: SupaCacherServer.Supervisor
     )
+  end
+
+  defp tenant_config_cache_spec do
+    opts = Application.get_env(:supa_cacher_server, :tenant_config_cache, [])
+
+    {ReadThrough,
+     name: TenantConfig.Cache.cache_name(),
+     data_dir: Keyword.get(opts, :data_dir, "./cache_data/control_plane"),
+     ttl_ms: Keyword.get(opts, :ttl_ms, 60_000)}
   end
 end

@@ -14,11 +14,11 @@ defmodule SupaCacherBuster.TelemetryTest do
   end
 
   defp seed_config(schema, table, config) do
-    :ets.insert(:supa_cacher_buster_table_config, {{schema, table}, config})
+    TestUtils.seed_table_config(schema, table, config)
   end
 
   defp clear_config do
-    :ets.delete_all_objects(:supa_cacher_buster_table_config)
+    TestUtils.clear_table_config()
   end
 
   defp attach(handler_id, events) do

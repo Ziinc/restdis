@@ -1,7 +1,25 @@
 defmodule SupaCacherBuster.TestUtils do
   @moduledoc false
 
+  alias SupaCacherBuster.TenantTableConfig
   alias SupaCacherBuster.WAL.Event
+  alias SupaCacherCache.ReadThrough
+
+  @doc false
+  @spec seed_table_config(String.t(), String.t(), map()) :: :ok
+  def seed_table_config(schema, table, config) do
+    ReadThrough.put(
+      TenantTableConfig.Cache.cache_name(),
+      "tenant_table_config/#{schema}.#{table}",
+      config
+    )
+  end
+
+  @doc false
+  @spec clear_table_config() :: :ok
+  def clear_table_config do
+    ReadThrough.flush(TenantTableConfig.Cache.cache_name())
+  end
 
   @spec insert_event(String.t(), String.t(), map()) :: Event.t()
   def insert_event(table, schema \\ "public", row \\ %{}) do

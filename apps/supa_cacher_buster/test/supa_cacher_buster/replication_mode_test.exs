@@ -27,22 +27,22 @@ defmodule SupaCacherBuster.ReplicationModeTest do
 
     on_exit(fn ->
       Application.put_env(:supa_cacher_buster, :replication_dispatcher, nil)
-      :ets.delete_all_objects(:supa_cacher_buster_table_config)
+      TestUtils.clear_table_config()
     end)
 
     TenantSupervisor.ensure_started("repl_tenant")
     on_exit(fn -> SupaCacherCache.flush_tenant("repl_tenant") end)
 
-    :ets.insert(
-      :supa_cacher_buster_table_config,
-      {{"public", "products"},
-       %{
-         tenant_id: "repl_tenant",
-         schema: "public",
-         table_name: "products",
-         pk_column: "id",
-         mode: "replication"
-       }}
+    TestUtils.seed_table_config(
+      "public",
+      "products",
+      %{
+        tenant_id: "repl_tenant",
+        schema: "public",
+        table_name: "products",
+        pk_column: "id",
+        mode: "replication"
+      }
     )
 
     :ok

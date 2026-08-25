@@ -7,7 +7,6 @@ defmodule SupaCacherBuster.Worker.BackpressureTest do
   alias SupaCacherCache.Key
   alias SupaCacherCache.TenantSupervisor
 
-  @config_table :supa_cacher_buster_table_config
   @semaphores_table :supa_cacher_buster_tenant_semaphores
   @coalesce_table :supa_cacher_buster_coalesce
   @tenant "bp_tenant"
@@ -22,11 +21,11 @@ defmodule SupaCacherBuster.Worker.BackpressureTest do
       mode: "ttl"
     }
 
-    :ets.insert(@config_table, {{"public", @table}, config})
+    TestUtils.seed_table_config("public", @table, config)
   end
 
   defp clear_state do
-    :ets.match_delete(@config_table, {{"public", @table}, :_})
+    TestUtils.clear_table_config()
     :ets.delete(@semaphores_table, @tenant)
     :ets.match_delete(@coalesce_table, {{@tenant, :_}, :_})
   end

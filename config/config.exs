@@ -12,6 +12,7 @@ config :supa_cacher_buster,
     SupaCacherCache.TenantInvalidator,
     SupaCacherServer.TenantStore.Invalidator
   ],
+  tenant_table_config_cache: [data_dir: "./cache_data/control_plane", ttl_ms: 60_000],
   replication_dispatcher: SupaCacherReplicator.Dispatcher,
   failover_reconciler: SupaCacherReplicator.Reconciler
 
@@ -25,6 +26,7 @@ config :supa_cacher_server,
   resp_port: 6380,
   http_port: 4040,
   tenant_store: SupaCacherServer.TenantStore.Repo,
+  tenant_config_cache: [data_dir: "./cache_data/control_plane", ttl_ms: 60_000],
   postgrest_fetcher: SupaCacherServer.PostgREST.Fetcher.Req,
   rewarm_tick_ms: 500
 
