@@ -6,7 +6,6 @@ defmodule Restdis.Cache.TenantSupervisor do
   use DynamicSupervisor
 
   alias Restdis.Cache.Tenant
-  alias Restdis.Cache.TenantRegistry
 
   @doc """
   Starts the supervisor of the tenant aggregates.
@@ -23,16 +22,18 @@ defmodule Restdis.Cache.TenantSupervisor do
 
   @doc """
   Starts the tenant aggregate for `tenant_id` unless it is already running.
+
+  Always asks the `DynamicSupervisor` to start the child rather than checking
+  `TenantRegistry` first: a `:via`-named process registers before its `init/1`
+  runs, so a registry lookup can observe the tenant supervisor while its
+  children (in particular `QueryCache`, which callers rely on immediately
+  after this returns) are still starting. `DynamicSupervisor.start_child/2`
+  itself only replies once the child's `start_link/1` — and therefore every
+  grandchild's `init/1` — has returned, so racing callers cannot observe a
+  half-started tenant.
   """
   @spec ensure_started(String.t()) :: :ok
   def ensure_started(tenant_id) do
-    case TenantRegistry.whereis(tenant_id, :tenant) do
-      nil -> start_tenant(tenant_id)
-      _pid -> :ok
-    end
-  end
-
-  defp start_tenant(tenant_id) do
     data_dir = Application.fetch_env!(:restdis, :cache_data_dir)
     child_spec = {Tenant, tenant_id: tenant_id, data_dir: data_dir}
 
