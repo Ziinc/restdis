@@ -18,7 +18,7 @@ defmodule SupaCacherServer.HTTP.EndpointTest do
       }
     ])
 
-    SupaCacherCache.flush_tenant(@tenant_id)
+    Restdis.Cache.flush_tenant(@tenant_id)
     on_exit(fn -> InMemory.clear() end)
     :ok
   end

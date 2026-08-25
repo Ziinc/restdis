@@ -1,7 +1,7 @@
 defmodule SupaCacherServer.PostgREST.FetcherTest do
   use ExUnit.Case
 
-  alias SupaCacherCache.Key
+  alias Restdis.Cache.Key
   alias SupaCacherServer.PostgREST.Fetcher
   alias SupaCacherServer.PostgREST.Fetcher.Req, as: FetcherReq
 

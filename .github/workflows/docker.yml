@@ -91,11 +91,11 @@ jobs:
           curl -fsS http://localhost:4040/metrics | head -20 >&2
           exit 1
 
-      - name: Assert every umbrella app started
+      - name: Assert every release application started
         run: |
           started=$(docker exec supacacher /app/bin/supacacher rpc \
             'Application.started_applications() |> Enum.map(&elem(&1, 0)) |> Enum.sort() |> Enum.join(",") |> IO.puts()')
-          for app in supa_cacher_buster supa_cacher_cache supa_cacher_replicator supa_cacher_repo supa_cacher_server; do
+          for app in restdis supa_cacher_buster supa_cacher_replicator supa_cacher_repo supa_cacher_server; do
             case ",$started," in
               *",$app,"*) ;;
               *) echo "$app is not running in the release" >&2; exit 1 ;;

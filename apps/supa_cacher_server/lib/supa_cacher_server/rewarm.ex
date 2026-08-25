@@ -3,7 +3,7 @@ defmodule SupaCacherServer.Rewarm do
   Public API for scheduling and cancelling rewarms of cache keys.
   """
 
-  alias SupaCacherCache.Key
+  alias Restdis.Cache.Key
   alias SupaCacherServer.PolicyStore
   alias SupaCacherServer.Rewarm.Scheduler
 

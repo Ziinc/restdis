@@ -4,7 +4,7 @@ defmodule SupaCacherBuster.Worker.CoalesceSweeper do
   `SupaCacherBuster.Worker.Supervisor` when per-tenant backpressure drops events.
 
   For every `(tenant_id, table)` bucket with `count > 0`, the sweeper resets the
-  counter to 0 and issues a coarse `SupaCacherCache.flush_table/2`, then emits a
+  counter to 0 and issues a coarse `Restdis.Cache.flush_table/2`, then emits a
   `[:supa_cacher_buster, :backpressure, :flushed]` telemetry event with the
   coalesced count.
   """
@@ -59,7 +59,7 @@ defmodule SupaCacherBuster.Worker.CoalesceSweeper do
   defp flush_entry(table, {{tenant_id, tbl} = key, count}) do
     # Subtract the observed count so events recorded mid-fold are not lost.
     :ets.update_counter(table, key, {2, -count}, {key, 0})
-    SupaCacherCache.flush_table(tenant_id, tbl)
+    Restdis.Cache.flush_table(tenant_id, tbl)
 
     :telemetry.execute(
       [:supa_cacher_buster, :backpressure, :flushed],

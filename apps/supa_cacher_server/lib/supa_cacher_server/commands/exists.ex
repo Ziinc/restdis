@@ -3,7 +3,7 @@ defmodule SupaCacherServer.Commands.Exists do
   Handles the RESP `EXISTS` command.
   """
 
-  alias SupaCacherCache.Key
+  alias Restdis.Cache.Key
   alias SupaCacherServer.RESP.Encoder
 
   @doc """
@@ -21,7 +21,7 @@ defmodule SupaCacherServer.Commands.Exists do
 
   defp cached?(tenant_id, wire_key) do
     with {:ok, key} <- Key.decode(wire_key),
-         {:ok, _value} <- SupaCacherCache.get(tenant_id, key) do
+         {:ok, _value} <- Restdis.Cache.get(tenant_id, key) do
       true
     else
       _ -> false

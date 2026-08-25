@@ -8,7 +8,7 @@ defmodule SupaCacherServer.Commands.GetReplicatedTest do
     tenant_id = "tenant_get_replicated_#{System.unique_integer([:positive])}"
     dataset = Dataset.new(%{tenant_id: tenant_id, table_name: "products", pk_column: "id"})
 
-    on_exit(fn -> SupaCacherCache.flush_tenant(tenant_id) end)
+    on_exit(fn -> Restdis.Cache.flush_tenant(tenant_id) end)
 
     {:ok, tenant_id: tenant_id, dataset: dataset}
   end
@@ -17,7 +17,7 @@ defmodule SupaCacherServer.Commands.GetReplicatedTest do
 
   test "GET <table>:<pk> serves a replicated row", %{tenant_id: tenant_id, dataset: dataset} do
     row = %{"id" => 42, "name" => "widget"}
-    SupaCacherCache.put(tenant_id, Dataset.cache_key(dataset, 42), row, primary_keys: ["42"])
+    Restdis.Cache.put(tenant_id, Dataset.cache_key(dataset, 42), row, primary_keys: ["42"])
 
     {reply, _state} = Get.run(state(tenant_id), ["products:42"])
 

@@ -1,7 +1,7 @@
 defmodule SupaCacherServer.PGRST.QueryParserTest do
   use ExUnit.Case, async: true
 
-  alias SupaCacherCache.Key
+  alias Restdis.Cache.Key
   alias SupaCacherServer.PGRST.QueryParser
 
   test "parses table path with query params" do

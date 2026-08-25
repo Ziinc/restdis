@@ -5,7 +5,7 @@ defmodule SupaCacherServer.Commands.Get do
 
   require OpenTelemetry.Tracer
 
-  alias SupaCacherCache.Key
+  alias Restdis.Cache.Key
   alias SupaCacherReplicator.Dataset
   alias SupaCacherServer.PolicyStore
   alias SupaCacherServer.RESP.Encoder
@@ -21,7 +21,7 @@ defmodule SupaCacherServer.Commands.Get do
     } do
       case Key.decode(wire_key) do
         {:ok, key} ->
-          case SupaCacherCache.get(state.tenant_id, key) do
+          case Restdis.Cache.get(state.tenant_id, key) do
             {:ok, value} ->
               OpenTelemetry.Tracer.set_attribute("restdis.cache_result", "hit")
               Rewarm.touch(state.tenant_id, wire_key, key)

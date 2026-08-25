@@ -19,7 +19,7 @@ defmodule SupaCacherServer.Commands.PgrstQueryTest do
       }
     ])
 
-    SupaCacherCache.flush_tenant(@tenant_id)
+    Restdis.Cache.flush_tenant(@tenant_id)
     on_exit(fn -> InMemory.clear() end)
 
     {:ok, state: %{authenticated?: true, tenant_id: @tenant_id, buffer: <<>>}}

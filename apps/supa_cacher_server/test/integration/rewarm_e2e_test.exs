@@ -3,7 +3,7 @@ defmodule SupaCacherServer.Integration.RewarmE2ETest do
 
   @moduletag :integration
 
-  alias SupaCacherCache.Key
+  alias Restdis.Cache.Key
   alias SupaCacherServer.Commands.Dispatcher
   alias SupaCacherServer.TenantStore.InMemory
 
@@ -28,7 +28,7 @@ defmodule SupaCacherServer.Integration.RewarmE2ETest do
       }
     ])
 
-    SupaCacherCache.flush_tenant(@tenant_id)
+    Restdis.Cache.flush_tenant(@tenant_id)
 
     on_exit(fn ->
       Application.delete_env(:supa_cacher_server, :postgrest_fetcher)
@@ -36,7 +36,7 @@ defmodule SupaCacherServer.Integration.RewarmE2ETest do
       Application.delete_env(:supa_cacher_server, :stub_fetcher_body)
       SupaCacherServer.Rewarm.stop_tenant(@tenant_id)
       InMemory.clear()
-      SupaCacherCache.flush_tenant(@tenant_id)
+      Restdis.Cache.flush_tenant(@tenant_id)
       Agent.stop(agent)
     end)
 

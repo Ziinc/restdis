@@ -46,7 +46,7 @@ defmodule SupaCacherReplicator.TestUtils do
   def cleanup(%Dataset{} = dataset) do
     SupaCacherReplicator.unsubscribe(dataset)
     Stub.clear(dataset)
-    SupaCacherCache.flush_tenant(dataset.tenant_id)
+    Restdis.Cache.flush_tenant(dataset.tenant_id)
     :ok
   end
 end

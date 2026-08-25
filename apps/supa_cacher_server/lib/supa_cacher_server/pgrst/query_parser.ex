@@ -3,7 +3,7 @@ defmodule SupaCacherServer.PGRST.QueryParser do
   Parses a PostgREST request path into a cache key and its query params.
   """
 
-  alias SupaCacherCache.Key
+  alias Restdis.Cache.Key
 
   @type parse_result :: {:ok, Key.t(), params_map :: map()} | {:error, reason :: term()}
 

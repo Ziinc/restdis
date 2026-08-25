@@ -22,10 +22,10 @@ ENV MIX_ENV="prod"
 # copied, so editing an app does not invalidate the dependency layers.
 COPY mix.exs mix.lock ./
 COPY apps/supa_cacher_buster/mix.exs apps/supa_cacher_buster/
-COPY apps/supa_cacher_cache/mix.exs apps/supa_cacher_cache/
 COPY apps/supa_cacher_replicator/mix.exs apps/supa_cacher_replicator/
 COPY apps/supa_cacher_repo/mix.exs apps/supa_cacher_repo/
 COPY apps/supa_cacher_server/mix.exs apps/supa_cacher_server/
+COPY restdis restdis
 
 RUN mix deps.get --only $MIX_ENV
 RUN mix deps.compile

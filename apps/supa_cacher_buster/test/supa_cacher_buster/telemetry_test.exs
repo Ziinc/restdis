@@ -1,15 +1,16 @@
 defmodule SupaCacherBuster.TelemetryTest do
   use ExUnit.Case, async: false
 
+  alias Restdis.Cache.Key
+  alias Restdis.Cache.ReverseIndex
+  alias Restdis.Cache.TenantSupervisor
   alias SupaCacherBuster.TestUtils
   alias SupaCacherBuster.WAL.Event
   alias SupaCacherBuster.Worker
-  alias SupaCacherCache.Key
-  alias SupaCacherCache.TenantSupervisor
 
   setup do
     TenantSupervisor.ensure_started("tel-tenant")
-    on_exit(fn -> SupaCacherCache.flush_tenant("tel-tenant") end)
+    on_exit(fn -> Restdis.Cache.flush_tenant("tel-tenant") end)
     :ok
   end
 
@@ -51,7 +52,7 @@ defmodule SupaCacherBuster.TelemetryTest do
     attach("test-processed", [[:supa_cacher_buster, :event, :processed]])
 
     key = Key.build(:table, "tel_products", %{})
-    SupaCacherCache.put("tel-tenant", key, %{"id" => 5}, primary_keys: [5])
+    Restdis.Cache.put("tel-tenant", key, %{"id" => 5}, primary_keys: [5])
 
     event = TestUtils.update_event("tel_products", "public", %{"id" => "5"}, %{"id" => "5"})
     Worker.run(event)
@@ -82,7 +83,7 @@ defmodule SupaCacherBuster.TelemetryTest do
     attach("test-inv-latency", [[:supa_cacher_buster, :invalidation, :latency]])
 
     key = Key.build(:table, "tel_products", %{})
-    SupaCacherCache.put("tel-tenant", key, %{"id" => 5}, primary_keys: [5])
+    Restdis.Cache.put("tel-tenant", key, %{"id" => 5}, primary_keys: [5])
 
     event = TestUtils.update_event("tel_products", "public", %{"id" => "5"}, %{"id" => "5"})
     Worker.run(event)
@@ -128,9 +129,9 @@ defmodule SupaCacherBuster.TelemetryTest do
     attach("test-rev-hit", [[:supa_cacher_buster, :reverse_index, :hit]])
 
     key = Key.build(:table, "tel_hits", %{})
-    SupaCacherCache.put("tel-tenant", key, %{"id" => 1}, primary_keys: [1])
+    Restdis.Cache.put("tel-tenant", key, %{"id" => 1}, primary_keys: [1])
 
-    SupaCacherCache.ReverseIndex.purge_row("tel-tenant", "tel_hits", 1)
+    ReverseIndex.purge_row("tel-tenant", "tel_hits", 1)
 
     assert_receive {:telemetry, [:supa_cacher_buster, :reverse_index, :hit], measurements,
                     metadata},
@@ -144,7 +145,7 @@ defmodule SupaCacherBuster.TelemetryTest do
   test "ReverseIndex emits :miss when no keys exist" do
     attach("test-rev-miss", [[:supa_cacher_buster, :reverse_index, :miss]])
 
-    SupaCacherCache.ReverseIndex.purge_row("tel-tenant", "tel_unknown", 999)
+    ReverseIndex.purge_row("tel-tenant", "tel_unknown", 999)
 
     assert_receive {:telemetry, [:supa_cacher_buster, :reverse_index, :miss], %{count: 1},
                     metadata},

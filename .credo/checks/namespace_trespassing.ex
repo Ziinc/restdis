@@ -5,17 +5,15 @@ defmodule Credo.Check.Design.NamespaceTrespassing do
     param_defaults: [
       namespaces: %{
         "supa_cacher_repo" => SupaCacherRepo,
-        "supa_cacher_cache" => SupaCacherCache,
         "supa_cacher_buster" => SupaCacherBuster,
         "supa_cacher_replicator" => SupaCacherReplicator,
         "supa_cacher_server" => SupaCacherServer
       },
       allowed: %{
         SupaCacherRepo => [],
-        SupaCacherCache => [],
-        SupaCacherBuster => [SupaCacherCache, SupaCacherRepo],
-        SupaCacherReplicator => [SupaCacherCache, SupaCacherRepo],
-        SupaCacherServer => [SupaCacherCache, SupaCacherRepo, SupaCacherReplicator]
+        SupaCacherBuster => [SupaCacherRepo],
+        SupaCacherReplicator => [SupaCacherRepo],
+        SupaCacherServer => [SupaCacherRepo, SupaCacherReplicator]
       }
     ],
     explanations: [

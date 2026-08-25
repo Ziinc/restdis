@@ -26,9 +26,9 @@ config :supa_cacher_replicator,
   dataset_source: nil,
   tenant_config_lookup: nil
 
-config :supa_cacher_cache,
+config :restdis,
   cache_data_dir: System.tmp_dir!() <> "/supacacher_test",
-  origin: SupaCacherCache.Origin.Stub,
+  origin: Restdis.Cache.Origin.Stub,
   tenant_config_lookup: nil
 
 config :supa_cacher_server,
