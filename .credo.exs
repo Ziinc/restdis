@@ -4,7 +4,7 @@
       name: "default",
       files: %{
         included: ["mix.exs", "config/", "apps/*/mix.exs", "apps/*/lib/", "apps/*/test/"],
-        excluded: [~r"/_build/", ~r"/deps/", ~r"apps/[^/]+/priv/"]
+        excluded: [~r"/_build/", ~r"/deps/", ~r"apps/[^/]+/priv/", ~r"apps/restdis/"]
       },
       plugins: [],
       requires: [".credo/checks/module_file_path.ex", ".credo/checks/namespace_trespassing.ex"],

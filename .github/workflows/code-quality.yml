@@ -76,7 +76,7 @@ jobs:
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: restdis
+        working-directory: apps/restdis
     steps:
       - uses: actions/checkout@v4
       - uses: erlef/setup-beam@v1
@@ -86,9 +86,9 @@ jobs:
       - uses: actions/cache@v4
         with:
           path: |
-            restdis/deps
-            restdis/_build
-          key: ${{ runner.os }}-restdis-${{ env.OTP_VERSION }}-${{ env.ELIXIR_VERSION }}-${{ hashFiles('restdis/mix.lock') }}
+            apps/restdis/deps
+            apps/restdis/_build
+          key: ${{ runner.os }}-restdis-${{ env.OTP_VERSION }}-${{ env.ELIXIR_VERSION }}-${{ hashFiles('apps/restdis/mix.lock') }}
           restore-keys: ${{ runner.os }}-restdis-${{ env.OTP_VERSION }}-${{ env.ELIXIR_VERSION }}-
       - run: mix deps.get
       - run: mix check

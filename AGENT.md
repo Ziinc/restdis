@@ -15,10 +15,11 @@ All coding agents working in this repo MUST follow the workflow below. These rul
 
 DDD is required for every change in this repo.
 
-**Bounded contexts = umbrella apps, plus the `restdis` library.**
-- `restdis` (top-level, not an umbrella app) — cache engine, reverse index, per-tenant ETS
-  and CubDB, published as a standalone library under the `Restdis` namespace. It must never
-  reference an umbrella module; `mix check.boundary` enforces this. See `LIB_PRD.md`.
+**Bounded contexts = umbrella apps, including the `restdis` library.**
+- `restdis` (`apps/restdis`) — cache engine, reverse index, per-tenant ETS and CubDB,
+  built and versioned as a standalone library under the `Restdis` namespace despite living
+  alongside the other umbrella children. It must never reference an umbrella module;
+  `mix check.boundary` enforces this. See `LIB_PRD.md`.
 - `supa_cacher_server` — Redis RESP protocol, HTTP endpoint, rewarm scheduling.
 - `supa_cacher_buster` — WAL ingestion and invalidation/refresh dispatch.
 - `supa_cacher_replicator` — always-live KV datasets.
