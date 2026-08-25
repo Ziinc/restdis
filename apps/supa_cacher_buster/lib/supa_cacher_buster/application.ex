@@ -5,8 +5,8 @@ defmodule SupaCacherBuster.Application do
 
   use Application
 
+  alias Restdis.Cache.ReadThrough
   alias SupaCacherBuster.TenantTableConfig
-  alias SupaCacherCache.ReadThrough
 
   @impl Application
   def start(_type, _args) do

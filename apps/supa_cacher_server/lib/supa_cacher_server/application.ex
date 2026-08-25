@@ -5,7 +5,7 @@ defmodule SupaCacherServer.Application do
 
   use Application
 
-  alias SupaCacherCache.ReadThrough
+  alias Restdis.Cache.ReadThrough
   alias SupaCacherServer.TenantConfig
 
   @impl Application

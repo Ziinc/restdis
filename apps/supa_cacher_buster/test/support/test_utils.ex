@@ -1,9 +1,9 @@
 defmodule SupaCacherBuster.TestUtils do
   @moduledoc false
 
+  alias Restdis.Cache.ReadThrough
   alias SupaCacherBuster.TenantTableConfig
   alias SupaCacherBuster.WAL.Event
-  alias SupaCacherCache.ReadThrough
 
   @doc false
   @spec seed_table_config(String.t(), String.t(), map()) :: :ok

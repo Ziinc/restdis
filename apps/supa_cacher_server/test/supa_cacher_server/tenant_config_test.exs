@@ -1,8 +1,8 @@
 defmodule SupaCacherServer.TenantConfigTest do
   use ExUnit.Case, async: false
 
-  alias SupaCacherCache.QueryCache
-  alias SupaCacherCache.ReadThrough
+  alias Restdis.Cache.QueryCache
+  alias Restdis.Cache.ReadThrough
   alias SupaCacherServer.TenantConfig
   alias SupaCacherServer.TenantStore.InMemory
 
