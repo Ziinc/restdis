@@ -5,6 +5,8 @@ defmodule SupaCacherServer.HTTP.Endpoint do
 
   use Plug.Router
 
+  require OpenTelemetry.Tracer
+
   alias SupaCacherCache.Key
   alias SupaCacherServer.HTTP.Plug.Auth
   alias SupaCacherServer.HTTP.Plug.CacheHeaders
@@ -56,29 +58,36 @@ defmodule SupaCacherServer.HTTP.Endpoint do
   end
 
   defp handle_pgrst_query(conn, path) do
-    tenant_id = conn.assigns.tenant_id
-    config = conn.assigns.tenant_config
+    OpenTelemetry.Tracer.with_span "http.pgrst_query", %{
+      kind: :server,
+      attributes: %{"restdis.tenant_id" => conn.assigns.tenant_id, "restdis.path" => path}
+    } do
+      tenant_id = conn.assigns.tenant_id
+      config = conn.assigns.tenant_config
 
-    case QueryParser.parse(path) do
-      {:ok, key, _params} ->
-        wire_key = Key.encode(key)
+      case QueryParser.parse(path) do
+        {:ok, key, _params} ->
+          wire_key = Key.encode(key)
 
-        case SupaCacherCache.peek(tenant_id, key) do
-          {:ok, value} ->
-            Rewarm.touch(tenant_id, wire_key, key)
+          case SupaCacherCache.peek(tenant_id, key) do
+            {:ok, value} ->
+              OpenTelemetry.Tracer.set_attribute("restdis.cache_result", "hit")
+              Rewarm.touch(tenant_id, wire_key, key)
 
-            conn
-            |> CacheHeaders.put_cache_hit(ttl_remaining(tenant_id, key))
-            |> put_resp_content_type("application/json")
-            |> send_resp(200, Jason.encode!(value))
+              conn
+              |> CacheHeaders.put_cache_hit(ttl_remaining(tenant_id, key))
+              |> put_resp_content_type("application/json")
+              |> send_resp(200, Jason.encode!(value))
 
-          :miss ->
-            maybe_cold_read(tenant_id, wire_key)
-            fetch_and_respond(conn, tenant_id, key, wire_key, config)
-        end
+            :miss ->
+              OpenTelemetry.Tracer.set_attribute("restdis.cache_result", "miss")
+              maybe_cold_read(tenant_id, wire_key)
+              fetch_and_respond(conn, tenant_id, key, wire_key, config)
+          end
 
-      {:error, reason} ->
-        send_resp(conn, 400, Jason.encode!(%{error: inspect(reason)}))
+        {:error, reason} ->
+          send_resp(conn, 400, Jason.encode!(%{error: inspect(reason)}))
+      end
     end
   end
 

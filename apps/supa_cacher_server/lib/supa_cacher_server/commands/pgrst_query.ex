@@ -3,6 +3,8 @@ defmodule SupaCacherServer.Commands.PgrstQuery do
   Handles the RESP `PGRST.QUERY` command, serving cached PostgREST responses.
   """
 
+  require OpenTelemetry.Tracer
+
   alias SupaCacherCache.Key
   alias SupaCacherServer.PGRST.QueryParser
   alias SupaCacherServer.PolicyStore
@@ -16,24 +18,30 @@ defmodule SupaCacherServer.Commands.PgrstQuery do
   """
   @spec run(map(), [binary()]) :: {iodata(), map()}
   def run(state, [path | opts]) do
-    ttl_ms = parse_ttl_opt(opts)
+    OpenTelemetry.Tracer.with_span "resp.pgrst_query", %{
+      attributes: %{"restdis.tenant_id" => state.tenant_id, "restdis.path" => path}
+    } do
+      ttl_ms = parse_ttl_opt(opts)
 
-    with {:ok, key, _params} <- QueryParser.parse(path),
-         {:ok, config} <- TenantConfig.lookup_by_tenant_id(state.tenant_id) do
-      wire_key = Key.encode(key)
+      with {:ok, key, _params} <- QueryParser.parse(path),
+           {:ok, config} <- TenantConfig.lookup_by_tenant_id(state.tenant_id) do
+        wire_key = Key.encode(key)
 
-      case SupaCacherCache.peek(state.tenant_id, key) do
-        {:ok, _value} ->
-          Rewarm.touch(state.tenant_id, wire_key, key)
-          {Encoder.bulk_string(wire_key), state}
+        case SupaCacherCache.peek(state.tenant_id, key) do
+          {:ok, _value} ->
+            OpenTelemetry.Tracer.set_attribute("restdis.cache_result", "hit")
+            Rewarm.touch(state.tenant_id, wire_key, key)
+            {Encoder.bulk_string(wire_key), state}
 
-        :miss ->
-          maybe_cold_read(state.tenant_id, wire_key)
-          fetch_and_cache(state, key, wire_key, config, ttl_ms)
+          :miss ->
+            OpenTelemetry.Tracer.set_attribute("restdis.cache_result", "miss")
+            maybe_cold_read(state.tenant_id, wire_key)
+            fetch_and_cache(state, key, wire_key, config, ttl_ms)
+        end
+      else
+        {:error, reason} ->
+          {Encoder.error("ERR #{inspect(reason)}"), state}
       end
-    else
-      {:error, reason} ->
-        {Encoder.error("ERR #{inspect(reason)}"), state}
     end
   end
 
