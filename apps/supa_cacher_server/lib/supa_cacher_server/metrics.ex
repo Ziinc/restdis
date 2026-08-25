@@ -26,6 +26,19 @@ defmodule SupaCacherServer.Metrics do
       counter("restdis.persist.cap_reached.count", tags: [:tenant_id]),
       last_value("restdis.persist.count.count", tags: [:tenant_id]),
 
+      # Cluster distribution
+      counter("restdis.cluster.forward.count", tags: [:tenant_id, :owner, :op]),
+      counter("restdis.cluster.unreachable.count", tags: [:tenant_id, :owner, :op]),
+      counter("restdis.cluster.rebalance.count", tags: [:change, :node]),
+      last_value("restdis.cluster.rebalance.nodes", tags: [:change]),
+      counter("restdis.cluster.migrated.count", tags: [:tenant_id, :owner]),
+      counter("supa_cacher_server.cluster.fallback.count", tags: [:tenant_id]),
+      distribution("restdis.replication.lag.lag_us",
+        tags: [:tenant_id],
+        unit: :microsecond,
+        reporter_options: [buckets: [1_000, 10_000, 50_000, 100_000, 500_000, 1_000_000]]
+      ),
+
       # Reverse index
       counter("supa_cacher_buster.reverse_index.miss.count", tags: [:tenant_id, :table]),
       sum("supa_cacher_buster.reverse_index.hit.keys", tags: [:tenant_id, :table]),

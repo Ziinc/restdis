@@ -35,6 +35,25 @@ if config_env() == :prod do
       pool_size: 1
     ]
 
+  topologies =
+    case System.get_env("CLUSTER_DNS_QUERY") do
+      nil ->
+        []
+
+      query ->
+        [
+          supacacher: [
+            strategy: Cluster.Strategy.DNSPoll,
+            config: [
+              query: query,
+              node_basename: System.get_env("CLUSTER_NODE_BASENAME", "supacacher"),
+              polling_interval:
+                String.to_integer(System.get_env("CLUSTER_POLL_INTERVAL_MS", "5000"))
+            ]
+          ]
+        ]
+    end
+
   config :restdis,
     cache_data_dir: System.get_env("CACHE_DATA_DIR", "/var/lib/supacacher/cache")
 
@@ -46,6 +65,7 @@ if config_env() == :prod do
       String.to_integer(System.get_env("REPLICATION_RECONCILE_STAGGER_MS", "1000"))
 
   config :supa_cacher_server,
+    topologies: topologies,
     resp_port: String.to_integer(System.get_env("RESP_PORT", "6380")),
     resp_listen_ip: System.get_env("RESP_LISTEN_IP", "0.0.0.0"),
     http_port: String.to_integer(System.get_env("HTTP_PORT", "4040")),

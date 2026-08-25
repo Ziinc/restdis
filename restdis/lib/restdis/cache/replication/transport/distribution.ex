@@ -12,7 +12,9 @@ defmodule Restdis.Cache.Replication.Transport.Distribution do
 
   @impl Restdis.Cache.Replication.Transport
   def broadcast(message) do
-    GenServer.abcast(Node.list(), Receiver, message)
+    GenServer.abcast(Node.list(), Receiver, {:sc_replication_stamped, message, now_us()})
     :ok
   end
+
+  defp now_us, do: System.system_time(:microsecond)
 end

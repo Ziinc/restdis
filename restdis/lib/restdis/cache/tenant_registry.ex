@@ -16,6 +16,16 @@ defmodule Restdis.Cache.TenantRegistry do
   end
 
   @doc """
+  Returns the ids of the tenant aggregates running on this node.
+  """
+  @spec local_tenants() :: [String.t()]
+  def local_tenants do
+    Registry.select(@registry, [
+      {{{:"$1", :tenant}, :_, :_}, [], [:"$1"]}
+    ])
+  end
+
+  @doc """
   Returns the pid of the `role` process of `tenant_id`, or nil.
   """
   @spec whereis(String.t(), role()) :: pid() | nil

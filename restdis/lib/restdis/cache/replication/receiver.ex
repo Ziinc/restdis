@@ -19,6 +19,19 @@ defmodule Restdis.Cache.Replication.Receiver do
   end
 
   @impl GenServer
+  def handle_cast(
+        {:sc_replication_stamped, {:sc_replication, tenant_id, _event} = message, sent_at_us},
+        state
+      ) do
+    lag_us = max(System.system_time(:microsecond) - sent_at_us, 0)
+
+    :telemetry.execute([:restdis, :replication, :lag], %{lag_us: lag_us}, %{
+      tenant_id: tenant_id
+    })
+
+    handle_cast(message, state)
+  end
+
   def handle_cast({:sc_replication, tenant_id, event}, state) do
     _ = Replication.apply_event(tenant_id, event)
     {:noreply, state}

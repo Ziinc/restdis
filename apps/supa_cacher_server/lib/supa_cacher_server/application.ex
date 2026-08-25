@@ -19,29 +19,41 @@ defmodule SupaCacherServer.Application do
 
     http_port = Application.get_env(:supa_cacher_server, :http_port, 4040)
 
-    children = [
-      tenant_config_cache_spec(),
-      TenantConfig.Cache,
-      SupaCacherServer.PolicyStore,
-      SupaCacherServer.Rewarm.Supervisor,
-      {Finch, name: SupaCacherServer.Finch},
-      {TelemetryMetricsPrometheus.Core,
-       metrics: SupaCacherServer.Metrics.definitions(), name: :supa_cacher_prometheus},
-      {:telemetry_poller,
-       measurements: SupaCacherServer.Metrics.periodic_measurements(),
-       period: :timer.seconds(10),
-       name: :supa_cacher_poller},
-      {ThousandIsland,
-       port: resp_port,
-       handler_module: SupaCacherServer.RESP.Handler,
-       transport_options: [ip: resp_ip]},
-      {Bandit, plug: SupaCacherServer.HTTP.Endpoint, port: http_port}
-    ]
+    children =
+      cluster_formation() ++
+        [
+          tenant_config_cache_spec(),
+          TenantConfig.Cache,
+          SupaCacherServer.PolicyStore,
+          SupaCacherServer.Rewarm.Supervisor,
+          {Finch, name: SupaCacherServer.Finch},
+          {TelemetryMetricsPrometheus.Core,
+           metrics: SupaCacherServer.Metrics.definitions(), name: :supa_cacher_prometheus},
+          {:telemetry_poller,
+           measurements: SupaCacherServer.Metrics.periodic_measurements(),
+           period: :timer.seconds(10),
+           name: :supa_cacher_poller},
+          {ThousandIsland,
+           port: resp_port,
+           handler_module: SupaCacherServer.RESP.Handler,
+           transport_options: [ip: resp_ip]},
+          {Bandit, plug: SupaCacherServer.HTTP.Endpoint, port: http_port}
+        ]
 
     Supervisor.start_link(children,
       strategy: :one_for_one,
       name: SupaCacherServer.Supervisor
     )
+  end
+
+  defp cluster_formation do
+    case Application.get_env(:supa_cacher_server, :topologies, []) do
+      [] ->
+        []
+
+      topologies ->
+        [{Cluster.Supervisor, [topologies, [name: SupaCacherServer.ClusterFormation]]}]
+    end
   end
 
   defp tenant_config_cache_spec do

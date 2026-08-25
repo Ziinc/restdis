@@ -6,6 +6,8 @@ defmodule SupaCacherServer.Commands.PgrstQuery do
   require OpenTelemetry.Tracer
 
   alias Restdis.Cache.Key
+  alias Restdis.Cache.Router
+  alias SupaCacherServer.Fallback
   alias SupaCacherServer.PGRST.QueryParser
   alias SupaCacherServer.PolicyStore
   alias SupaCacherServer.PostgREST.Fetcher
@@ -27,11 +29,15 @@ defmodule SupaCacherServer.Commands.PgrstQuery do
            {:ok, config} <- TenantConfig.lookup_by_tenant_id(state.tenant_id) do
         wire_key = Key.encode(key)
 
-        case Restdis.Cache.peek(state.tenant_id, key) do
+        case Router.peek(state.tenant_id, key) do
           {:ok, _value} ->
             OpenTelemetry.Tracer.set_attribute("restdis.cache_result", "hit")
             Rewarm.touch(state.tenant_id, wire_key, key)
             {Encoder.bulk_string(wire_key), state}
+
+          {:error, :unreachable} ->
+            OpenTelemetry.Tracer.set_attribute("restdis.cache_result", "fallback")
+            fallback_query(state, key, wire_key, config)
 
           :miss ->
             OpenTelemetry.Tracer.set_attribute("restdis.cache_result", "miss")
@@ -55,12 +61,15 @@ defmodule SupaCacherServer.Commands.PgrstQuery do
 
     case Fetcher.fetch(state.tenant_id, key, config) do
       {:ok, body} ->
-        case Restdis.Cache.put(state.tenant_id, key, body,
+        case Router.put(state.tenant_id, key, body,
                ttl_ms: effective_ttl_ms,
                persist: policy.persist
              ) do
           :ok ->
             Rewarm.touch(state.tenant_id, wire_key, key)
+            {Encoder.bulk_string(wire_key), state}
+
+          {:error, :unreachable} ->
             {Encoder.bulk_string(wire_key), state}
 
           {:error, :persist_cap} ->
@@ -72,6 +81,18 @@ defmodule SupaCacherServer.Commands.PgrstQuery do
 
       {:error, reason} ->
         {Encoder.error("ERR fetch failed: #{inspect(reason)}"), state}
+    end
+  end
+
+  defp fallback_query(state, key, wire_key, config) do
+    case Fallback.fetch(state.tenant_id, key) do
+      {:ok, body} ->
+        ttl_ms = (config.default_ttl_s || 60) * 1000
+        Restdis.Cache.put(state.tenant_id, key, body, ttl_ms: ttl_ms)
+        {Encoder.bulk_string(wire_key), state}
+
+      {:error, reason} ->
+        {Encoder.error("ERR origin unavailable: #{inspect(reason)}"), state}
     end
   end
 

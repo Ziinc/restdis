@@ -3,6 +3,7 @@ defmodule Restdis.Cache.TestUtils do
   Shared test helpers for the `restdis` bounded context.
   """
 
+  alias Restdis.Cache.Cluster
   alias Restdis.Cache.TenantSupervisor
 
   @target_key :sc_test_replication_target
@@ -29,6 +30,26 @@ defmodule Restdis.Cache.TestUtils do
   @spec replication_target() :: pid() | nil
   def replication_target do
     :persistent_term.get(@target_key, nil)
+  end
+
+  @spec add_cluster_node(node()) :: :ok
+  def add_cluster_node(node) do
+    send(Cluster, {:nodeup, node})
+    Cluster.sync()
+  end
+
+  @spec remove_cluster_node(node()) :: :ok
+  def remove_cluster_node(node) do
+    send(Cluster, {:nodedown, node})
+    Cluster.sync()
+  end
+
+  @spec tenant_owned_by(node()) :: String.t()
+  def tenant_owned_by(node) do
+    Enum.find_value(1..10_000, fn index ->
+      tenant_id = "tenant_#{index}"
+      if Cluster.owner(tenant_id) == node, do: tenant_id
+    end)
   end
 
   @spec put_transport(module() | nil) :: :ok

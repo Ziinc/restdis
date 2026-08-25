@@ -23,6 +23,7 @@ config :restdis,
   tenant_config_lookup: {SupaCacherServer.TenantConfig, :lookup_by_tenant_id, []}
 
 config :supa_cacher_server,
+  topologies: [],
   resp_port: 6380,
   http_port: 4040,
   tenant_store: SupaCacherServer.TenantStore.Repo,
