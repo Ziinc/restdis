@@ -57,8 +57,7 @@ defmodule RestdisBuster.TelemetryTest do
     event = TestUtils.update_event("tel_products", "public", %{"id" => "5"}, %{"id" => "5"})
     Worker.run(event)
 
-    assert_receive {:telemetry, [:restdis_buster, :event, :processed], measurements,
-                    metadata},
+    assert_receive {:telemetry, [:restdis_buster, :event, :processed], measurements, metadata},
                    500
 
     assert measurements.count == 1
@@ -133,8 +132,7 @@ defmodule RestdisBuster.TelemetryTest do
 
     ReverseIndex.purge_row("tel-tenant", "tel_hits", 1)
 
-    assert_receive {:telemetry, [:restdis_buster, :reverse_index, :hit], measurements,
-                    metadata},
+    assert_receive {:telemetry, [:restdis_buster, :reverse_index, :hit], measurements, metadata},
                    500
 
     assert measurements.keys >= 1
@@ -147,8 +145,7 @@ defmodule RestdisBuster.TelemetryTest do
 
     ReverseIndex.purge_row("tel-tenant", "tel_unknown", 999)
 
-    assert_receive {:telemetry, [:restdis_buster, :reverse_index, :miss], %{count: 1},
-                    metadata},
+    assert_receive {:telemetry, [:restdis_buster, :reverse_index, :miss], %{count: 1}, metadata},
                    500
 
     assert metadata.tenant_id == "tel-tenant"

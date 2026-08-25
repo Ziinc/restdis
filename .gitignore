@@ -1,7 +1,7 @@
 /_build/
 /deps/
-restdis/_build/
-restdis/deps/
+apps/restdis/_build/
+apps/restdis/deps/
 *.beam
 erl_crash.dump
 /cover/

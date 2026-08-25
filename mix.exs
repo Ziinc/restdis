@@ -1,4 +1,4 @@
-defmodule Restdis.MixProject do
+defmodule RestdisUmbrella.MixProject do
   use Mix.Project
 
   def project do
