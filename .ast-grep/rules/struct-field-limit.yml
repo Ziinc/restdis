@@ -1,0 +1,14 @@
+id: struct-field-limit
+language: elixir
+severity: error
+message: Structs must not have 32 fields or more.
+note: |
+  Elixir structs with 32+ fields lose the compiler's map-comparison
+  optimization. Split the struct or group related fields into a nested
+  struct/map to stay under the limit.
+files:
+  - "apps/*/lib/**/*.ex"
+rule:
+  all:
+    - pattern: defstruct [$$$FIELDS]
+    - regex: '^defstruct \[(\s*[^,\[\]]+,\s*){31,}[^,\[\]]+\]$'
