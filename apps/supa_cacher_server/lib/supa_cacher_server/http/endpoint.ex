@@ -124,7 +124,7 @@ defmodule SupaCacherServer.HTTP.Endpoint do
     case Fallback.fetch(tenant_id, key) do
       {:ok, body} ->
         conn
-        |> CacheHeaders.put_cache_miss(0)
+        |> CacheHeaders.put_cache_bypass()
         |> put_resp_content_type("application/json")
         |> send_resp(200, Jason.encode!(body))
 

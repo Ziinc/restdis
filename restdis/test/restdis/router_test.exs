@@ -70,11 +70,9 @@ defmodule Restdis.Cache.RouterTest do
 
       Router.peek(tenant_id, Key.build(:table, "widgets", %{}))
 
-      assert_receive {:event, [:restdis, :cluster, :forward],
-                      %{owner: @ghost, op: :peek}}
+      assert_receive {:event, [:restdis, :cluster, :forward], %{owner: @ghost, op: :peek}}
 
-      assert_receive {:event, [:restdis, :cluster, :unreachable],
-                      %{owner: @ghost, op: :peek}}
+      assert_receive {:event, [:restdis, :cluster, :unreachable], %{owner: @ghost, op: :peek}}
     end
 
     test "the unreachable owner is given up on within one second", %{tenant_id: tenant_id} do

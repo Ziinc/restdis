@@ -24,6 +24,14 @@ defmodule SupaCacherServer.HTTP.Plug.CacheHeaders do
   end
 
   @doc """
+  Sets the response header for a response served straight from PostgREST.
+  """
+  @spec put_cache_bypass(Plug.Conn.t()) :: Plug.Conn.t()
+  def put_cache_bypass(conn) do
+    put_resp_header(conn, "sc-cache", "BYPASS")
+  end
+
+  @doc """
   Sets the response headers for a cache hit.
   """
   @spec put_cache_hit(Plug.Conn.t(), non_neg_integer(), String.t()) :: Plug.Conn.t()

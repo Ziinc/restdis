@@ -67,6 +67,25 @@ defmodule SupaCacherServer.ClusterFallbackTest do
     assert elapsed_us <= 1_500_000
   end
 
+  test "the HTTP endpoint marks a fallback response as a cache bypass", %{tenant_id: tenant_id} do
+    body = [%{"id" => 7}]
+
+    Req.Test.stub(SupaCacherServer.Finch, fn conn -> Req.Test.json(conn, body) end)
+
+    assert Cluster.owner(tenant_id) == @ghost
+
+    {:ok, resp} =
+      Req.get(Req.new(plug: SupaCacherServer.HTTP.Endpoint),
+        url: "/pgrst/query?path=/users",
+        headers: [{"authorization", "Bearer sk_cluster"}],
+        retry: false
+      )
+
+    assert resp.status == 200
+    assert Req.Response.get_header(resp, "sc-cache") == ["BYPASS"]
+    assert resp.body == body
+  end
+
   defp remote_tenant do
     send(Cluster, {:nodeup, @ghost})
     :ok = Cluster.sync()
