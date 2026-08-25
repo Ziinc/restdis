@@ -1,11 +1,11 @@
-defmodule SupaCacherCache.ReadThrough do
+defmodule Restdis.Cache.ReadThrough do
   @moduledoc """
   Named multi-layer read-through cache: ETS query cache in front of a CubDB disk cache.
 
   Unlike the per-tenant aggregate, an instance is configured where it is
   supervised rather than resolved from a tenant id:
 
-      {SupaCacherCache.ReadThrough,
+      {Restdis.Cache.ReadThrough,
        name: :tenant_config, data_dir: "./cache_data/control_plane", ttl_ms: 60_000}
 
   An entry is addressed by an `ident` string built by the caller, and is written as
@@ -16,9 +16,9 @@ defmodule SupaCacherCache.ReadThrough do
 
   use Supervisor
 
-  alias SupaCacherCache.DiskCache
-  alias SupaCacherCache.Key
-  alias SupaCacherCache.QueryCache
+  alias Restdis.Cache.DiskCache
+  alias Restdis.Cache.Key
+  alias Restdis.Cache.QueryCache
 
   @type name :: atom()
   @type ident :: String.t()

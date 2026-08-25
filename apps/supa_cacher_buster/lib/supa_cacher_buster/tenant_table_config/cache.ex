@@ -2,13 +2,13 @@ defmodule SupaCacherBuster.TenantTableConfig.Cache do
   @moduledoc """
   Per-tenant table configuration read through the multi-layer cache.
 
-  The cache instance (`SupaCacherCache.ReadThrough`) is configured where it is
+  The cache instance (`Restdis.Cache.ReadThrough`) is configured where it is
   supervised; this module only maps a lookup onto it.
   """
 
   import Ecto.Query
 
-  alias SupaCacherCache.ReadThrough
+  alias Restdis.Cache.ReadThrough
   alias SupaCacherRepo.TenantTableConfig, as: Schema
 
   @cache_name :tenant_table_config

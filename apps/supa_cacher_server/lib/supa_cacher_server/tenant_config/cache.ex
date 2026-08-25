@@ -2,14 +2,14 @@ defmodule SupaCacherServer.TenantConfig.Cache do
   @moduledoc """
   Tenant configuration lookups read through the multi-layer cache.
 
-  The cache instance itself (`SupaCacherCache.ReadThrough`) is configured where
+  The cache instance itself (`Restdis.Cache.ReadThrough`) is configured where
   it is supervised; this module owns the periodic refresh and the api-key index
   used to invalidate a tenant's keys.
   """
 
   use GenServer
 
-  alias SupaCacherCache.ReadThrough
+  alias Restdis.Cache.ReadThrough
 
   @cache_name :tenant_config
   @refresh_interval_ms 60_000

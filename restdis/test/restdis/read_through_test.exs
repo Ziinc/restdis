@@ -1,8 +1,8 @@
-defmodule SupaCacherCache.ReadThroughTest do
+defmodule Restdis.Cache.ReadThroughTest do
   use ExUnit.Case, async: false
 
-  alias SupaCacherCache.QueryCache
-  alias SupaCacherCache.ReadThrough
+  alias Restdis.Cache.QueryCache
+  alias Restdis.Cache.ReadThrough
 
   setup context do
     name = :"rt_#{System.unique_integer([:positive])}"
