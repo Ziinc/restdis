@@ -23,8 +23,8 @@ defmodule SupaCacherServer.Metrics do
       counter("supa_cacher_server.rewarm.evicted.count", tags: [:tenant_id, :reason]),
 
       # Cache persistence
-      counter("supa_cacher_cache.persist.cap_reached.count", tags: [:tenant_id]),
-      last_value("supa_cacher_cache.persist.count.count", tags: [:tenant_id]),
+      counter("restdis.persist.cap_reached.count", tags: [:tenant_id]),
+      last_value("restdis.persist.count.count", tags: [:tenant_id]),
 
       # Reverse index
       counter("supa_cacher_buster.reverse_index.miss.count", tags: [:tenant_id, :table]),

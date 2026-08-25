@@ -1,7 +1,7 @@
 defmodule SupaCacherServer.Commands.PgrstPolicyTest do
   use ExUnit.Case
 
-  alias SupaCacherCache.Key
+  alias Restdis.Cache.Key
   alias SupaCacherServer.Commands.Dispatcher
   alias SupaCacherServer.PolicyStore
   alias SupaCacherServer.TenantStore.InMemory
@@ -21,11 +21,11 @@ defmodule SupaCacherServer.Commands.PgrstPolicyTest do
       }
     ])
 
-    SupaCacherCache.flush_tenant(@tenant_id)
+    Restdis.Cache.flush_tenant(@tenant_id)
     on_exit(fn -> InMemory.clear() end)
 
     key = Key.build(:table, "products", %{"id" => "eq.1"})
-    SupaCacherCache.put(@tenant_id, key, [%{"id" => 1}], ttl_ms: 60_000)
+    Restdis.Cache.put(@tenant_id, key, [%{"id" => 1}], ttl_ms: 60_000)
     wire_key = Key.encode(key)
 
     {:ok,

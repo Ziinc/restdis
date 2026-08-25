@@ -3,7 +3,7 @@ defmodule SupaCacherServer.Commands.Mget do
   Handles the RESP `MGET` command.
   """
 
-  alias SupaCacherCache.Key
+  alias Restdis.Cache.Key
   alias SupaCacherServer.RESP.Encoder
 
   @doc """
@@ -21,7 +21,7 @@ defmodule SupaCacherServer.Commands.Mget do
 
   defp fetch_encoded(tenant_id, wire_key) do
     with {:ok, key} <- Key.decode(wire_key),
-         {:ok, value} <- SupaCacherCache.get(tenant_id, key) do
+         {:ok, value} <- Restdis.Cache.get(tenant_id, key) do
       Jason.encode!(value)
     else
       _ -> nil

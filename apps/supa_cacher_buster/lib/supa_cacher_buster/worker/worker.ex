@@ -51,7 +51,7 @@ defmodule SupaCacherBuster.Worker do
 
     if table_name && tenant_id do
       TenantTableConfig.invalidate(schema, table_name)
-      SupaCacherCache.flush_table(tenant_id, table_name)
+      Restdis.Cache.flush_table(tenant_id, table_name)
     end
 
     ack(event)
@@ -88,7 +88,7 @@ defmodule SupaCacherBuster.Worker do
 
   def run(%Event{op: :truncate} = event) do
     with {:ok, config} <- TenantTableConfig.lookup(event.schema, event.table) do
-      SupaCacherCache.flush_table(config.tenant_id, event.table)
+      Restdis.Cache.flush_table(config.tenant_id, event.table)
 
       :telemetry.execute(
         [:supa_cacher_buster, :invalidation, :latency],
@@ -113,7 +113,7 @@ defmodule SupaCacherBuster.Worker do
     case Jason.decode(content) do
       {:ok, %{"op" => "drop", "schema" => schema, "table" => table}} ->
         case TenantTableConfig.lookup(schema, table) do
-          {:ok, config} -> SupaCacherCache.flush_table(config.tenant_id, table)
+          {:ok, config} -> Restdis.Cache.flush_table(config.tenant_id, table)
           :not_found -> :ok
         end
 
@@ -132,7 +132,7 @@ defmodule SupaCacherBuster.Worker do
   end
 
   defp apply_change(config, event, _row, pk) do
-    SupaCacherCache.invalidate_by_row(config.tenant_id, event.table, pk)
+    Restdis.Cache.invalidate_by_row(config.tenant_id, event.table, pk)
   end
 
   defp elapsed_us(nil), do: 0

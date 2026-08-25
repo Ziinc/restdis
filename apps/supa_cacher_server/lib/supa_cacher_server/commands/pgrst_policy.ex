@@ -3,8 +3,8 @@ defmodule SupaCacherServer.Commands.PgrstPolicy do
   Handles the RESP `PGRST.POLICY` command, updating TTL, rewarm and persist policy.
   """
 
-  alias SupaCacherCache.Key
-  alias SupaCacherCache.QueryCache
+  alias Restdis.Cache.Key
+  alias Restdis.Cache.QueryCache
   alias SupaCacherServer.PolicyStore
   alias SupaCacherServer.RESP.Encoder
   alias SupaCacherServer.Rewarm
@@ -40,7 +40,7 @@ defmodule SupaCacherServer.Commands.PgrstPolicy do
 
     persist_result =
       if new_policy.persist != existing_policy.persist do
-        SupaCacherCache.set_persist(state.tenant_id, key, new_policy.persist)
+        Restdis.Cache.set_persist(state.tenant_id, key, new_policy.persist)
       else
         :ok
       end
@@ -61,7 +61,7 @@ defmodule SupaCacherServer.Commands.PgrstPolicy do
   end
 
   defp get_current_value(tenant_id, key) do
-    case SupaCacherCache.peek(tenant_id, key) do
+    case Restdis.Cache.peek(tenant_id, key) do
       {:ok, value} -> value
       :miss -> nil
     end

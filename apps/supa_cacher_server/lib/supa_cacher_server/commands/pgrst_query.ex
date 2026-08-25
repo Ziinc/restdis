@@ -5,7 +5,7 @@ defmodule SupaCacherServer.Commands.PgrstQuery do
 
   require OpenTelemetry.Tracer
 
-  alias SupaCacherCache.Key
+  alias Restdis.Cache.Key
   alias SupaCacherServer.PGRST.QueryParser
   alias SupaCacherServer.PolicyStore
   alias SupaCacherServer.PostgREST.Fetcher
@@ -27,7 +27,7 @@ defmodule SupaCacherServer.Commands.PgrstQuery do
            {:ok, config} <- TenantConfig.lookup_by_tenant_id(state.tenant_id) do
         wire_key = Key.encode(key)
 
-        case SupaCacherCache.peek(state.tenant_id, key) do
+        case Restdis.Cache.peek(state.tenant_id, key) do
           {:ok, _value} ->
             OpenTelemetry.Tracer.set_attribute("restdis.cache_result", "hit")
             Rewarm.touch(state.tenant_id, wire_key, key)
@@ -55,7 +55,7 @@ defmodule SupaCacherServer.Commands.PgrstQuery do
 
     case Fetcher.fetch(state.tenant_id, key, config) do
       {:ok, body} ->
-        case SupaCacherCache.put(state.tenant_id, key, body,
+        case Restdis.Cache.put(state.tenant_id, key, body,
                ttl_ms: effective_ttl_ms,
                persist: policy.persist
              ) do

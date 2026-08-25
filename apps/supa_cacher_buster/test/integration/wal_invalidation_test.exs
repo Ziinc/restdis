@@ -19,9 +19,9 @@ defmodule SupaCacherBuster.Integration.WalInvalidationTest do
 
   require Logger
 
+  alias Restdis.Cache.Key
+  alias Restdis.Cache.TenantSupervisor
   alias SupaCacherBuster.Infra.SlotConfig
-  alias SupaCacherCache.Key
-  alias SupaCacherCache.TenantSupervisor
 
   @tenant_id "itenant"
   @test_table "wal_int_products"
@@ -71,7 +71,7 @@ defmodule SupaCacherBuster.Integration.WalInvalidationTest do
 
   setup _ctx do
     TenantSupervisor.ensure_started(@tenant_id)
-    SupaCacherCache.flush_tenant(@tenant_id)
+    Restdis.Cache.flush_tenant(@tenant_id)
     # The table-config cache is read-through; invalidate to refetch the fixture.
     SupaCacherBuster.TenantTableConfig.invalidate(@test_schema, @test_table)
     :ok
@@ -83,8 +83,8 @@ defmodule SupaCacherBuster.Integration.WalInvalidationTest do
     key = Key.build(:table, @test_table, %{"id" => "eq.1"})
     value = %{"id" => 1, "name" => "seed-1"}
 
-    SupaCacherCache.put(@tenant_id, key, value, primary_keys: [1])
-    assert {:ok, ^value} = SupaCacherCache.peek(@tenant_id, key)
+    Restdis.Cache.put(@tenant_id, key, value, primary_keys: [1])
+    assert {:ok, ^value} = Restdis.Cache.peek(@tenant_id, key)
 
     {:ok, _} =
       Postgrex.query(
@@ -94,7 +94,7 @@ defmodule SupaCacherBuster.Integration.WalInvalidationTest do
       )
 
     assert wait_until(
-             fn -> SupaCacherCache.peek(@tenant_id, key) == :miss end,
+             fn -> Restdis.Cache.peek(@tenant_id, key) == :miss end,
              2_000,
              50
            ),
@@ -114,7 +114,7 @@ defmodule SupaCacherBuster.Integration.WalInvalidationTest do
 
     key = Key.build(:table, @test_table, %{"id" => "eq.2"})
     value = %{"id" => 2, "name" => "seed-2"}
-    SupaCacherCache.put(@tenant_id, key, value, primary_keys: [2])
+    Restdis.Cache.put(@tenant_id, key, value, primary_keys: [2])
 
     {tailer_pid, _meta} = :syn.lookup(:wal, :wal_tailer)
     assert is_pid(tailer_pid)
@@ -145,7 +145,7 @@ defmodule SupaCacherBuster.Integration.WalInvalidationTest do
            "Tailer did not restart"
 
     assert wait_until(
-             fn -> SupaCacherCache.peek(@tenant_id, key) == :miss end,
+             fn -> Restdis.Cache.peek(@tenant_id, key) == :miss end,
              5_000,
              100
            ),

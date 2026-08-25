@@ -1,5 +1,7 @@
 /_build/
 /deps/
+restdis/_build/
+restdis/deps/
 *.beam
 erl_crash.dump
 /cover/
@@ -7,4 +9,3 @@ cache_data/
 test_cache_data/
 /tmp/
 .elixir_ls/
-/priv/plts/

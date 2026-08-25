@@ -3,7 +3,7 @@ defmodule SupaCacherServer.Commands.Ttl do
   Handles the RESP `TTL` command.
   """
 
-  alias SupaCacherCache.Key
+  alias Restdis.Cache.Key
   alias SupaCacherServer.RESP.Encoder
 
   @doc """

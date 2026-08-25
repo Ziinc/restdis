@@ -28,7 +28,7 @@ defmodule SupaCacherServer.MixProject do
 
   defp deps do
     [
-      {:supa_cacher_cache, in_umbrella: true},
+      {:restdis, path: "../../restdis"},
       {:supa_cacher_replicator, in_umbrella: true},
       {:supa_cacher_repo, in_umbrella: true},
       {:thousand_island, "~> 1.5"},

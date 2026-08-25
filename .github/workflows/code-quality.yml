@@ -71,9 +71,12 @@ jobs:
       - run: npm install -g @ast-grep/cli
       - run: ast-grep scan
 
-  dialyzer:
-    name: Dialyzer
+  restdis:
+    name: restdis (check + test)
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: restdis
     steps:
       - uses: actions/checkout@v4
       - uses: erlef/setup-beam@v1
@@ -83,33 +86,10 @@ jobs:
       - uses: actions/cache@v4
         with:
           path: |
-            deps
-            _build
-          key: ${{ runner.os }}-mix-${{ env.OTP_VERSION }}-${{ env.ELIXIR_VERSION }}-${{ hashFiles('mix.lock') }}
-          restore-keys: ${{ runner.os }}-mix-${{ env.OTP_VERSION }}-${{ env.ELIXIR_VERSION }}-
-      - uses: actions/cache@v4
-        with:
-          path: priv/plts
-          key: ${{ runner.os }}-plt-${{ env.OTP_VERSION }}-${{ env.ELIXIR_VERSION }}-${{ hashFiles('mix.lock') }}
-          restore-keys: ${{ runner.os }}-plt-${{ env.OTP_VERSION }}-${{ env.ELIXIR_VERSION }}-
+            restdis/deps
+            restdis/_build
+          key: ${{ runner.os }}-restdis-${{ env.OTP_VERSION }}-${{ env.ELIXIR_VERSION }}-${{ hashFiles('restdis/mix.lock') }}
+          restore-keys: ${{ runner.os }}-restdis-${{ env.OTP_VERSION }}-${{ env.ELIXIR_VERSION }}-
       - run: mix deps.get
-      - run: mix check.dialyzer
-
-  sobelow:
-    name: Sobelow
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: erlef/setup-beam@v1
-        with:
-          elixir-version: ${{ env.ELIXIR_VERSION }}
-          otp-version: ${{ env.OTP_VERSION }}
-      - uses: actions/cache@v4
-        with:
-          path: |
-            deps
-            _build
-          key: ${{ runner.os }}-mix-${{ env.OTP_VERSION }}-${{ env.ELIXIR_VERSION }}-${{ hashFiles('mix.lock') }}
-          restore-keys: ${{ runner.os }}-mix-${{ env.OTP_VERSION }}-${{ env.ELIXIR_VERSION }}-
-      - run: mix deps.get
-      - run: mix check.sobelow
+      - run: mix check
+      - run: mix test

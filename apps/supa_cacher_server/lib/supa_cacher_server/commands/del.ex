@@ -3,7 +3,7 @@ defmodule SupaCacherServer.Commands.Del do
   Handles the RESP `DEL` command.
   """
 
-  alias SupaCacherCache.Key
+  alias Restdis.Cache.Key
   alias SupaCacherServer.RESP.Encoder
 
   @doc """
@@ -15,7 +15,7 @@ defmodule SupaCacherServer.Commands.Del do
       Enum.reduce(wire_keys, 0, fn wire_key, acc ->
         case Key.decode(wire_key) do
           {:ok, key} ->
-            SupaCacherCache.delete(state.tenant_id, key)
+            Restdis.Cache.delete(state.tenant_id, key)
             SupaCacherServer.PolicyStore.delete(state.tenant_id, wire_key)
             acc + 1
 

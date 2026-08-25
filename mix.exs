@@ -22,7 +22,7 @@ defmodule Supacacher.MixProject do
         include_executables_for: [:unix],
         applications: [
           supa_cacher_repo: :permanent,
-          supa_cacher_cache: :permanent,
+          restdis: :permanent,
           supa_cacher_replicator: :permanent,
           supa_cacher_server: :permanent,
           supa_cacher_buster: :permanent

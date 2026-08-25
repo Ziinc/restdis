@@ -15,8 +15,10 @@ All coding agents working in this repo MUST follow the workflow below. These rul
 
 DDD is required for every change in this repo.
 
-**Bounded contexts = umbrella apps.**
-- `supa_cacher_cache` — cache engine, reverse index, per-tenant ETS and CubDB.
+**Bounded contexts = umbrella apps, plus the `restdis` library.**
+- `restdis` (top-level, not an umbrella app) — cache engine, reverse index, per-tenant ETS
+  and CubDB, published as a standalone library under the `Restdis` namespace. It must never
+  reference an umbrella module; `mix check.boundary` enforces this. See `LIB_PRD.md`.
 - `supa_cacher_server` — Redis RESP protocol, HTTP endpoint, rewarm scheduling.
 - `supa_cacher_buster` — WAL ingestion and invalidation/refresh dispatch.
 - `supa_cacher_replicator` — always-live KV datasets.
@@ -55,7 +57,7 @@ If a task cannot be expressed as a clear assertion, it is not ready — split it
 
 ## Utility and helper hygiene
 
-- **Shared production helpers** (used by 2+ modules) go into a common utility module within their owning app (e.g., `SupaCacherCache.Common`). Promote to a cross-app utility only when at least two umbrella apps need it. Never duplicate.
+- **Shared production helpers** (used by 2+ modules) go into a common utility module within their owning app (e.g., `Restdis.Cache.Common`). Promote to a cross-app utility only when at least two umbrella apps need it. Never duplicate.
 - **Locally-used helpers** (single module) stay private (`defp`). Do not pre-emptively extract.
 - **Test helpers** live in a single `test/support/test_utils.ex` per app, compiled via `elixirc_paths` in that app's `mix.exs`. Examples: tenant setup, ETS table fixtures, CubDB temp directories, WAL event factories. No copy-pasted setup blocks across test files.
 - **Before adding a helper**, grep the existing common module and `test_utils.ex` — reuse first.

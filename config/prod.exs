@@ -6,7 +6,7 @@ config :logger, :default_formatter,
   format: "$time $metadata[$level] $message\n",
   metadata: [:request_id, :tenant_id, :az]
 
-config :supa_cacher_cache, origin: SupaCacherCache.Origin.PostgREST
+config :restdis, origin: Restdis.Cache.Origin.PostgREST
 
 config :supa_cacher_server, tenant_store: SupaCacherServer.TenantStore.Repo
 

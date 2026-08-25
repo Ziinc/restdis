@@ -3,7 +3,7 @@ defmodule SupaCacherReplicator.Dataset do
   Domain struct describing a replicated table and the cache keys of its rows.
   """
 
-  alias SupaCacherCache.Key
+  alias Restdis.Cache.Key
 
   @type t :: %__MODULE__{
           tenant_id: String.t(),

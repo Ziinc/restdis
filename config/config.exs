@@ -9,16 +9,16 @@ config :supa_cacher_buster,
   az: "local",
   tenant_config_invalidator: SupaCacherBuster.CompositeInvalidator,
   tenant_config_invalidator_chain: [
-    SupaCacherCache.TenantInvalidator,
+    Restdis.Cache.TenantInvalidator,
     SupaCacherServer.TenantStore.Invalidator
   ],
   replication_dispatcher: SupaCacherReplicator.Dispatcher,
   failover_reconciler: SupaCacherReplicator.Reconciler
 
-config :supa_cacher_cache,
+config :restdis,
   cache_data_dir: "./cache_data",
-  origin: SupaCacherCache.Origin.Stub,
-  replication_transport: SupaCacherCache.Replication.Transport.Distribution,
+  origin: Restdis.Cache.Origin.Stub,
+  replication_transport: Restdis.Cache.Replication.Transport.Distribution,
   tenant_config_lookup: {SupaCacherServer.TenantConfig, :lookup_by_tenant_id, []}
 
 config :supa_cacher_server,

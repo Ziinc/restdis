@@ -1,7 +1,7 @@
 defmodule SupaCacherReplicator.DatasetTest do
   use ExUnit.Case, async: true
 
-  alias SupaCacherCache.Key
+  alias Restdis.Cache.Key
   alias SupaCacherReplicator.Dataset
 
   test "new/1 builds a dataset from a tenant table config map" do

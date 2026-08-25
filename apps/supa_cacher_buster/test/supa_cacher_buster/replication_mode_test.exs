@@ -1,11 +1,11 @@
 defmodule SupaCacherBuster.ReplicationModeTest do
   use ExUnit.Case, async: false
 
+  alias Restdis.Cache.Key
+  alias Restdis.Cache.TenantSupervisor
   alias SupaCacherBuster.Singleton
   alias SupaCacherBuster.TestUtils
   alias SupaCacherBuster.Worker
-  alias SupaCacherCache.Key
-  alias SupaCacherCache.TenantSupervisor
 
   defmodule StubDispatcher do
     def dispatch(config, op, row) do
@@ -31,7 +31,7 @@ defmodule SupaCacherBuster.ReplicationModeTest do
     end)
 
     TenantSupervisor.ensure_started("repl_tenant")
-    on_exit(fn -> SupaCacherCache.flush_tenant("repl_tenant") end)
+    on_exit(fn -> Restdis.Cache.flush_tenant("repl_tenant") end)
 
     :ets.insert(
       :supa_cacher_buster_table_config,
@@ -50,7 +50,7 @@ defmodule SupaCacherBuster.ReplicationModeTest do
 
   test "a DML event on a replication-mode table dispatches a refresh, not an invalidation" do
     key = Key.build(:table, "products", %{})
-    SupaCacherCache.put("repl_tenant", key, %{"id" => 42}, primary_keys: [42])
+    Restdis.Cache.put("repl_tenant", key, %{"id" => 42}, primary_keys: [42])
 
     event =
       TestUtils.update_event("products", "public", %{"id" => "42"}, %{
@@ -61,7 +61,7 @@ defmodule SupaCacherBuster.ReplicationModeTest do
     Worker.run(event)
 
     assert_receive {:dispatched, "products", :update, %{"id" => "42"}}, 500
-    assert {:ok, _} = SupaCacherCache.peek("repl_tenant", key)
+    assert {:ok, _} = Restdis.Cache.peek("repl_tenant", key)
   end
 
   test "a DELETE on a replication-mode table dispatches the delete" do

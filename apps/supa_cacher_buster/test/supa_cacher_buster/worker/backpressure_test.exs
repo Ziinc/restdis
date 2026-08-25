@@ -1,11 +1,11 @@
 defmodule SupaCacherBuster.Worker.BackpressureTest do
   use ExUnit.Case, async: false
 
+  alias Restdis.Cache.Key
+  alias Restdis.Cache.TenantSupervisor
   alias SupaCacherBuster.TestUtils
   alias SupaCacherBuster.Worker.CoalesceSweeper
   alias SupaCacherBuster.Worker.Supervisor, as: WorkerSupervisor
-  alias SupaCacherCache.Key
-  alias SupaCacherCache.TenantSupervisor
 
   @config_table :supa_cacher_buster_table_config
   @semaphores_table :supa_cacher_buster_tenant_semaphores
@@ -52,7 +52,7 @@ defmodule SupaCacherBuster.Worker.BackpressureTest do
 
     on_exit(fn ->
       Application.delete_env(:supa_cacher_buster, :worker_per_tenant_cap)
-      SupaCacherCache.flush_tenant(@tenant)
+      Restdis.Cache.flush_tenant(@tenant)
       clear_state()
       _ = Supervisor.restart_child(SupaCacherBuster.Supervisor, CoalesceSweeper)
     end)
@@ -131,15 +131,15 @@ defmodule SupaCacherBuster.Worker.BackpressureTest do
 
     # Seed a cache entry that we expect the coarse flush_table to invalidate.
     key = Key.build(:table, @table, %{})
-    SupaCacherCache.put(@tenant, key, %{"id" => 1}, primary_keys: [1])
-    assert {:ok, _} = SupaCacherCache.peek(@tenant, key)
+    Restdis.Cache.put(@tenant, key, %{"id" => 1}, primary_keys: [1])
+    assert {:ok, _} = Restdis.Cache.peek(@tenant, key)
 
     # Pretend backpressure dropped 3 events.
     :ets.insert(@coalesce_table, {{@tenant, @table}, 3})
 
     :ok = CoalesceSweeper.sweep()
 
-    assert :miss = SupaCacherCache.peek(@tenant, key)
+    assert :miss = Restdis.Cache.peek(@tenant, key)
 
     assert_receive {:flushed, ^ref, %{coalesced_count: 3}, %{tenant_id: @tenant, table: @table}},
                    500

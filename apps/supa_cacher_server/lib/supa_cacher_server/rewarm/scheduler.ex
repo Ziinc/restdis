@@ -5,7 +5,7 @@ defmodule SupaCacherServer.Rewarm.Scheduler do
 
   use GenServer
 
-  alias SupaCacherCache.Key
+  alias Restdis.Cache.Key
   alias SupaCacherServer.PostgREST.Fetcher
   alias SupaCacherServer.TenantConfig
 
@@ -90,7 +90,7 @@ defmodule SupaCacherServer.Rewarm.Scheduler do
             _ -> 60_000
           end
 
-        SupaCacherCache.put(state.tenant_id, entry.key, body,
+        Restdis.Cache.put(state.tenant_id, entry.key, body,
           ttl_ms: ttl_ms,
           persist: entry.persist
         )
@@ -184,7 +184,7 @@ defmodule SupaCacherServer.Rewarm.Scheduler do
         not entry.persist
 
     if cold? do
-      SupaCacherCache.delete(state.tenant_id, entry.key)
+      Restdis.Cache.delete(state.tenant_id, entry.key)
       :ets.delete(state.table, wire_key)
 
       :telemetry.execute(

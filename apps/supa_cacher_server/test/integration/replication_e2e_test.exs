@@ -24,7 +24,7 @@ defmodule SupaCacherServer.Integration.ReplicationE2ETest do
     on_exit(fn ->
       SupaCacherReplicator.unsubscribe(dataset)
       Stub.clear(dataset)
-      SupaCacherCache.flush_tenant(tenant_id)
+      Restdis.Cache.flush_tenant(tenant_id)
     end)
 
     {:ok, tenant_id: tenant_id, dataset: dataset, config: config}

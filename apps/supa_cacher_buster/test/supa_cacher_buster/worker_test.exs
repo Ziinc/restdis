@@ -1,10 +1,10 @@
 defmodule SupaCacherBuster.WorkerTest do
   use ExUnit.Case, async: false
 
+  alias Restdis.Cache.Key
+  alias Restdis.Cache.TenantSupervisor
   alias SupaCacherBuster.TestUtils
   alias SupaCacherBuster.Worker
-  alias SupaCacherCache.Key
-  alias SupaCacherCache.TenantSupervisor
 
   # Stub TenantTableConfig to avoid DB calls
   defmodule StubTableConfig do
@@ -60,8 +60,8 @@ defmodule SupaCacherBuster.WorkerTest do
     TenantSupervisor.ensure_started("tenant2")
 
     on_exit(fn ->
-      SupaCacherCache.flush_tenant("tenant1")
-      SupaCacherCache.flush_tenant("tenant2")
+      Restdis.Cache.flush_tenant("tenant1")
+      Restdis.Cache.flush_tenant("tenant2")
     end)
 
     :ok
@@ -89,9 +89,9 @@ defmodule SupaCacherBuster.WorkerTest do
     on_exit(&clear_config/0)
 
     key = Key.build(:table, "products", %{})
-    SupaCacherCache.put("tenant1", key, %{"id" => "42"}, primary_keys: [42])
+    Restdis.Cache.put("tenant1", key, %{"id" => "42"}, primary_keys: [42])
 
-    assert {:ok, _} = SupaCacherCache.peek("tenant1", key)
+    assert {:ok, _} = Restdis.Cache.peek("tenant1", key)
 
     event =
       TestUtils.update_event("products", "public", %{"id" => "42"}, %{
@@ -101,7 +101,7 @@ defmodule SupaCacherBuster.WorkerTest do
 
     Worker.run(event)
 
-    assert :miss = SupaCacherCache.peek("tenant1", key)
+    assert :miss = Restdis.Cache.peek("tenant1", key)
   end
 
   test "DML event with string PK coerced to integer matches integer PK in index" do
@@ -117,26 +117,26 @@ defmodule SupaCacherBuster.WorkerTest do
     on_exit(&clear_config/0)
 
     key = Key.build(:table, "products", %{})
-    SupaCacherCache.put("tenant1", key, [%{"id" => 7}], primary_keys: [7])
+    Restdis.Cache.put("tenant1", key, [%{"id" => 7}], primary_keys: [7])
 
-    assert {:ok, _} = SupaCacherCache.peek("tenant1", key)
+    assert {:ok, _} = Restdis.Cache.peek("tenant1", key)
 
     event = TestUtils.delete_event("products", "public", %{"id" => "7"})
     Worker.run(event)
 
-    assert :miss = SupaCacherCache.peek("tenant1", key)
+    assert :miss = Restdis.Cache.peek("tenant1", key)
   end
 
   test "DML event for unconfigured table is a no-op" do
     key = Key.build(:table, "unknown_table", %{})
     TenantSupervisor.ensure_started("some-tenant")
-    SupaCacherCache.put("some-tenant", key, %{"id" => 1}, primary_keys: [1])
+    Restdis.Cache.put("some-tenant", key, %{"id" => 1}, primary_keys: [1])
 
     event = TestUtils.insert_event("unknown_table")
     assert :ok = Worker.run(event)
 
-    assert {:ok, _} = SupaCacherCache.peek("some-tenant", key)
-    SupaCacherCache.flush_tenant("some-tenant")
+    assert {:ok, _} = Restdis.Cache.peek("some-tenant", key)
+    Restdis.Cache.flush_tenant("some-tenant")
   end
 
   test "Truncate event flushes table cache" do
@@ -153,14 +153,14 @@ defmodule SupaCacherBuster.WorkerTest do
 
     key1 = Key.build(:table, "products", %{"select" => "id"})
     key2 = Key.build(:table, "products", %{"select" => "name"})
-    SupaCacherCache.put("tenant1", key1, %{"id" => 1}, primary_keys: [1])
-    SupaCacherCache.put("tenant1", key2, %{"id" => 2}, primary_keys: [2])
+    Restdis.Cache.put("tenant1", key1, %{"id" => 1}, primary_keys: [1])
+    Restdis.Cache.put("tenant1", key2, %{"id" => 2}, primary_keys: [2])
 
     event = TestUtils.truncate_event("products")
     Worker.run(event)
 
-    assert :miss = SupaCacherCache.peek("tenant1", key1)
-    assert :miss = SupaCacherCache.peek("tenant1", key2)
+    assert :miss = Restdis.Cache.peek("tenant1", key1)
+    assert :miss = Restdis.Cache.peek("tenant1", key2)
   end
 
   test "WAL event on public.tenants calls tenant_config_invalidator" do
@@ -188,7 +188,7 @@ defmodule SupaCacherBuster.WorkerTest do
     on_exit(&clear_config/0)
 
     key = Key.build(:table, "products", %{})
-    SupaCacherCache.put("tenant1", key, %{"id" => 3}, primary_keys: [3])
+    Restdis.Cache.put("tenant1", key, %{"id" => 3}, primary_keys: [3])
 
     event = %SupaCacherBuster.WAL.Event{
       op: :update,
@@ -198,7 +198,7 @@ defmodule SupaCacherBuster.WorkerTest do
     }
 
     Worker.run(event)
-    assert :miss = SupaCacherCache.peek("tenant1", key)
+    assert :miss = Restdis.Cache.peek("tenant1", key)
   end
 
   test "config table flush does not affect a different table's cache" do
@@ -214,7 +214,7 @@ defmodule SupaCacherBuster.WorkerTest do
     on_exit(&clear_config/0)
 
     key = Key.build(:table, "orders", %{})
-    SupaCacherCache.put("tenant2", key, %{"order_id" => 99}, primary_keys: [99])
+    Restdis.Cache.put("tenant2", key, %{"order_id" => 99}, primary_keys: [99])
 
     # Flush 'products' table config — should not touch 'orders' cache
     event = %SupaCacherBuster.WAL.Event{
@@ -225,6 +225,6 @@ defmodule SupaCacherBuster.WorkerTest do
     }
 
     Worker.run(event)
-    assert {:ok, _} = SupaCacherCache.peek("tenant2", key)
+    assert {:ok, _} = Restdis.Cache.peek("tenant2", key)
   end
 end

@@ -107,7 +107,7 @@ defmodule SupaCacherReplicator.Subscription do
   end
 
   def handle_cast({:delete_row, pk}, state) do
-    SupaCacherCache.delete(state.dataset.tenant_id, Dataset.cache_key(state.dataset, pk))
+    Restdis.Cache.delete(state.dataset.tenant_id, Dataset.cache_key(state.dataset, pk))
     {:noreply, %{state | pks: MapSet.delete(state.pks, pk)}}
   end
 
@@ -125,7 +125,7 @@ defmodule SupaCacherReplicator.Subscription do
         stale = MapSet.difference(state.pks, fresh_pks)
 
         Enum.each(stale, fn pk ->
-          SupaCacherCache.delete(state.dataset.tenant_id, Dataset.cache_key(state.dataset, pk))
+          Restdis.Cache.delete(state.dataset.tenant_id, Dataset.cache_key(state.dataset, pk))
         end)
 
         :telemetry.execute(
@@ -148,7 +148,7 @@ defmodule SupaCacherReplicator.Subscription do
         %{state | pks: MapSet.put(state.pks, pk)}
 
       :not_found ->
-        SupaCacherCache.delete(state.dataset.tenant_id, Dataset.cache_key(state.dataset, pk))
+        Restdis.Cache.delete(state.dataset.tenant_id, Dataset.cache_key(state.dataset, pk))
         %{state | pks: MapSet.delete(state.pks, pk)}
 
       {:error, reason} ->
@@ -192,9 +192,7 @@ defmodule SupaCacherReplicator.Subscription do
   end
 
   defp put_row(dataset, pk, row) do
-    SupaCacherCache.put(dataset.tenant_id, Dataset.cache_key(dataset, pk), row,
-      primary_keys: [pk]
-    )
+    Restdis.Cache.put(dataset.tenant_id, Dataset.cache_key(dataset, pk), row, primary_keys: [pk])
   end
 
   defp via(dataset) do

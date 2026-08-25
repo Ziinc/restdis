@@ -25,7 +25,7 @@ if config_env() == :prod do
       pool_size: 1
     ]
 
-  config :supa_cacher_cache,
+  config :restdis,
     cache_data_dir: System.get_env("CACHE_DATA_DIR", "/var/lib/supacacher/cache")
 
   config :supa_cacher_replicator,

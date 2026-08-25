@@ -42,7 +42,7 @@ defmodule SupaCacherReplicator do
   """
   @spec get(String.t(), String.t(), term()) :: {:ok, map()} | :miss
   def get(tenant_id, table, pk) do
-    SupaCacherCache.peek(tenant_id, Dataset.cache_key(table, pk))
+    Restdis.Cache.peek(tenant_id, Dataset.cache_key(table, pk))
   end
 
   @doc """

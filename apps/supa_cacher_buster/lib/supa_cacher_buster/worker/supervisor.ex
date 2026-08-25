@@ -6,7 +6,7 @@ defmodule SupaCacherBuster.Worker.Supervisor do
   exceeds its cap, the event is dropped and a coalesce counter for
   `(tenant_id, table)` is bumped. A separate sweeper (`CoalesceSweeper`)
   periodically converts these coalesced buckets into a coarse
-  `SupaCacherCache.flush_table/2` call.
+  `Restdis.Cache.flush_table/2` call.
 
   Owns two named ETS tables:
 

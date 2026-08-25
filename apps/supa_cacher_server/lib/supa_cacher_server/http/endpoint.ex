@@ -7,7 +7,7 @@ defmodule SupaCacherServer.HTTP.Endpoint do
 
   require OpenTelemetry.Tracer
 
-  alias SupaCacherCache.Key
+  alias Restdis.Cache.Key
   alias SupaCacherServer.HTTP.Plug.Auth
   alias SupaCacherServer.HTTP.Plug.CacheHeaders
   alias SupaCacherServer.PGRST.QueryParser
@@ -69,7 +69,7 @@ defmodule SupaCacherServer.HTTP.Endpoint do
         {:ok, key, _params} ->
           wire_key = Key.encode(key)
 
-          case SupaCacherCache.peek(tenant_id, key) do
+          case Restdis.Cache.peek(tenant_id, key) do
             {:ok, value} ->
               OpenTelemetry.Tracer.set_attribute("restdis.cache_result", "hit")
               Rewarm.touch(tenant_id, wire_key, key)
@@ -97,7 +97,7 @@ defmodule SupaCacherServer.HTTP.Endpoint do
 
     case Fetcher.fetch(tenant_id, key, config) do
       {:ok, body} ->
-        SupaCacherCache.put(tenant_id, key, body, ttl_ms: ttl_ms, persist: policy.persist)
+        Restdis.Cache.put(tenant_id, key, body, ttl_ms: ttl_ms, persist: policy.persist)
         Rewarm.touch(tenant_id, wire_key, key)
 
         conn
@@ -145,8 +145,8 @@ defmodule SupaCacherServer.HTTP.Endpoint do
   end
 
   defp apply_ttl(conn, tenant_id, key, ttl_s) when is_integer(ttl_s) and ttl_s > 0 do
-    case SupaCacherCache.peek(tenant_id, key) do
-      {:ok, value} -> SupaCacherCache.put(tenant_id, key, value, ttl_ms: ttl_s * 1000)
+    case Restdis.Cache.peek(tenant_id, key) do
+      {:ok, value} -> Restdis.Cache.put(tenant_id, key, value, ttl_ms: ttl_s * 1000)
       :miss -> :ok
     end
 

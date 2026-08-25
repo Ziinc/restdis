@@ -1,7 +1,7 @@
 defmodule SupaCacherServer.Rewarm.SchedulerTest do
   use ExUnit.Case
 
-  alias SupaCacherCache.Key
+  alias Restdis.Cache.Key
   alias SupaCacherServer.PolicyStore
   alias SupaCacherServer.Rewarm
   alias SupaCacherServer.Rewarm.Scheduler
@@ -28,7 +28,7 @@ defmodule SupaCacherServer.Rewarm.SchedulerTest do
       }
     ])
 
-    SupaCacherCache.flush_tenant(@tenant_id)
+    Restdis.Cache.flush_tenant(@tenant_id)
 
     on_exit(fn ->
       Application.delete_env(:supa_cacher_server, :postgrest_fetcher)
@@ -36,7 +36,7 @@ defmodule SupaCacherServer.Rewarm.SchedulerTest do
       Application.delete_env(:supa_cacher_server, :stub_fetcher_body)
       Rewarm.stop_tenant(@tenant_id)
       InMemory.clear()
-      SupaCacherCache.flush_tenant(@tenant_id)
+      Restdis.Cache.flush_tenant(@tenant_id)
       Agent.stop(agent)
     end)
 
@@ -65,7 +65,7 @@ defmodule SupaCacherServer.Rewarm.SchedulerTest do
 
     key = Key.build(:table, "items", %{})
     wire_key = Key.encode(key)
-    SupaCacherCache.put(@tenant_id, key, [%{"id" => 1}], ttl_ms: 60_000)
+    Restdis.Cache.put(@tenant_id, key, [%{"id" => 1}], ttl_ms: 60_000)
 
     PolicyStore.put(@tenant_id, wire_key, %{rewarm_s: 1, persist: false})
     Rewarm.touch(@tenant_id, wire_key, key)
@@ -73,7 +73,7 @@ defmodule SupaCacherServer.Rewarm.SchedulerTest do
     assert_receive {:telemetry, [:supa_cacher_server, :rewarm, :refetch], _, _}, 1500
 
     assert Agent.get(agent, & &1) == 1
-    assert {:ok, [%{"rewarmed" => true}]} = SupaCacherCache.peek(@tenant_id, key)
+    assert {:ok, [%{"rewarmed" => true}]} = Restdis.Cache.peek(@tenant_id, key)
   end
 
   test "(b) persist=false cold entry is evicted after one rewarm interval with no touch" do
@@ -82,7 +82,7 @@ defmodule SupaCacherServer.Rewarm.SchedulerTest do
 
     key = Key.build(:table, "cold_items", %{})
     wire_key = Key.encode(key)
-    SupaCacherCache.put(@tenant_id, key, [%{"id" => 2}], ttl_ms: 60_000)
+    Restdis.Cache.put(@tenant_id, key, [%{"id" => 2}], ttl_ms: 60_000)
 
     PolicyStore.put(@tenant_id, wire_key, %{rewarm_s: 1, persist: false})
     Rewarm.touch(@tenant_id, wire_key, key)
@@ -93,7 +93,7 @@ defmodule SupaCacherServer.Rewarm.SchedulerTest do
     assert meta.reason == :cold
 
     :timer.sleep(50)
-    assert :miss = SupaCacherCache.peek(@tenant_id, key)
+    assert :miss = Restdis.Cache.peek(@tenant_id, key)
   end
 
   test "(c) persist=true cold entry is NOT evicted" do
@@ -102,7 +102,7 @@ defmodule SupaCacherServer.Rewarm.SchedulerTest do
 
     key = Key.build(:table, "persist_items", %{})
     wire_key = Key.encode(key)
-    SupaCacherCache.put(@tenant_id, key, [%{"id" => 3}], ttl_ms: 60_000)
+    Restdis.Cache.put(@tenant_id, key, [%{"id" => 3}], ttl_ms: 60_000)
 
     pid = ensure_scheduler()
     Scheduler.upsert(pid, wire_key, key, %{rewarm_s: 1, persist: true})
@@ -111,7 +111,7 @@ defmodule SupaCacherServer.Rewarm.SchedulerTest do
 
     refute_receive {:telemetry, [:supa_cacher_server, :rewarm, :evicted], _, _}, 1500
 
-    assert {:ok, _} = SupaCacherCache.peek(@tenant_id, key)
+    assert {:ok, _} = Restdis.Cache.peek(@tenant_id, key)
   end
 
   test "(d) policy_changed with rewarm_s nil removes row; no further refetches", %{agent: agent} do
@@ -119,7 +119,7 @@ defmodule SupaCacherServer.Rewarm.SchedulerTest do
 
     key = Key.build(:table, "removed_items", %{})
     wire_key = Key.encode(key)
-    SupaCacherCache.put(@tenant_id, key, [%{"id" => 4}], ttl_ms: 60_000)
+    Restdis.Cache.put(@tenant_id, key, [%{"id" => 4}], ttl_ms: 60_000)
 
     pid = ensure_scheduler()
     Scheduler.policy_changed(pid, wire_key, key, %{rewarm_s: 1, persist: false})
