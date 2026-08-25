@@ -8,6 +8,6 @@ config :logger, :default_formatter,
 
 config :restdis, origin: Restdis.Cache.Origin.PostgREST
 
-config :supa_cacher_server, tenant_store: SupaCacherServer.TenantStore.Repo
+config :restdis_server, tenant_store: RestdisServer.TenantStore.Repo
 
-config :supa_cacher_repo, SupaCacherRepo, start_apps_before_migration: [:ssl]
+config :restdis_repo, RestdisRepo, start_apps_before_migration: [:ssl]

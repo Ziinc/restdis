@@ -5,7 +5,7 @@ services:
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
-      POSTGRES_DB: supa_cacher_dev
+      POSTGRES_DB: restdis_dev
     ports:
       - "5432:5432"
     volumes:
@@ -16,15 +16,15 @@ services:
       timeout: 3s
       retries: 30
 
-  supacacher:
+  restdis:
     build: .
     profiles: ["release"]
     depends_on:
       db:
         condition: service_healthy
     environment:
-      DATABASE_URL: ecto://postgres:postgres@db/supa_cacher_dev
-      RELEASE_COOKIE: supacacher_local_cookie
+      DATABASE_URL: ecto://postgres:postgres@db/restdis_dev
+      RELEASE_COOKIE: restdis_local_cookie
       RELEASE_AZ: local
       HTTP_PORT: "4040"
       RESP_PORT: "6380"
@@ -32,13 +32,13 @@ services:
       - "4040:4040"
       - "6380:6380"
     volumes:
-      - cache_data:/var/lib/supacacher/cache
+      - cache_data:/var/lib/restdis/cache
 
   # Interactive dev server: runs the umbrella app under `mix` (not the
   # release built by the production Dockerfile) so source changes on the
   # host are picked up without rebuilding an image, and `mix test`/`mix
-  # check`/`iex` are available. Use this instead of `supacacher` for local
-  # development; use `supacacher` to exercise the production release build.
+  # check`/`iex` are available. Use this instead of `restdis` for local
+  # development; use `restdis` to exercise the production release build.
   app:
     build:
       context: .

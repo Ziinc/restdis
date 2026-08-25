@@ -25,20 +25,20 @@ jobs:
         with:
           context: .
           load: true
-          tags: supacacher:ci
+          tags: restdis:ci
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
       - name: Start Postgres
         run: |
-          docker network create supacacher-ci
-          docker run -d --name supacacher-db --network supacacher-ci \
+          docker network create restdis-ci
+          docker run -d --name restdis-db --network restdis-ci \
             -e POSTGRES_USER=postgres \
             -e POSTGRES_PASSWORD=postgres \
-            -e POSTGRES_DB=supa_cacher_dev \
+            -e POSTGRES_DB=restdis_dev \
             postgres:16 -c wal_level=logical
           for _ in $(seq 1 30); do
-            if docker exec supacacher-db pg_isready -U postgres; then exit 0; fi
+            if docker exec restdis-db pg_isready -U postgres; then exit 0; fi
             sleep 2
           done
           echo "Postgres did not become ready" >&2
@@ -46,11 +46,11 @@ jobs:
 
       - name: Start the release
         run: |
-          docker run -d --name supacacher --network supacacher-ci \
-            -e DATABASE_URL=ecto://postgres:postgres@supacacher-db/supa_cacher_dev \
+          docker run -d --name restdis --network restdis-ci \
+            -e DATABASE_URL=ecto://postgres:postgres@restdis-db/restdis_dev \
             -e RELEASE_COOKIE=ci_cookie \
             -p 4040:4040 -p 6380:6380 \
-            supacacher:ci
+            restdis:ci
 
       - name: Wait for the HTTP endpoint
         run: |
@@ -63,14 +63,14 @@ jobs:
 
       - name: Assert migrations ran
         run: |
-          tables=$(docker exec supacacher-db psql -U postgres -d supa_cacher_dev -tAc \
+          tables=$(docker exec restdis-db psql -U postgres -d restdis_dev -tAc \
             "select count(*) from information_schema.tables where table_schema = 'public' and table_name in ('tenants', 'api_keys', 'tenant_table_config', 'wal_checkpoint')")
           test "$tables" = "4"
 
       - name: Assert the WAL replication slot is active
         run: |
-          active=$(docker exec supacacher-db psql -U postgres -d supa_cacher_dev -tAc \
-            "select active from pg_replication_slots where slot_name = 'supacacher_slot'")
+          active=$(docker exec restdis-db psql -U postgres -d restdis_dev -tAc \
+            "select active from pg_replication_slots where slot_name = 'restdis_slot'")
           test "$active" = "t"
 
       - name: Assert the RESP endpoint answers
@@ -93,9 +93,9 @@ jobs:
 
       - name: Assert every release application started
         run: |
-          started=$(docker exec supacacher /app/bin/supacacher rpc \
+          started=$(docker exec restdis /app/bin/restdis rpc \
             'Application.started_applications() |> Enum.map(&elem(&1, 0)) |> Enum.sort() |> Enum.join(",") |> IO.puts()')
-          for app in restdis supa_cacher_buster supa_cacher_replicator supa_cacher_repo supa_cacher_server; do
+          for app in restdis restdis_buster restdis_replicator restdis_repo restdis_server; do
             case ",$started," in
               *",$app,"*) ;;
               *) echo "$app is not running in the release" >&2; exit 1 ;;
@@ -104,11 +104,11 @@ jobs:
 
       - name: Assert the release logged no errors
         run: |
-          if docker logs supacacher 2>&1 | grep -E "\[error\]"; then
+          if docker logs restdis 2>&1 | grep -E "\[error\]"; then
             echo "Release logged errors on boot" >&2
             exit 1
           fi
 
       - name: Dump release logs
         if: always()
-        run: docker logs supacacher 2>&1 || true
+        run: docker logs restdis 2>&1 || true

@@ -1,4 +1,4 @@
-# RFC: SupaCacher Implementation Plan
+# RFC: Restdis Implementation Plan
 
 ---
 
@@ -29,14 +29,14 @@ Every PostgREST cache miss is a full database round-trip. For read-heavy tenants
 
 ### Architecture Overview
 
-SupaCacher is an Elixir umbrella application with four child apps:
+Restdis is an Elixir umbrella application with four child apps:
 
 | App                      | Responsibility                                                                                                                                                                                                                                                                                           |
 | ------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `supa_cacher_server`     | Redis protocol listener (RESP). HTTP endpoint for PostgREST proxy. Parses commands, extracts tenant context, routes to cache layer. Proxies cache misses to PostgREST or read replica. Reads tenant config from Postgres. Owns rewarm scheduling.                                                        |
-| `supa_cacher_cache`      | Three-layer cache engine: ETS QueryCache, CubDB DiskCache, PostgREST origin fetch. One ETS table and one CubDB instance per tenant. Maintains the reverse index. Exposes internal API for lookups, writes, invalidation, and global disk replication.                                                    |
-| `supa_cacher_buster`     | GenSingleton process (via `syn`) tailing the cluster-wide WAL stream. Consumes 1 replication slot. Broadcasts changes per-AZ. Spawns worker processes per WAL event that read tenant config, look up reverse index, and dispatch invalidation (TTL mode) or refresh (replication mode) to the cache app. |
-| `supa_cacher_replicator` | Manages always-live KV datasets. On initial subscription, fetches full table or filtered subset from PostgREST. Stores as individual KV pairs in cache. On WAL change notification from buster, re-fetches affected rows and updates in place.                                                           |
+| `restdis_server`     | Redis protocol listener (RESP). HTTP endpoint for PostgREST proxy. Parses commands, extracts tenant context, routes to cache layer. Proxies cache misses to PostgREST or read replica. Reads tenant config from Postgres. Owns rewarm scheduling.                                                        |
+| `restdis_cache`      | Three-layer cache engine: ETS QueryCache, CubDB DiskCache, PostgREST origin fetch. One ETS table and one CubDB instance per tenant. Maintains the reverse index. Exposes internal API for lookups, writes, invalidation, and global disk replication.                                                    |
+| `restdis_buster`     | GenSingleton process (via `syn`) tailing the cluster-wide WAL stream. Consumes 1 replication slot. Broadcasts changes per-AZ. Spawns worker processes per WAL event that read tenant config, look up reverse index, and dispatch invalidation (TTL mode) or refresh (replication mode) to the cache app. |
+| `restdis_replicator` | Manages always-live KV datasets. On initial subscription, fetches full table or filtered subset from PostgREST. Stores as individual KV pairs in cache. On WAL change notification from buster, re-fetches affected rows and updates in place.                                                           |
 
 ### Three-Layer Cache
 
@@ -135,7 +135,7 @@ Tenant config specifies a read replica URL. When set, all PostgREST origin fetch
 
 Delivers the two-layer cache engine with reverse index. Foundation for all subsequent phases.
 
-1. Scaffold the Elixir umbrella project with `supa_cacher_cache` as the first child app.
+1. Scaffold the Elixir umbrella project with `restdis_cache` as the first child app.
 2. Implement per-tenant ETS table creation and lifecycle management via Cachex.
 3. Implement per-tenant CubDB instance creation on local NVMe.
 4. Expose internal API: `get/2`, `put/3`, `delete/2`, `flush_tenant/1`.
@@ -161,7 +161,7 @@ Delivers the two-layer cache engine with reverse index. Foundation for all subse
 
 Delivers a Redis-compatible server that clients can connect to. Cache misses proxy to PostgREST.
 
-1. Add `supa_cacher_server` as the second child app.
+1. Add `restdis_server` as the second child app.
 2. Implement RESP protocol parser and TCP listener.
 3. Implement core Redis commands: `PING`, `AUTH`, `GET`, `SET`, `MGET`, `DEL`, `TTL`, `EXISTS`.
 4. Implement `PGRST.QUERY`: parse path, fetch from PostgREST via HTTP, cache result, return canonical cache key.
@@ -189,7 +189,7 @@ Delivers a Redis-compatible server that clients can connect to. Cache misses pro
 
 Delivers automatic cache busting when tenant data changes. Queries are invalidated within seconds of a write.
 
-1. Add `supa_cacher_buster` as the third child app.
+1. Add `restdis_buster` as the third child app.
 2. Add `:syn` as the cross-cluster process registry. Configure two scopes: `:wal` (unique registration for the WAL tailer singleton) and `:wal_fanout` (group registration keyed by AZ). Each node joins its scope on boot with AZ metadata read from runtime config (e.g. `RELEASE_AZ` env var). `libcluster` membership drives `:syn` node visibility; rely on `:syn`'s built-in netsplit resolution (last-write-wins by default; documented choice).
 3. Implement the WAL tail as a singleton GenServer registered under `:syn` scope `:wal` with key `:wal_tailer`. Every node attempts to register on boot; `:syn` guarantees exactly one winner cluster-wide. Losers stay supervised and idle, ready to take over.
 4. Connect to Postgres logical replication slot. Parse WAL events: table name, operation, old/new row data.
@@ -221,7 +221,7 @@ Delivers automatic cache busting when tenant data changes. Queries are invalidat
 
 Delivers demand-driven cache warming and durable persistence for high-value entries.
 
-1. Implement rewarm scheduler in `supa_cacher_server`: on cache hit with rewarm interval, schedule re-query after the interval using a timer wheel per tenant.
+1. Implement rewarm scheduler in `restdis_server`: on cache hit with rewarm interval, schedule re-query after the interval using a timer wheel per tenant.
 2. On rewarm timer fire, re-execute PostgREST query and update ETS and CubDB.
 3. If no request arrives within one rewarm interval after last re-query, evict the entry (unless `persist`).
 4. Implement `persist` flag: entries skip rewarm eviction and write to CubDB with durable flag.
@@ -246,10 +246,10 @@ Delivers demand-driven cache warming and durable persistence for high-value entr
 
 Delivers always-live KV datasets for latency-critical reads. Replicated tables stay current via WAL-triggered refresh.
 
-1. Add `supa_cacher_replicator` as the fourth child app.
+1. Add `restdis_replicator` as the fourth child app.
 2. Add replication config to tenant config table: table name, optional filter query, primary key column.
 3. On subscription, fetch full result set from PostgREST with pagination. Store as KV pairs: `<table>:<primary_key> -> row`.
-4. Register with `supa_cacher_buster` for WAL events on replicated tables. Buster dispatches refresh (not invalidation) for replication-mode tables.
+4. Register with `restdis_buster` for WAL events on replicated tables. Buster dispatches refresh (not invalidation) for replication-mode tables.
 5. On WAL INSERT/UPDATE, re-fetch the affected row from PostgREST and update KV entry in place.
 6. On WAL DELETE, remove the KV entry.
 7. Clients access replicated data via standard Redis `GET <table>:<primary_key>`.

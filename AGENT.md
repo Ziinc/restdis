@@ -5,7 +5,7 @@ All coding agents working in this repo MUST follow the workflow below. These rul
 
 ## Source of Truth
 
-`PRD.md` is the authoritative reference for SupaCacher's scope, architecture, naming, phase boundaries, invalidation modes, and limits. When a requirement is ambiguous:
+`PRD.md` is the authoritative reference for Restdis's scope, architecture, naming, phase boundaries, invalidation modes, and limits. When a requirement is ambiguous:
 
 1. Consult `PRD.md` first. Quote the relevant section in the task notes or PR description when a decision rests on it.
 2. Never introduce behavior that contradicts the PRD.
@@ -20,9 +20,9 @@ DDD is required for every change in this repo.
   built and versioned as a standalone library under the `Restdis` namespace despite living
   alongside the other umbrella children. It must never reference an umbrella module;
   `mix check.boundary` enforces this. See `LIB_PRD.md`.
-- `supa_cacher_server` — Redis RESP protocol, HTTP endpoint, rewarm scheduling.
-- `supa_cacher_buster` — WAL ingestion and invalidation/refresh dispatch.
-- `supa_cacher_replicator` — always-live KV datasets.
+- `restdis_server` — Redis RESP protocol, HTTP endpoint, rewarm scheduling.
+- `restdis_buster` — WAL ingestion and invalidation/refresh dispatch.
+- `restdis_replicator` — always-live KV datasets.
 
 Cross-context calls go through the owning app's public API only. Never reach into another app's internal modules.
 
@@ -147,9 +147,9 @@ socket = if connected?(socket), do: assign(socket, :val, val), else: socket
 
 ## Local Development
 
-`docker-compose.yml` provides a local dev stack, alongside the `db`/`supacacher` services used to smoke-test the production release image:
+`docker-compose.yml` provides a local dev stack, alongside the `db`/`restdis` services used to smoke-test the production release image:
 
-- `db` — Postgres 16 with `wal_level=logical` enabled (required for `supa_cacher_buster`'s WAL tailer), exposed on `5432`, database `supa_cacher_dev`.
+- `db` — Postgres 16 with `wal_level=logical` enabled (required for `restdis_buster`'s WAL tailer), exposed on `5432`, database `restdis_dev`.
 - `app` — the umbrella app running under `mix` (not the release build), with `deps`/`_build`/`mix`/`hex` cached in named volumes so `mix deps.get` isn't re-run from scratch on every rebuild. Sets `POSTGRES_HOSTNAME=db` so `config/dev.exs` connects to the compose service instead of `localhost` (used when running `mix` directly on the host with a local Postgres), and `RESP_LISTEN_IP=0.0.0.0` so the RESP port is reachable from the host (`config/dev.exs` otherwise binds to `127.0.0.1` only).
 
 Usage:
@@ -160,4 +160,4 @@ docker compose run --rm app mix test
 docker compose exec app mix check
 ```
 
-`mix test` needs the `supa_cacher_test` database created and migrated first (`MIX_ENV=test POSTGRES_HOSTNAME=db mix ecto.create && mix ecto.migrate`, run inside the `app` container) since it isn't provisioned automatically.
+`mix test` needs the `restdis_test` database created and migrated first (`MIX_ENV=test POSTGRES_HOSTNAME=db mix ecto.create && mix ecto.migrate`, run inside the `app` container) since it isn't provisioned automatically.

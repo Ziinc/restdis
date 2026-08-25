@@ -1,0 +1,25 @@
+defmodule RestdisBuster.TenantTableConfig do
+  @moduledoc false
+
+  alias RestdisBuster.TenantTableConfig.Cache
+
+  @type config :: %{
+          tenant_id: String.t(),
+          schema: String.t(),
+          table_name: String.t(),
+          mode: String.t(),
+          pk_column: String.t()
+        }
+
+  @doc """
+  Looks up the configuration for `schema`.`table_name`.
+  """
+  @spec lookup(String.t(), String.t()) :: {:ok, config()} | :not_found
+  def lookup(schema, table_name), do: Cache.lookup(schema, table_name)
+
+  @doc """
+  Drops the cached configuration for `schema`.`table_name`.
+  """
+  @spec invalidate(String.t(), String.t()) :: :ok
+  def invalidate(schema, table_name), do: Cache.invalidate(schema, table_name)
+end
