@@ -1,0 +1,14 @@
+.git
+.gitignore
+_build
+deps
+cover
+cache_data
+test_cache_data
+tmp
+.elixir_ls
+**/*.beam
+erl_crash.dump
+Dockerfile
+.dockerignore
+docker-compose.yml

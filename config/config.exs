@@ -39,6 +39,8 @@ config :supa_cacher_replicator,
 config :supa_cacher_repo,
   ecto_repos: [SupaCacherRepo]
 
+config :supa_cacher_repo, SupaCacherRepo, priv: "priv/repo"
+
 config :opentelemetry,
   span_processor: :batch,
   traces_exporter: :otlp

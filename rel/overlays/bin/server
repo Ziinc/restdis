@@ -1,0 +1,10 @@
+#!/bin/sh
+set -eu
+
+cd -P -- "$(dirname -- "$0")"
+
+if [ "${MIGRATE_ON_BOOT:-true}" = "true" ]; then
+  ./migrate
+fi
+
+exec ./supacacher start

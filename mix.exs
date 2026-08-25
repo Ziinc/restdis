@@ -11,6 +11,22 @@ defmodule Supacacher.MixProject do
       dialyzer: [
         plt_add_apps: [:mix],
         plt_file: {:no_warn, "priv/plts/dialyzer.plt"}
+      ],
+      releases: releases()
+    ]
+  end
+
+  defp releases do
+    [
+      supacacher: [
+        include_executables_for: [:unix],
+        applications: [
+          supa_cacher_repo: :permanent,
+          supa_cacher_cache: :permanent,
+          supa_cacher_replicator: :permanent,
+          supa_cacher_server: :permanent,
+          supa_cacher_buster: :permanent
+        ]
       ]
     ]
   end

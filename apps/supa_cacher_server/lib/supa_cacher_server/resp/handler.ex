@@ -10,9 +10,9 @@ defmodule SupaCacherServer.RESP.Handler do
   alias SupaCacherServer.RESP.Parser
 
   @impl ThousandIsland.Handler
-  def handle_connection(socket, _opts) do
+  def handle_connection(_socket, _opts) do
     state = %{authenticated?: false, tenant_id: nil, buffer: <<>>}
-    {:continue, state, socket}
+    {:continue, state}
   end
 
   @impl ThousandIsland.Handler
@@ -28,7 +28,7 @@ defmodule SupaCacherServer.RESP.Handler do
         process_buffer(rest, socket, %{new_state | buffer: <<>>})
 
       {:more, _rest} ->
-        {:continue, %{state | buffer: buffer}, socket}
+        {:continue, %{state | buffer: buffer}}
 
       {:error, reason} ->
         msg = Encoder.error("ERR protocol error: #{inspect(reason)}")

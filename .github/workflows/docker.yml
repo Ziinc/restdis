@@ -1,0 +1,114 @@
+name: Docker
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: docker-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build image and smoke test the release
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          load: true
+          tags: supacacher:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Start Postgres
+        run: |
+          docker network create supacacher-ci
+          docker run -d --name supacacher-db --network supacacher-ci \
+            -e POSTGRES_USER=postgres \
+            -e POSTGRES_PASSWORD=postgres \
+            -e POSTGRES_DB=supa_cacher_dev \
+            postgres:16 -c wal_level=logical
+          for _ in $(seq 1 30); do
+            if docker exec supacacher-db pg_isready -U postgres; then exit 0; fi
+            sleep 2
+          done
+          echo "Postgres did not become ready" >&2
+          exit 1
+
+      - name: Start the release
+        run: |
+          docker run -d --name supacacher --network supacacher-ci \
+            -e DATABASE_URL=ecto://postgres:postgres@supacacher-db/supa_cacher_dev \
+            -e RELEASE_COOKIE=ci_cookie \
+            -p 4040:4040 -p 6380:6380 \
+            supacacher:ci
+
+      - name: Wait for the HTTP endpoint
+        run: |
+          for _ in $(seq 1 30); do
+            if curl -fsS http://localhost:4040/health > /dev/null; then exit 0; fi
+            sleep 2
+          done
+          echo "HTTP endpoint never became healthy" >&2
+          exit 1
+
+      - name: Assert migrations ran
+        run: |
+          tables=$(docker exec supacacher-db psql -U postgres -d supa_cacher_dev -tAc \
+            "select count(*) from information_schema.tables where table_schema = 'public' and table_name in ('tenants', 'api_keys', 'tenant_table_config', 'wal_checkpoint')")
+          test "$tables" = "4"
+
+      - name: Assert the WAL replication slot is active
+        run: |
+          active=$(docker exec supacacher-db psql -U postgres -d supa_cacher_dev -tAc \
+            "select active from pg_replication_slots where slot_name = 'supacacher_slot'")
+          test "$active" = "t"
+
+      - name: Assert the RESP endpoint answers
+        run: |
+          exec 3<>/dev/tcp/127.0.0.1/6380
+          printf '*1\r\n$4\r\nPING\r\n' >&3
+          reply=$(timeout 10 head -c 7 <&3)
+          exec 3<&-
+          test "$reply" = "$(printf '+PONG\r\n')"
+
+      - name: Assert the metrics endpoint scrapes
+        run: |
+          for _ in $(seq 1 15); do
+            if curl -fsS http://localhost:4040/metrics | grep -q "^vm_memory_total "; then exit 0; fi
+            sleep 2
+          done
+          echo "vm_memory_total never appeared in the scrape" >&2
+          curl -fsS http://localhost:4040/metrics | head -20 >&2
+          exit 1
+
+      - name: Assert every umbrella app started
+        run: |
+          started=$(docker exec supacacher /app/bin/supacacher rpc \
+            'Application.started_applications() |> Enum.map(&elem(&1, 0)) |> Enum.sort() |> Enum.join(",") |> IO.puts()')
+          for app in supa_cacher_buster supa_cacher_cache supa_cacher_replicator supa_cacher_repo supa_cacher_server; do
+            case ",$started," in
+              *",$app,"*) ;;
+              *) echo "$app is not running in the release" >&2; exit 1 ;;
+            esac
+          done
+
+      - name: Assert the release logged no errors
+        run: |
+          if docker logs supacacher 2>&1 | grep -E "\[error\]"; then
+            echo "Release logged errors on boot" >&2
+            exit 1
+          fi
+
+      - name: Dump release logs
+        if: always()
+        run: docker logs supacacher 2>&1 || true

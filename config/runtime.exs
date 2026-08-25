@@ -26,8 +26,7 @@ if config_env() == :prod do
     ]
 
   config :supa_cacher_cache,
-    cache_data_dir: System.get_env("CACHE_DATA_DIR", "/var/lib/supacacher/cache"),
-    origin: SupaCacherCache.Origin.PostgREST
+    cache_data_dir: System.get_env("CACHE_DATA_DIR", "/var/lib/supacacher/cache")
 
   config :supa_cacher_replicator,
     origin: SupaCacherReplicator.Origin.PostgREST,
@@ -38,8 +37,8 @@ if config_env() == :prod do
 
   config :supa_cacher_server,
     resp_port: String.to_integer(System.get_env("RESP_PORT", "6380")),
-    http_port: String.to_integer(System.get_env("HTTP_PORT", "4040")),
-    tenant_store: SupaCacherServer.TenantStore.Repo
+    resp_listen_ip: System.get_env("RESP_LISTEN_IP", "0.0.0.0"),
+    http_port: String.to_integer(System.get_env("HTTP_PORT", "4040"))
 
   config :supa_cacher_repo, SupaCacherRepo,
     url: System.fetch_env!("DATABASE_URL"),
