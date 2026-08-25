@@ -55,7 +55,9 @@ jobs:
           test "$reply" = "$(printf '+PONG\r\n')"
 
       - name: Run the test suite the same way a contributor would
-        run: docker compose run --rm -e MIX_ENV=test app mix test
+        run: |
+          docker compose run --rm -e MIX_ENV=test -e POSTGRES_HOSTNAME=db app \
+            sh -c "mix ecto.create --quiet && mix ecto.migrate --quiet && mix test"
 
       - name: Dump app logs
         if: always()

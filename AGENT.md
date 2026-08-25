@@ -146,17 +146,17 @@ socket = if connected?(socket), do: assign(socket, :val, val), else: socket
 
 ## Local Development
 
-`docker-compose.yml` provides a local dev stack:
+`docker-compose.yml` provides a local dev stack, alongside the `db`/`supacacher` services used to smoke-test the production release image:
 
-- `postgres` — Postgres 16 with `wal_level=logical` enabled (required for `supa_cacher_buster`'s WAL tailer), exposed on `5432`, database `supa_cacher_dev`.
-- `app` — the umbrella app running under `mix`, with `deps`/`_build`/`mix`/`hex` cached in named volumes so `mix deps.get` isn't re-run from scratch on every rebuild.
+- `db` — Postgres 16 with `wal_level=logical` enabled (required for `supa_cacher_buster`'s WAL tailer), exposed on `5432`, database `supa_cacher_dev`.
+- `app` — the umbrella app running under `mix` (not the release build), with `deps`/`_build`/`mix`/`hex` cached in named volumes so `mix deps.get` isn't re-run from scratch on every rebuild. Sets `POSTGRES_HOSTNAME=db` so `config/dev.exs` connects to the compose service instead of `localhost` (used when running `mix` directly on the host with a local Postgres), and `RESP_LISTEN_IP=0.0.0.0` so the RESP port is reachable from the host (`config/dev.exs` otherwise binds to `127.0.0.1` only).
 
 Usage:
 
 ```sh
-docker compose up          # start postgres + app
+docker compose up app              # start db + the mix-based dev app
 docker compose run --rm app mix test
 docker compose exec app mix check
 ```
 
-The `app` service sets `POSTGRES_HOSTNAME=postgres` so `config/dev.exs` connects to the compose service instead of `localhost` (used when running `mix` directly on the host with a local Postgres).
+`mix test` needs the `supa_cacher_test` database created and migrated first (`MIX_ENV=test POSTGRES_HOSTNAME=db mix ecto.create && mix ecto.migrate`, run inside the `app` container) since it isn't provisioned automatically.

@@ -48,6 +48,7 @@ services:
     environment:
       MIX_ENV: dev
       POSTGRES_HOSTNAME: db
+      RESP_LISTEN_IP: "0.0.0.0"
     ports:
       - "6380:6380"
       - "4040:4040"
