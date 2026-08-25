@@ -7,7 +7,7 @@ defmodule SupaCacherServer.Fallback do
   bypassing the cache entirely so the unreachable owner stays authoritative.
   """
 
-  alias SupaCacherCache.Key
+  alias Restdis.Cache.Key
   alias SupaCacherServer.PostgREST.Fetcher
   alias SupaCacherServer.TenantConfig
 
