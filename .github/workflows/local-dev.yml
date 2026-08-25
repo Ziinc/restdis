@@ -1,0 +1,66 @@
+name: Local dev
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: local-dev-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  compose:
+    name: docker compose local dev stack
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build the dev image
+        run: docker compose build app
+
+      - name: Start Postgres and wait for it to be healthy
+        run: |
+          docker compose up -d db
+          for _ in $(seq 1 30); do
+            status=$(docker inspect -f '{{.State.Health.Status}}' "$(docker compose ps -q db)")
+            if [ "$status" = "healthy" ]; then exit 0; fi
+            sleep 2
+          done
+          echo "db never became healthy" >&2
+          docker compose logs db >&2
+          exit 1
+
+      - name: Start the dev app
+        run: docker compose up -d app
+
+      - name: Wait for deps to fetch and the app to boot
+        run: |
+          for _ in $(seq 1 60); do
+            if curl -fsS http://localhost:4040/health > /dev/null 2>&1; then exit 0; fi
+            sleep 5
+          done
+          echo "app never became healthy" >&2
+          docker compose logs app >&2
+          exit 1
+
+      - name: Assert the RESP endpoint answers
+        run: |
+          exec 3<>/dev/tcp/127.0.0.1/6380
+          printf '*1\r\n$4\r\nPING\r\n' >&3
+          reply=$(timeout 10 head -c 7 <&3)
+          exec 3<&-
+          test "$reply" = "$(printf '+PONG\r\n')"
+
+      - name: Run the test suite the same way a contributor would
+        run: docker compose run --rm -e MIX_ENV=test app mix test
+
+      - name: Dump app logs
+        if: always()
+        run: docker compose logs app db || true
+
+      - name: Tear down
+        if: always()
+        run: docker compose down -v
