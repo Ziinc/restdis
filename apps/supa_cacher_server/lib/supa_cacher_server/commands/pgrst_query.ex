@@ -36,7 +36,7 @@ defmodule SupaCacherServer.Commands.PgrstQuery do
           :miss ->
             OpenTelemetry.Tracer.set_attribute("restdis.cache_result", "miss")
             maybe_cold_read(state.tenant_id, wire_key)
-            fetch_and_cache(state, key, wire_key, config, ttl_ms)
+            fetch_and_cache(state, %{key: key, wire_key: wire_key, config: config}, ttl_ms)
         end
       else
         {:error, reason} ->
@@ -48,7 +48,7 @@ defmodule SupaCacherServer.Commands.PgrstQuery do
   def run(state, _),
     do: {Encoder.error("ERR wrong number of arguments for 'PGRST.QUERY' command"), state}
 
-  defp fetch_and_cache(state, key, wire_key, config, ttl_ms) do
+  defp fetch_and_cache(state, %{key: key, wire_key: wire_key, config: config}, ttl_ms) do
     default_ttl_ms = (config.default_ttl_s || 60) * 1000
     effective_ttl_ms = ttl_ms || default_ttl_ms
     policy = PolicyStore.get(state.tenant_id, wire_key)

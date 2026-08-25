@@ -82,7 +82,7 @@ defmodule SupaCacherServer.HTTP.Endpoint do
             :miss ->
               OpenTelemetry.Tracer.set_attribute("restdis.cache_result", "miss")
               maybe_cold_read(tenant_id, wire_key)
-              fetch_and_respond(conn, tenant_id, key, wire_key, config)
+              fetch_and_respond(conn, key, wire_key, config)
           end
 
         {:error, reason} ->
@@ -91,7 +91,8 @@ defmodule SupaCacherServer.HTTP.Endpoint do
     end
   end
 
-  defp fetch_and_respond(conn, tenant_id, key, wire_key, config) do
+  defp fetch_and_respond(conn, key, wire_key, config) do
+    tenant_id = conn.assigns.tenant_id
     ttl_ms = (config.default_ttl_s || 60) * 1000
     policy = PolicyStore.get(tenant_id, wire_key)
 

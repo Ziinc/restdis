@@ -14,9 +14,9 @@ defmodule SupaCacherBuster.WAL.RelationCache do
   @doc """
   Stores the relation described by a WAL Relation frame under its `oid`.
   """
-  @spec update(t(), non_neg_integer(), String.t(), String.t(), [column()]) :: t()
-  def update(cache, oid, schema, table, columns) do
-    Map.put(cache, oid, %{schema: schema, table: table, columns: columns})
+  @spec update(t(), non_neg_integer(), relation()) :: t()
+  def update(cache, oid, relation) do
+    Map.put(cache, oid, relation)
   end
 
   @doc """

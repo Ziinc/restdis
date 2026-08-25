@@ -1,0 +1,19 @@
+id: function-arity-limit
+language: elixir
+severity: error
+message: Functions must not have more than 4 arguments.
+note: |
+  Functions with more than 4 arguments are hard to read and call correctly.
+  Group related arguments into a struct or map, or split the function up.
+files:
+  - "apps/*/lib/**/*.ex"
+rule:
+  any:
+    - pattern: 'def $NAME($A1, $A2, $A3, $A4, $A5)'
+    - pattern: 'def $NAME($A1, $A2, $A3, $A4, $A5, $$$REST)'
+    - pattern: 'def $NAME($A1, $A2, $A3, $A4, $A5) when $$$GUARD'
+    - pattern: 'def $NAME($A1, $A2, $A3, $A4, $A5, $$$REST) when $$$GUARD'
+    - pattern: 'defp $NAME($A1, $A2, $A3, $A4, $A5)'
+    - pattern: 'defp $NAME($A1, $A2, $A3, $A4, $A5, $$$REST)'
+    - pattern: 'defp $NAME($A1, $A2, $A3, $A4, $A5) when $$$GUARD'
+    - pattern: 'defp $NAME($A1, $A2, $A3, $A4, $A5, $$$REST) when $$$GUARD'

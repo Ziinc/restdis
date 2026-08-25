@@ -209,14 +209,17 @@ defmodule SupaCacherServer.Rewarm.Scheduler do
 
     case TenantConfig.lookup_by_tenant_id(tenant_id) do
       {:ok, config} ->
-        cast_fetch_result(scheduler_pid, tenant_id, wire_key, key, config, started_at_us)
+        fetch = %{tenant_id: tenant_id, wire_key: wire_key, key: key, config: config}
+        cast_fetch_result(scheduler_pid, fetch, started_at_us)
 
       {:error, _reason} ->
         GenServer.cast(scheduler_pid, {:refetch_err, wire_key, :no_config})
     end
   end
 
-  defp cast_fetch_result(scheduler_pid, tenant_id, wire_key, key, config, started_at_us) do
+  defp cast_fetch_result(scheduler_pid, fetch, started_at_us) do
+    %{tenant_id: tenant_id, wire_key: wire_key, key: key, config: config} = fetch
+
     case Fetcher.fetch(tenant_id, key, config) do
       {:ok, body} -> GenServer.cast(scheduler_pid, {:refetch_ok, wire_key, body, started_at_us})
       {:error, reason} -> GenServer.cast(scheduler_pid, {:refetch_err, wire_key, reason})

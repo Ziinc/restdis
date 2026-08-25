@@ -40,7 +40,8 @@ defmodule SupaCacherBuster.WAL.Pgoutput do
     {table_name, rest} = read_cstring(rest)
     <<_identity::8, num_cols::16, cols_bin::binary>> = rest
     {columns, _} = decode_columns(cols_bin, num_cols, [])
-    new_cache = RelationCache.update(cache, oid, namespace, table_name, columns)
+    relation = %{schema: namespace, table: table_name, columns: columns}
+    new_cache = RelationCache.update(cache, oid, relation)
     {[], {new_cache, txn_lsn}}
   end
 
