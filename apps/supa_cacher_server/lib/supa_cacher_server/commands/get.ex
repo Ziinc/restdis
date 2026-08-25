@@ -6,7 +6,9 @@ defmodule SupaCacherServer.Commands.Get do
   require OpenTelemetry.Tracer
 
   alias Restdis.Cache.Key
+  alias Restdis.Cache.Router
   alias SupaCacherReplicator.Dataset
+  alias SupaCacherServer.Fallback
   alias SupaCacherServer.PolicyStore
   alias SupaCacherServer.RESP.Encoder
   alias SupaCacherServer.Rewarm
@@ -21,11 +23,15 @@ defmodule SupaCacherServer.Commands.Get do
     } do
       case Key.decode(wire_key) do
         {:ok, key} ->
-          case Restdis.Cache.get(state.tenant_id, key) do
+          case Router.get(state.tenant_id, key) do
             {:ok, value} ->
               OpenTelemetry.Tracer.set_attribute("restdis.cache_result", "hit")
               Rewarm.touch(state.tenant_id, wire_key, key)
               {Encoder.bulk_string(Jason.encode!(value)), state}
+
+            {:error, :unreachable} ->
+              OpenTelemetry.Tracer.set_attribute("restdis.cache_result", "fallback")
+              fallback_get(state, key)
 
             :miss ->
               OpenTelemetry.Tracer.set_attribute("restdis.cache_result", "miss")
@@ -40,6 +46,13 @@ defmodule SupaCacherServer.Commands.Get do
   end
 
   def run(state, _), do: {Encoder.error("ERR wrong number of arguments for 'get' command"), state}
+
+  defp fallback_get(state, key) do
+    case Fallback.fetch(state.tenant_id, key) do
+      {:ok, body} -> {Encoder.bulk_string(Jason.encode!(body)), state}
+      {:error, reason} -> {Encoder.error("ERR origin unavailable: #{inspect(reason)}"), state}
+    end
+  end
 
   defp replicated_get(state, wire_key) do
     case Dataset.parse_wire_key(wire_key) do

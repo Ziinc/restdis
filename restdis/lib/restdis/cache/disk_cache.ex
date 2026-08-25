@@ -59,6 +59,17 @@ defmodule Restdis.Cache.DiskCache do
   end
 
   @doc """
+  Returns the `{key, value}` pairs flagged `persist` for the tenant.
+  """
+  @spec persisted_entries(String.t()) :: [{Key.t(), term()}]
+  def persisted_entries(tenant_id) do
+    case TenantRegistry.whereis(tenant_id, :disk_cache) do
+      nil -> []
+      pid -> GenServer.call(pid, :persisted_entries)
+    end
+  end
+
+  @doc """
   Removes every entry from the tenant's disk cache.
   """
   @spec flush(String.t()) :: :ok
@@ -121,6 +132,16 @@ defmodule Restdis.Cache.DiskCache do
       end
 
     {:reply, result, state}
+  end
+
+  def handle_call(:persisted_entries, _from, %{cubdb: cubdb} = state) do
+    entries =
+      cubdb
+      |> CubDB.select()
+      |> Stream.filter(&match?({_key, {:v1, %{persist: true}}}, &1))
+      |> Enum.map(fn {key, {:v1, %{value: value}}} -> {key, value} end)
+
+    {:reply, entries, state}
   end
 
   def handle_call(:flush, _from, %{cubdb: cubdb} = state) do

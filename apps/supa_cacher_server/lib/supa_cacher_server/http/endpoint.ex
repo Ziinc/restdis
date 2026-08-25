@@ -8,6 +8,8 @@ defmodule SupaCacherServer.HTTP.Endpoint do
   require OpenTelemetry.Tracer
 
   alias Restdis.Cache.Key
+  alias Restdis.Cache.Router
+  alias SupaCacherServer.Fallback
   alias SupaCacherServer.HTTP.Plug.Auth
   alias SupaCacherServer.HTTP.Plug.CacheHeaders
   alias SupaCacherServer.PGRST.QueryParser
@@ -69,7 +71,11 @@ defmodule SupaCacherServer.HTTP.Endpoint do
         {:ok, key, _params} ->
           wire_key = Key.encode(key)
 
-          case Restdis.Cache.peek(tenant_id, key) do
+          case Router.peek(tenant_id, key) do
+            {:error, :unreachable} ->
+              OpenTelemetry.Tracer.set_attribute("restdis.cache_result", "fallback")
+              fallback_respond(conn, tenant_id, key)
+
             {:ok, value} ->
               OpenTelemetry.Tracer.set_attribute("restdis.cache_result", "hit")
               Rewarm.touch(tenant_id, wire_key, key)
@@ -98,11 +104,27 @@ defmodule SupaCacherServer.HTTP.Endpoint do
 
     case Fetcher.fetch(tenant_id, key, config) do
       {:ok, body} ->
-        Restdis.Cache.put(tenant_id, key, body, ttl_ms: ttl_ms, persist: policy.persist)
+        Router.put(tenant_id, key, body, ttl_ms: ttl_ms, persist: policy.persist)
         Rewarm.touch(tenant_id, wire_key, key)
 
         conn
         |> CacheHeaders.put_cache_miss(div(ttl_ms, 1000))
+        |> put_resp_content_type("application/json")
+        |> send_resp(200, Jason.encode!(body))
+
+      {:error, {:status, status}} ->
+        send_resp(conn, status, Jason.encode!(%{error: "upstream error"}))
+
+      {:error, reason} ->
+        send_resp(conn, 502, Jason.encode!(%{error: inspect(reason)}))
+    end
+  end
+
+  defp fallback_respond(conn, tenant_id, key) do
+    case Fallback.fetch(tenant_id, key) do
+      {:ok, body} ->
+        conn
+        |> CacheHeaders.put_cache_miss(0)
         |> put_resp_content_type("application/json")
         |> send_resp(200, Jason.encode!(body))
 

@@ -31,6 +31,7 @@ defmodule SupaCacherServer.MixProject do
       {:restdis, path: "../../restdis"},
       {:supa_cacher_replicator, in_umbrella: true},
       {:supa_cacher_repo, in_umbrella: true},
+      {:libcluster, "~> 3.5"},
       {:thousand_island, "~> 1.5"},
       {:bandit, "~> 1.5"},
       {:plug, "~> 1.16"},

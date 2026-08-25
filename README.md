@@ -48,6 +48,16 @@ docker compose up --build
 | `REPLICATION_PAGE_SIZE` | `1000` | Rows per page when replicating a dataset |
 | `REPLICATION_PAGE_DELAY_MS` | `50` | Delay between replication pages |
 | `REPLICATION_RECONCILE_STAGGER_MS` | `1000` | Stagger between reconcile passes |
+| `CLUSTER_DNS_QUERY` | unset | DNS name polled by `libcluster` to form the cluster; unset runs a single node |
+| `CLUSTER_NODE_BASENAME` | `supacacher` | Node basename used to build peer node names |
+| `CLUSTER_POLL_INTERVAL_MS` | `5000` | DNS poll interval |
+
+### Cluster distribution
+
+Tenants are placed on a consistent hash ring with 128 virtual nodes per node. The owning
+node serves a tenant's cache; other nodes forward the operation over Erlang distribution
+with a one second budget and, if the owner is unreachable, fetch from PostgREST directly.
+Ring changes hand a tenant's `persist` entries to its new owner and drop the local copy.
 
 ### Release commands
 

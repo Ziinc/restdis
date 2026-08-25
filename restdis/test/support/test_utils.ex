@@ -31,6 +31,26 @@ defmodule Restdis.Cache.TestUtils do
     :persistent_term.get(@target_key, nil)
   end
 
+  @spec add_cluster_node(node()) :: :ok
+  def add_cluster_node(node) do
+    send(Restdis.Cache.Cluster, {:nodeup, node})
+    Restdis.Cache.Cluster.sync()
+  end
+
+  @spec remove_cluster_node(node()) :: :ok
+  def remove_cluster_node(node) do
+    send(Restdis.Cache.Cluster, {:nodedown, node})
+    Restdis.Cache.Cluster.sync()
+  end
+
+  @spec tenant_owned_by(node()) :: String.t()
+  def tenant_owned_by(node) do
+    Enum.find_value(1..10_000, fn index ->
+      tenant_id = "tenant_#{index}"
+      if Restdis.Cache.Cluster.owner(tenant_id) == node, do: tenant_id
+    end)
+  end
+
   @spec put_transport(module() | nil) :: :ok
   def put_transport(transport) do
     Application.put_env(:restdis, :replication_transport, transport)

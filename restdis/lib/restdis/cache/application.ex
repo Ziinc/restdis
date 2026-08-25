@@ -10,7 +10,8 @@ defmodule Restdis.Cache.Application do
     children = [
       {Registry, keys: :unique, name: Restdis.Cache.TenantRegistry},
       Restdis.Cache.TenantSupervisor,
-      Restdis.Cache.Replication.Receiver
+      Restdis.Cache.Replication.Receiver,
+      Restdis.Cache.Cluster
     ]
 
     Supervisor.start_link(children, strategy: :one_for_one, name: Restdis.Cache.Supervisor)
