@@ -27,6 +27,14 @@ concerns. No behaviour change to the cache or the WAL follower is in scope; this
 packaging and dependency-inversion effort. Publishing to Hex is also out of scope: the
 application depends on the library by path.
 
+Decoupling is verified by dependency graph and code boundary, not by directory nesting:
+`restdis` lives at `apps/restdis`, alongside the umbrella's other children, and is proven
+standalone the same way any of them would be — its dependency list names no umbrella
+application, a compile-time guard rejects any reference to umbrella modules, and its test
+suite is runnable in isolation with its own `test_helper.exs` and config. Umbrella
+placement is a repository-layout convenience; it does not grant the library access to
+host config, process names, or code that the guard and dependency list forbid.
+
 ## Decisions
 
 **One project, two supervision trees.** `restdis` ships `Restdis.Cache` and
@@ -95,23 +103,26 @@ Delivers the library as its own Mix project that builds and tests with the umbre
 absent. Everything after this phase is written inside the library, under its final module
 names, rather than moved at the end.
 
-1. Create a top-level `restdis/` Mix project with its own `mix.exs`, lockfile,
-   `config/`, formatter, and credo configuration, depending on nothing from `apps/`.
+1. Create a `apps/restdis` Mix project with its own `mix.exs`, lockfile,
+   `config/`, formatter, and credo configuration, depending on nothing from the other
+   umbrella children.
 2. Move the cache engine into it under its final module namespace. The cache has no code
    references to the other umbrella apps, so it moves whole.
 3. Give the library its own `test_helper.exs` and test repo, independent of the umbrella's
    `config/config.exs`.
-4. Add the library to the umbrella as a `path:` dependency and reduce
-   `apps/supa_cacher_cache` to nothing, deleting it.
-5. Add a CI job running the library's `mix check` and `mix test` from its own directory.
+4. Add the library to the umbrella children that need it as a `path:` dependency
+   (`../restdis`) and reduce `apps/supa_cacher_cache` to nothing, deleting it.
+5. Add a CI job running the library's `mix check` and `mix test` from its own directory
+   (`apps/restdis`), independent of the other umbrella children.
 6. Add a compile-time guard rejecting any reference from library code to an umbrella
    module.
 
 **Completion criteria:**
 
-- `mix test` inside `restdis/` passes with `apps/` deleted from the checkout.
+- `mix test` inside `apps/restdis` passes with the other umbrella children deleted from
+  the checkout.
 - The umbrella's suite passes with the cache consumed as a `path:` dependency.
-- The library's dependency list contains no umbrella application.
+- The library's dependency list contains no other umbrella application.
 
 The WAL follower stays in `apps/supa_cacher_buster` until Phase 4, because it cannot move
 while it still calls `SupaCacherRepo` and `SupaCacherCache` directly.
@@ -214,19 +225,24 @@ Delivers safe co-existence with the host application.
 
 - Adding the library as a dependency starts no processes until the host mounts it.
 - The full umbrella test suite passes with both trees started by name.
-- A scratch Mix project outside the umbrella can depend on `restdis/` by path, run the
-  generated migration, start both trees, and cache a key.
+- A scratch Mix project outside this repository can depend on `apps/restdis` by path
+  (or a copy of that directory), run the generated migration, start both trees, and
+  cache a key, with no other umbrella child present.
 
 ---
 
 ## Resolved Questions
 
-**The library lives in this repository,** as a top-level `restdis/` directory consumed by
-the umbrella as a `path:` dependency. The application always consumes the library by path,
-never by a published version, so the two move together in one change and there is no
-release step in the critical path. One repository keeps every phase a single change; the
-boundary is enforced by the dependency list and the Phase 1 compile-time guard rather than
-by separate checkouts.
+**The library lives in this repository,** as `apps/restdis`, an umbrella child consumed by
+the other children as a `path:` dependency (`../restdis`). The application always consumes
+the library by path, never by a published version, so the two move together in one change
+and there is no release step in the critical path. One repository keeps every phase a
+single change; the boundary is enforced by the dependency list and the Phase 1
+compile-time guard rather than by separate checkouts or by keeping the library outside
+`apps/`. Umbrella placement only affects where the directory sits and how the umbrella's
+own tooling discovers it; it carries no config or namespace access, since the umbrella's
+`config/config.exs` is loaded explicitly by name per app and the guard rejects any
+reference from library code to a `SupaCacher*` module regardless of directory nesting.
 
 **Tenant config comes only from the repo.** There is no read-through behaviour, MFA hook,
 or escape hatch for tenant configuration: a consumer of the library runs the migration and

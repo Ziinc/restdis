@@ -25,7 +25,7 @@ COPY apps/supa_cacher_buster/mix.exs apps/supa_cacher_buster/
 COPY apps/supa_cacher_replicator/mix.exs apps/supa_cacher_replicator/
 COPY apps/supa_cacher_repo/mix.exs apps/supa_cacher_repo/
 COPY apps/supa_cacher_server/mix.exs apps/supa_cacher_server/
-COPY restdis restdis
+COPY apps/restdis/mix.exs apps/restdis/
 
 RUN mix deps.get --only $MIX_ENV
 RUN mix deps.compile

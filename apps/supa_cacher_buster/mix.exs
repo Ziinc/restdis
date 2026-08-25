@@ -28,7 +28,7 @@ defmodule SupaCacherBuster.MixProject do
 
   defp deps do
     [
-      {:restdis, path: "../../restdis"},
+      {:restdis, path: "../restdis"},
       {:supa_cacher_repo, in_umbrella: true},
       {:syn, "~> 3.3"},
       {:postgrex, "~> 0.17"},
