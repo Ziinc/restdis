@@ -2,6 +2,8 @@
 .gitignore
 _build
 deps
+**/_build
+**/deps
 cover
 cache_data
 test_cache_data
