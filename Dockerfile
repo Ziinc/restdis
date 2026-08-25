@@ -1,15 +1,16 @@
 ARG ELIXIR_VERSION=1.20.3
 ARG ERLANG_VERSION=28.1.1
-ARG DEBIAN_VERSION=trixie-20260803
-ARG BUILDER_IMAGE="hexpm/elixir:${ELIXIR_VERSION}-erlang-${ERLANG_VERSION}-debian-${DEBIAN_VERSION}-slim"
-ARG RUNNER_IMAGE="debian:${DEBIAN_VERSION}-slim"
+ARG ALPINE_VERSION=3.22.5
+ARG BUILDER_IMAGE="hexpm/elixir:${ELIXIR_VERSION}-erlang-${ERLANG_VERSION}-alpine-${ALPINE_VERSION}"
+ARG RUNNER_IMAGE="alpine:${ALPINE_VERSION}"
 
+# ---------------------------------------------------------------------------
+# Stage 1: build the release. Nothing from this stage ships except the release
+# directory copied out at the bottom of the file.
+# ---------------------------------------------------------------------------
 FROM ${BUILDER_IMAGE} AS builder
 
-RUN apt-get update -y \
-  && apt-get install -y --no-install-recommends build-essential git ca-certificates \
-  && apt-get clean \
-  && rm -rf /var/lib/apt/lists/*
+RUN apk add --no-cache build-base git ca-certificates
 
 WORKDIR /app
 
@@ -17,6 +18,8 @@ RUN mix local.hex --force && mix local.rebar --force
 
 ENV MIX_ENV="prod"
 
+# Dependencies are fetched and compiled before any application source is
+# copied, so editing an app does not invalidate the dependency layers.
 COPY mix.exs mix.lock ./
 COPY apps/supa_cacher_buster/mix.exs apps/supa_cacher_buster/
 COPY apps/supa_cacher_cache/mix.exs apps/supa_cacher_cache/
@@ -37,26 +40,35 @@ COPY rel rel
 
 RUN mix release supacacher
 
+# Drop build-time tooling that mix release copies into ERTS but that the
+# release never executes, along with header files and NIF object directories.
+RUN cd /app/_build/prod/rel/supacacher \
+  && rm -f erts-*/bin/dialyzer erts-*/bin/typer erts-*/bin/erlc erts-*/bin/ct_run \
+  && rm -rf erts-*/include \
+  && rm -rf lib/*/include \
+  && rm -rf lib/*/priv/obj
+
+# ---------------------------------------------------------------------------
+# Stage 2: runtime. Alpine plus the shared libraries ERTS links against.
+# ---------------------------------------------------------------------------
 FROM ${RUNNER_IMAGE} AS runner
 
-RUN apt-get update -y \
-  && apt-get install -y --no-install-recommends libstdc++6 openssl libncurses6 locales ca-certificates \
-  && apt-get clean \
-  && rm -rf /var/lib/apt/lists/*
+RUN apk add --no-cache libstdc++ ncurses-libs openssl ca-certificates
 
-RUN sed -i '/en_US.UTF-8/s/^# //g' /etc/locale.gen && locale-gen
-
-ENV LANG=en_US.UTF-8 \
-    LANGUAGE=en_US:en \
-    LC_ALL=en_US.UTF-8 \
+# musl treats every locale as UTF-8, so no locale package or generation step
+# is needed. LANG is still set because the BEAM reads it to pick its I/O
+# encoding.
+ENV LANG=C.UTF-8 \
+    LC_ALL=C.UTF-8 \
     MIX_ENV=prod \
     CACHE_DATA_DIR=/var/lib/supacacher/cache
 
 WORKDIR /app
 
-RUN useradd --create-home --shell /bin/bash supacacher \
-  && mkdir -p /var/lib/supacacher/cache \
-  && chown -R supacacher:supacacher /app /var/lib/supacacher
+RUN addgroup -S supacacher \
+  && adduser -S -G supacacher -h /home/supacacher -s /bin/sh supacacher \
+  && mkdir -p /var/lib/supacacher/cache /home/supacacher \
+  && chown -R supacacher:supacacher /app /var/lib/supacacher /home/supacacher
 
 COPY --from=builder --chown=supacacher:supacacher /app/_build/prod/rel/supacacher ./
 

@@ -12,3 +12,18 @@ erl_crash.dump
 Dockerfile
 .dockerignore
 docker-compose.yml
+
+# Not reachable from a MIX_ENV=prod release; excluded to keep the build
+# context and the builder stage's layer cache small.
+**/test
+priv/plts
+.github
+.ast-grep
+.credo
+.credo.exs
+.formatter.exs
+.mise.toml
+sgconfig.yml
+AGENT.md
+PRD.md
+README.md
