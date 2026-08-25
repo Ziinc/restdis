@@ -8,7 +8,11 @@ defmodule SupaCacherBuster.TestUtils do
   @doc false
   @spec seed_table_config(String.t(), String.t(), map()) :: :ok
   def seed_table_config(schema, table, config) do
-    ReadThrough.put(TenantTableConfig.Cache.cache_name(), {schema, table}, config)
+    ReadThrough.put(
+      TenantTableConfig.Cache.cache_name(),
+      "tenant_table_config/#{schema}.#{table}",
+      config
+    )
   end
 
   @doc false

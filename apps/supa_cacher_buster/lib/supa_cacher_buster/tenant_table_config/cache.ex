@@ -24,7 +24,7 @@ defmodule SupaCacherBuster.TenantTableConfig.Cache do
   """
   @spec lookup(String.t(), String.t()) :: {:ok, map()} | :not_found
   def lookup(schema, table_name) do
-    ReadThrough.fetch(@cache_name, {schema, table_name}, fn ->
+    ReadThrough.fetch(@cache_name, ident(schema, table_name), fn ->
       fetch_from_db(schema, table_name)
     end)
   end
@@ -34,8 +34,10 @@ defmodule SupaCacherBuster.TenantTableConfig.Cache do
   """
   @spec invalidate(String.t(), String.t()) :: :ok
   def invalidate(schema, table_name) do
-    ReadThrough.delete(@cache_name, {schema, table_name})
+    ReadThrough.delete(@cache_name, ident(schema, table_name))
   end
+
+  defp ident(schema, table_name), do: "tenant_table_config/#{schema}.#{table_name}"
 
   defp fetch_from_db(schema, table_name) do
     case SupaCacherRepo.one(

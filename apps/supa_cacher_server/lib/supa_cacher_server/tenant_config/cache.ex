@@ -33,10 +33,10 @@ defmodule SupaCacherServer.TenantConfig.Cache do
   """
   @spec lookup_by_api_key(String.t()) :: {:ok, map()} | {:error, :not_found}
   def lookup_by_api_key(api_key) do
-    ReadThrough.fetch(@cache_name, {:api_key, api_key}, fn ->
+    ReadThrough.fetch(@cache_name, api_key_ident(api_key), fn ->
       case store_mod().fetch_by_api_key(api_key) do
         {:ok, config} ->
-          ReadThrough.put(@cache_name, {:tenant_id, config.tenant_id}, config)
+          ReadThrough.put(@cache_name, tenant_ident(config.tenant_id), config)
           index_api_key(config.tenant_id, api_key)
           {:ok, config}
 
@@ -51,7 +51,7 @@ defmodule SupaCacherServer.TenantConfig.Cache do
   """
   @spec lookup_by_tenant_id(String.t()) :: {:ok, map()} | {:error, :not_found}
   def lookup_by_tenant_id(tenant_id) do
-    ReadThrough.fetch(@cache_name, {:tenant_id, tenant_id}, fn ->
+    ReadThrough.fetch(@cache_name, tenant_ident(tenant_id), fn ->
       store_mod().fetch_by_tenant(tenant_id)
     end)
   end
@@ -81,11 +81,11 @@ defmodule SupaCacherServer.TenantConfig.Cache do
   @impl GenServer
   def handle_call({:invalidate, tenant_id}, _from, state) do
     Enum.each(api_keys_of(tenant_id), fn api_key ->
-      ReadThrough.delete(@cache_name, {:api_key, api_key})
+      ReadThrough.delete(@cache_name, api_key_ident(api_key))
     end)
 
-    ReadThrough.delete(@cache_name, {:api_keys, tenant_id})
-    ReadThrough.delete(@cache_name, {:tenant_id, tenant_id})
+    ReadThrough.delete(@cache_name, api_key_index_ident(tenant_id))
+    ReadThrough.delete(@cache_name, tenant_ident(tenant_id))
 
     {:reply, :ok, state}
   end
@@ -104,7 +104,7 @@ defmodule SupaCacherServer.TenantConfig.Cache do
 
   defp do_refresh do
     Enum.each(store_mod().list_all(), fn config ->
-      ReadThrough.put(@cache_name, {:tenant_id, config.tenant_id}, config)
+      ReadThrough.put(@cache_name, tenant_ident(config.tenant_id), config)
     end)
   end
 
@@ -112,18 +112,24 @@ defmodule SupaCacherServer.TenantConfig.Cache do
     keys = api_keys_of(tenant_id)
 
     unless api_key in keys do
-      ReadThrough.put(@cache_name, {:api_keys, tenant_id}, [api_key | keys])
+      ReadThrough.put(@cache_name, api_key_index_ident(tenant_id), [api_key | keys])
     end
 
     :ok
   end
 
   defp api_keys_of(tenant_id) do
-    case ReadThrough.fetch(@cache_name, {:api_keys, tenant_id}, fn -> :miss end) do
+    case ReadThrough.fetch(@cache_name, api_key_index_ident(tenant_id), fn -> :miss end) do
       {:ok, keys} -> keys
       _ -> []
     end
   end
+
+  defp tenant_ident(tenant_id), do: "tenants/" <> tenant_id
+
+  defp api_key_ident(api_key), do: "api_keys/" <> api_key
+
+  defp api_key_index_ident(tenant_id), do: "api_key_index/" <> tenant_id
 
   defp store_mod do
     Application.get_env(:supa_cacher_server, :tenant_store, SupaCacherServer.TenantStore.Repo)

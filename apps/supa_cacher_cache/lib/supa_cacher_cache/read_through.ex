@@ -8,18 +8,20 @@ defmodule SupaCacherCache.ReadThrough do
       {SupaCacherCache.ReadThrough,
        name: :tenant_config, data_dir: "./cache_data/control_plane", ttl_ms: 60_000}
 
-  Entries are written as ordinary (non-persist) disk entries, so they survive a
-  process restart without consuming a tenant persist cap. Every entry carries the
-  instance TTL in both layers.
+  An entry is addressed by an `ident` string built by the caller, and is written as
+  an ordinary (non-persist) disk entry, so it survives a process restart without
+  consuming a tenant persist cap. Every entry carries the instance TTL in both
+  layers.
   """
 
   use Supervisor
 
   alias SupaCacherCache.DiskCache
+  alias SupaCacherCache.Key
   alias SupaCacherCache.QueryCache
 
   @type name :: atom()
-  @type key :: term()
+  @type ident :: String.t()
 
   @default_ttl_ms 60_000
 
@@ -54,35 +56,38 @@ defmodule SupaCacherCache.ReadThrough do
   def namespace(name), do: "read_through/#{name}"
 
   @doc """
-  Reads `key`, calling `loader` on a miss and caching only its `{:ok, value}`.
+  Reads `ident`, calling `loader` on a miss and caching only its `{:ok, value}`.
   """
-  @spec fetch(name(), key(), (-> {:ok, term()} | term())) :: {:ok, term()} | term()
-  def fetch(name, key, loader) when is_function(loader, 0) do
+  @spec fetch(name(), ident(), (-> {:ok, term()} | term())) :: {:ok, term()} | term()
+  def fetch(name, ident, loader) when is_binary(ident) and is_function(loader, 0) do
     %{namespace: ns, ttl_ms: ttl_ms} = config(name)
+    key = key(ident)
 
     with :miss <- QueryCache.get(ns, key),
          :miss <- disk_get_and_promote(ns, key, ttl_ms) do
-      load(name, key, loader)
+      load(name, ident, loader)
     end
   end
 
   @doc """
-  Writes `value` under `key` into every layer.
+  Writes `value` under `ident` into every layer.
   """
-  @spec put(name(), key(), term()) :: :ok
-  def put(name, key, value) do
+  @spec put(name(), ident(), term()) :: :ok
+  def put(name, ident, value) when is_binary(ident) do
     %{namespace: ns, ttl_ms: ttl_ms} = config(name)
+    key = key(ident)
     QueryCache.put(ns, key, value, ttl_ms: ttl_ms)
     DiskCache.put(ns, key, envelope(value, ttl_ms))
     :ok
   end
 
   @doc """
-  Removes `key` from every layer.
+  Removes `ident` from every layer.
   """
-  @spec delete(name(), key()) :: :ok
-  def delete(name, key) do
+  @spec delete(name(), ident()) :: :ok
+  def delete(name, ident) when is_binary(ident) do
     ns = config(name).namespace
+    key = key(ident)
     QueryCache.delete(ns, key)
     DiskCache.delete(ns, key)
     :ok
@@ -116,10 +121,10 @@ defmodule SupaCacherCache.ReadThrough do
     Supervisor.init(children, strategy: :one_for_one)
   end
 
-  defp load(name, key, loader) do
+  defp load(name, ident, loader) do
     case loader.() do
       {:ok, value} ->
-        put(name, key, value)
+        put(name, ident, value)
         {:ok, value}
 
       other ->
@@ -142,6 +147,8 @@ defmodule SupaCacherCache.ReadThrough do
         :miss
     end
   end
+
+  defp key(ident), do: Key.build(:table, ident, %{})
 
   defp envelope(value, ttl_ms), do: {:rt, value, now_ms() + ttl_ms}
 
