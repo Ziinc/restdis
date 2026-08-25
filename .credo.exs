@@ -7,7 +7,7 @@
         excluded: [~r"/_build/", ~r"/deps/", ~r"apps/[^/]+/priv/"]
       },
       plugins: [],
-      requires: [".credo/checks/module_file_path.ex"],
+      requires: [".credo/checks/module_file_path.ex", ".credo/checks/namespace_trespassing.ex"],
       strict: true,
       parse_timeout: 5000,
       color: true,
@@ -28,6 +28,7 @@
           ## Design Checks
           #
           {Credo.Check.Design.AliasUsage, [if_nested_deeper_than: 2, if_called_more_often_than: 0]},
+          {Credo.Check.Design.NamespaceTrespassing, []},
           {Credo.Check.Design.TagFIXME, []},
           {Credo.Check.Design.TagTODO, [exit_status: 0]},
 
