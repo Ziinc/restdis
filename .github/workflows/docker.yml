@@ -82,7 +82,14 @@ jobs:
           test "$reply" = "$(printf '+PONG\r\n')"
 
       - name: Assert the metrics endpoint scrapes
-        run: curl -fsS http://localhost:4040/metrics | grep -q "^vm_memory_total "
+        run: |
+          for _ in $(seq 1 15); do
+            if curl -fsS http://localhost:4040/metrics | grep -q "^vm_memory_total "; then exit 0; fi
+            sleep 2
+          done
+          echo "vm_memory_total never appeared in the scrape" >&2
+          curl -fsS http://localhost:4040/metrics | head -20 >&2
+          exit 1
 
       - name: Assert every umbrella app started
         run: |
