@@ -6,7 +6,7 @@ defmodule Restdis.Cache.ReadThroughTest do
 
   setup context do
     name = :"rt_#{System.unique_integer([:positive])}"
-    data_dir = Path.join(System.tmp_dir!(), "supacacher_rt_#{System.unique_integer([:positive])}")
+    data_dir = Path.join(System.tmp_dir!(), "restdis_rt_#{System.unique_integer([:positive])}")
     ttl_ms = Map.get(context, :ttl_ms, 60_000)
 
     start_supervised!({ReadThrough, name: name, data_dir: data_dir, ttl_ms: ttl_ms})

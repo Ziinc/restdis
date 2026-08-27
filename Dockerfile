@@ -21,10 +21,10 @@ ENV MIX_ENV="prod"
 # Dependencies are fetched and compiled before any application source is
 # copied, so editing an app does not invalidate the dependency layers.
 COPY mix.exs mix.lock ./
-COPY apps/supa_cacher_buster/mix.exs apps/supa_cacher_buster/
-COPY apps/supa_cacher_replicator/mix.exs apps/supa_cacher_replicator/
-COPY apps/supa_cacher_repo/mix.exs apps/supa_cacher_repo/
-COPY apps/supa_cacher_server/mix.exs apps/supa_cacher_server/
+COPY apps/restdis_buster/mix.exs apps/restdis_buster/
+COPY apps/restdis_replicator/mix.exs apps/restdis_replicator/
+COPY apps/restdis_repo/mix.exs apps/restdis_repo/
+COPY apps/restdis_server/mix.exs apps/restdis_server/
 COPY apps/restdis/mix.exs apps/restdis/
 
 RUN mix deps.get --only $MIX_ENV
@@ -38,11 +38,11 @@ RUN mix compile
 COPY config/runtime.exs config/
 COPY rel rel
 
-RUN mix release supacacher
+RUN mix release restdis
 
 # Drop build-time tooling that mix release copies into ERTS but that the
 # release never executes, along with header files and NIF object directories.
-RUN cd /app/_build/prod/rel/supacacher \
+RUN cd /app/_build/prod/rel/restdis \
   && rm -f erts-*/bin/dialyzer erts-*/bin/typer erts-*/bin/erlc erts-*/bin/ct_run \
   && rm -rf erts-*/include \
   && rm -rf lib/*/include \
@@ -61,18 +61,18 @@ RUN apk add --no-cache libstdc++ ncurses-libs openssl ca-certificates
 ENV LANG=C.UTF-8 \
     LC_ALL=C.UTF-8 \
     MIX_ENV=prod \
-    CACHE_DATA_DIR=/var/lib/supacacher/cache
+    CACHE_DATA_DIR=/var/lib/restdis/cache
 
 WORKDIR /app
 
-RUN addgroup -S supacacher \
-  && adduser -S -G supacacher -h /home/supacacher -s /bin/sh supacacher \
-  && mkdir -p /var/lib/supacacher/cache /home/supacacher \
-  && chown -R supacacher:supacacher /app /var/lib/supacacher /home/supacacher
+RUN addgroup -S restdis \
+  && adduser -S -G restdis -h /home/restdis -s /bin/sh restdis \
+  && mkdir -p /var/lib/restdis/cache /home/restdis \
+  && chown -R restdis:restdis /app /var/lib/restdis /home/restdis
 
-COPY --from=builder --chown=supacacher:supacacher /app/_build/prod/rel/supacacher ./
+COPY --from=builder --chown=restdis:restdis /app/_build/prod/rel/restdis ./
 
-USER supacacher
+USER restdis
 
 EXPOSE 4040 6380
 

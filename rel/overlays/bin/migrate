@@ -3,4 +3,4 @@ set -eu
 
 cd -P -- "$(dirname -- "$0")"
 
-exec ./supacacher eval "SupaCacherRepo.Release.migrate()"
+exec ./restdis eval "RestdisRepo.Release.migrate()"

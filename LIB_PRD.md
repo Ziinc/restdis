@@ -9,11 +9,11 @@ The multi-layer cache and the Postgres WAL follower are generally useful, but to
 are only usable as umbrella children of this application. Three things block reuse:
 
 1. Configuration is read from the global application environment, so a host application
-   cannot run an instance without owning our `:supa_cacher_cache` / `:supa_cacher_buster`
+   cannot run an instance without owning our `:restdis_cache` / `:restdis_buster`
    config keys.
 2. Process names and `:syn` scopes are hardcoded module atoms, so two instances collide
    and the library squats on the host's namespace.
-3. The WAL follower calls `SupaCacherCache` and `SupaCacherRepo` directly, so neither half
+3. The WAL follower calls `RestdisCache` and `RestdisRepo` directly, so neither half
    can be adopted alone.
 
 ## Scope
@@ -22,7 +22,7 @@ are only usable as umbrella children of this application. Three things block reu
 project, `restdis`, with Ecto as a required dependency and Oban-style migrations.
 
 **Out of scope.** The RESP server, the HTTP endpoint, PostgREST fetching, rewarm
-scheduling, and API-key auth. These stay in `supa_cacher_server` and remain application
+scheduling, and API-key auth. These stay in `restdis_server` and remain application
 concerns. No behaviour change to the cache or the WAL follower is in scope; this is a
 packaging and dependency-inversion effort. Publishing to Hex is also out of scope: the
 application depends on the library by path.
@@ -44,7 +44,7 @@ two version counters, two prefix options, and a foreign key across the split.
 
 **The library is standalone, but not yet published.** It is built so a consumer who does
 not run this application could adopt it: it depends on no umbrella app, reads no
-`:supa_cacher_*` application environment, and its documentation and examples stand on their
+`:restdis_*` application environment, and its documentation and examples stand on their
 own. Publishing to Hex is deliberately out of scope; the application consumes the library
 by path and the two stay in lockstep. Hex metadata, a changelog, and a release process are
 a later effort, unblocked by this one. The carve-out therefore happens first (Phase 1), so
@@ -111,7 +111,7 @@ names, rather than moved at the end.
 3. Give the library its own `test_helper.exs` and test repo, independent of the umbrella's
    `config/config.exs`.
 4. Add the library to the umbrella children that need it as a `path:` dependency
-   (`../restdis`) and reduce `apps/supa_cacher_cache` to nothing, deleting it.
+   (`../restdis`) and reduce `apps/restdis_cache` to nothing, deleting it.
 5. Add a CI job running the library's `mix check` and `mix test` from its own directory
    (`apps/restdis`), independent of the other umbrella children.
 6. Add a compile-time guard rejecting any reference from library code to an umbrella
@@ -124,8 +124,8 @@ names, rather than moved at the end.
 - The umbrella's suite passes with the cache consumed as a `path:` dependency.
 - The library's dependency list contains no other umbrella application.
 
-The WAL follower stays in `apps/supa_cacher_buster` until Phase 4, because it cannot move
-while it still calls `SupaCacherRepo` and `SupaCacherCache` directly.
+The WAL follower stays in `apps/restdis_buster` until Phase 4, because it cannot move
+while it still calls `RestdisRepo` and `RestdisCache` directly.
 
 ## Phase 2: Versioned Migrations
 
@@ -173,12 +173,12 @@ Delivers the one-command install path for a host application.
 
 Delivers per-instance database configuration and a WAL follower that runs without the
 cache, then moves it into the library. Repo injection and the handler behaviour are one
-phase because both rewrite `SupaCacherBuster.Worker` and `TenantTableConfig`.
+phase because both rewrite `RestdisBuster.Worker` and `TenantTableConfig`.
 
 1. Resolve start options into an instance config store at boot, keyed by instance name.
-2. Thread `repo:` and `prefix:` through `SupaCacherBuster.Infra.LsnStore`, replacing the
-   hardcoded `SupaCacherRepo` at three call sites.
-3. Thread `repo:` and `prefix:` through `SupaCacherBuster.TenantTableConfig.Cache`.
+2. Thread `repo:` and `prefix:` through `RestdisBuster.Infra.LsnStore`, replacing the
+   hardcoded `RestdisRepo` at three call sites.
+3. Thread `repo:` and `prefix:` through `RestdisBuster.TenantTableConfig.Cache`.
 4. Move the `tenants` and `tenant_table_config` Ecto schemas into the library, prefix-free,
    with `prefix:` passed per query.
 5. Read `default_ttl_s` and `persist_cap` from `tenants` through the injected repo, behind
@@ -186,13 +186,13 @@ phase because both rewrite `SupaCacherBuster.Worker` and `TenantTableConfig`.
 6. Delete the `tenant_config_lookup` MFA and its configuration, leaving the `tenants` table
    as the only source of tenant configuration.
 7. Define a `handler` behaviour receiving decoded WAL events.
-8. Replace the direct `SupaCacherCache.invalidate_by_row/3` and `flush_table/2` calls in
-   `SupaCacherBuster.Worker` with a dispatch to the configured handler.
+8. Replace the direct `RestdisCache.invalidate_by_row/3` and `flush_table/2` calls in
+   `RestdisBuster.Worker` with a dispatch to the configured handler.
 9. Move the `public.tenants` and `public.tenant_table_config` special-casing out of the
    worker into an application-level handler.
 10. Ship the cache-invalidating handler as a library module the host can opt into.
 11. Move the WAL follower into the library under its final module namespace and delete
-    `apps/supa_cacher_buster`.
+    `apps/restdis_buster`.
 
 **Completion criteria:**
 
@@ -219,7 +219,7 @@ Delivers safe co-existence with the host application.
 3. Make the singleton and fanout transports pluggable, with the `:syn` adapter optional and
    `libcluster` not a library dependency.
 4. Remove `mod:` from both applications and expose `child_spec/1` instead.
-5. Mount both trees explicitly from `supa_cacher_server`.
+5. Mount both trees explicitly from `restdis_server`.
 
 **Completion criteria:**
 
@@ -242,7 +242,7 @@ compile-time guard rather than by separate checkouts or by keeping the library o
 `apps/`. Umbrella placement only affects where the directory sits and how the umbrella's
 own tooling discovers it; it carries no config or namespace access, since the umbrella's
 `config/config.exs` is loaded explicitly by name per app and the guard rejects any
-reference from library code to a `SupaCacher*` module regardless of directory nesting.
+reference from library code to a `Restdis*` module regardless of directory nesting.
 
 **Tenant config comes only from the repo.** There is no read-through behaviour, MFA hook,
 or escape hatch for tenant configuration: a consumer of the library runs the migration and
@@ -251,7 +251,7 @@ among several.
 
 **The project is named `restdis`,** matching the repository, with `Restdis` as the public
 module namespace and `restdis` as the default schema prefix. The application keeps its
-`SupaCacher*` namespace; it is a consumer of the library, not the same thing.
+`Restdis*` namespace; it is a consumer of the library, not the same thing.
 
 **Backwards compatibility is not a constraint.** The project is greenfield with no
 deployed database and no external consumers. Renames, schema changes, and migration

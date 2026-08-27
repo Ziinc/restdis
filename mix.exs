@@ -1,4 +1,4 @@
-defmodule Supacacher.MixProject do
+defmodule RestdisUmbrella.MixProject do
   use Mix.Project
 
   def project do
@@ -18,14 +18,14 @@ defmodule Supacacher.MixProject do
 
   defp releases do
     [
-      supacacher: [
+      restdis: [
         include_executables_for: [:unix],
         applications: [
-          supa_cacher_repo: :permanent,
+          restdis_repo: :permanent,
           restdis: :permanent,
-          supa_cacher_replicator: :permanent,
-          supa_cacher_server: :permanent,
-          supa_cacher_buster: :permanent
+          restdis_replicator: :permanent,
+          restdis_server: :permanent,
+          restdis_buster: :permanent
         ]
       ]
     ]

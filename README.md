@@ -1,14 +1,14 @@
-# SupaCacher
+# Restdis
 
 See `PRD.md` for scope and architecture, and `AGENT.md` for the development workflow.
 
 ## Docker build
 
-The image is a two-stage build: a `hexpm/elixir` builder that assembles the `supacacher`
+The image is a two-stage build: a `hexpm/elixir` builder that assembles the `restdis`
 `mix release`, and a slim Debian runner that carries only the release.
 
 ```sh
-docker build -t supacacher:latest .
+docker build -t restdis:latest .
 ```
 
 Toolchain versions are build args (`ELIXIR_VERSION`, `ERLANG_VERSION`, `DEBIAN_VERSION`) and
@@ -18,10 +18,10 @@ default to the versions pinned in `.mise.toml`.
 
 ```sh
 docker run --rm \
-  -e DATABASE_URL=ecto://postgres:postgres@host.docker.internal/supa_cacher_dev \
+  -e DATABASE_URL=ecto://postgres:postgres@host.docker.internal/restdis_dev \
   -e RELEASE_COOKIE=some_secret_cookie \
   -p 4040:4040 -p 6380:6380 \
-  supacacher:latest
+  restdis:latest
 ```
 
 Or bring up the app plus a logical-replication-enabled Postgres:
@@ -41,15 +41,15 @@ docker compose up --build
 | `RESP_PORT` | `6380` | Redis RESP port |
 | `RESP_LISTEN_IP` | `0.0.0.0` | RESP bind address (`:loopback` outside `:prod`) |
 | `POOL_SIZE` | `10` | Repo pool size |
-| `CACHE_DATA_DIR` | `/var/lib/supacacher/cache` | CubDB disk cache root (mount a volume here) |
-| `WAL_SLOT_NAME` | `supacacher_slot` | Replication slot name |
-| `WAL_PUBLICATION_NAME` | `supacacher_pub` | Publication name |
+| `CACHE_DATA_DIR` | `/var/lib/restdis/cache` | CubDB disk cache root (mount a volume here) |
+| `WAL_SLOT_NAME` | `restdis_slot` | Replication slot name |
+| `WAL_PUBLICATION_NAME` | `restdis_pub` | Publication name |
 | `MIGRATE_ON_BOOT` | `true` | Run migrations before starting the release |
 | `REPLICATION_PAGE_SIZE` | `1000` | Rows per page when replicating a dataset |
 | `REPLICATION_PAGE_DELAY_MS` | `50` | Delay between replication pages |
 | `REPLICATION_RECONCILE_STAGGER_MS` | `1000` | Stagger between reconcile passes |
 | `CLUSTER_DNS_QUERY` | unset | DNS name polled by `libcluster` to form the cluster; unset runs a single node |
-| `CLUSTER_NODE_BASENAME` | `supacacher` | Node basename used to build peer node names |
+| `CLUSTER_NODE_BASENAME` | `restdis` | Node basename used to build peer node names |
 | `CLUSTER_POLL_INTERVAL_MS` | `5000` | DNS poll interval |
 
 ### Cluster distribution
@@ -65,5 +65,5 @@ Ring changes hand a tenant's `persist` entries to its new owner and drop the loc
 also be run on their own:
 
 ```sh
-docker run --rm -e DATABASE_URL=... supacacher:latest /app/bin/migrate
+docker run --rm -e DATABASE_URL=... restdis:latest /app/bin/migrate
 ```

@@ -7,4 +7,4 @@ if [ "${MIGRATE_ON_BOOT:-true}" = "true" ]; then
   ./migrate
 fi
 
-exec ./supacacher start
+exec ./restdis start

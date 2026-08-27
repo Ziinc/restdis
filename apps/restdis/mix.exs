@@ -1,7 +1,7 @@
 defmodule Restdis.MixProject do
   use Mix.Project
 
-  @umbrella_namespaces ~w(SupaCacherServer SupaCacherBuster SupaCacherRepo)
+  @umbrella_namespaces ~w(RestdisServer RestdisBuster RestdisRepo)
 
   def project do
     [
