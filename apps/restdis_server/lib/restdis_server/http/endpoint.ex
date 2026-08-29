@@ -195,8 +195,8 @@ defmodule RestdisServer.HTTP.Endpoint do
 
     if tid do
       case :ets.lookup(tid, key) do
-        [{^key, _, :infinity}] -> -1
-        [{^key, _, exp}] -> max(0, div(exp - System.monotonic_time(:millisecond), 1000))
+        [{^key, _, :infinity, _last_access}] -> -1
+        [{^key, _, exp, _last_access}] -> max(0, div(exp - System.monotonic_time(:millisecond), 1000))
         [] -> -2
       end
     else
