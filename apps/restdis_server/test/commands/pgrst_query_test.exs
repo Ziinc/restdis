@@ -1,6 +1,8 @@
 defmodule RestdisServer.Commands.PgrstQueryTest do
   use ExUnit.Case
 
+  alias Restdis.Cache
+  alias Restdis.Cache.Key
   alias RestdisServer.Commands.Dispatcher
   alias RestdisServer.PolicyStore
   alias RestdisServer.Rewarm
@@ -171,11 +173,11 @@ defmodule RestdisServer.Commands.PgrstQueryTest do
     [key_str1] = Regex.run(~r/pgrst:[^\r\n]+/, wire1)
     [key_str2] = Regex.run(~r/pgrst:[^\r\n]+/, wire2)
 
-    {:ok, key1} = Restdis.Cache.Key.decode(key_str1)
-    {:ok, key2} = Restdis.Cache.Key.decode(key_str2)
+    {:ok, key1} = Key.decode(key_str1)
+    {:ok, key2} = Key.decode(key_str2)
 
-    {:ok, value1} = Restdis.Cache.peek(@tenant_id, key1)
-    {:ok, value2} = Restdis.Cache.peek(@tenant_id, key2)
+    {:ok, value1} = Cache.peek(@tenant_id, key1)
+    {:ok, value2} = Cache.peek(@tenant_id, key2)
 
     assert value1 == [%{"query" => "id=eq.1"}]
     assert value2 == [%{"query" => "id=eq.2"}]
