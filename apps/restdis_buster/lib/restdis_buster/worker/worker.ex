@@ -135,9 +135,7 @@ defmodule RestdisBuster.Worker do
     handler().invalidate_by_row(config.tenant_id, event.table, pk)
   end
 
-  defp handler do
-    Application.get_env(:restdis_buster, :wal_handler, RestdisBuster.CacheHandler)
-  end
+  defp handler, do: RestdisBuster.Worker.HandlerConfig.handler()
 
   defp elapsed_us(nil), do: 0
 
