@@ -185,12 +185,12 @@ defmodule Restdis.Cache.DiskCache do
     {:noreply, %{state | bytes: max(state.bytes - old_size, 0)}}
   end
 
-  defp evict_over_cap(%{cubdb: cubdb, tenant_id: tenant_id, bytes: bytes} = state) do
+  defp evict_over_cap(%{bytes: bytes} = state) do
     cap = Application.get_env(:restdis, :cubdb_cap_bytes, @default_cubdb_cap_bytes)
-    do_evict_over_cap(cubdb, tenant_id, bytes, cap, state)
+    do_evict_over_cap(bytes, cap, state)
   end
 
-  defp do_evict_over_cap(cubdb, tenant_id, bytes, cap, state) do
+  defp do_evict_over_cap(bytes, cap, %{cubdb: cubdb, tenant_id: tenant_id} = state) do
     if bytes > cap do
       case oldest_non_persist_key(cubdb) do
         nil ->
@@ -206,7 +206,7 @@ defmodule Restdis.Cache.DiskCache do
           })
 
           new_bytes = max(bytes - evict_size, 0)
-          do_evict_over_cap(cubdb, tenant_id, new_bytes, cap, state)
+          do_evict_over_cap(new_bytes, cap, state)
       end
     else
       %{state | bytes: bytes}
