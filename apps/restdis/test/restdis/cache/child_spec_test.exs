@@ -16,8 +16,7 @@ defmodule Restdis.Cache.ChildSpecTest do
     assert {:ok, pid} = Restdis.Cache.Supervisor.start_link([])
     assert pid == Process.whereis(Restdis.Cache.Supervisor)
 
-    # Only the supervisor's own name is instance-scoped so far; other cache modules use
-    # fixed atoms (PRD Phase 5 follow-up).
+    # Only this supervisor's name is instance-scoped so far; other modules use fixed atoms (Phase 5 follow-up).
     Process.flag(:trap_exit, true)
 
     assert {:error, _reason} =
