@@ -7,6 +7,7 @@ defmodule RestdisServer.Rewarm.Scheduler do
 
   alias Restdis.Cache.Key
   alias RestdisServer.PostgREST.Fetcher
+  alias RestdisServer.QueryStore
   alias RestdisServer.TenantConfig
 
   defstruct [:key, :rewarm_s, :persist, :last_read_ms, :last_rewarm_ms, :next_due_ms]
@@ -185,6 +186,7 @@ defmodule RestdisServer.Rewarm.Scheduler do
 
     if cold? do
       Restdis.Cache.delete(state.tenant_id, entry.key)
+      QueryStore.delete(state.tenant_id, wire_key)
       :ets.delete(state.table, wire_key)
 
       :telemetry.execute(

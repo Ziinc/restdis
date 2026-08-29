@@ -3,6 +3,7 @@ defmodule RestdisServer.Rewarm.SchedulerTest do
 
   alias Restdis.Cache.Key
   alias RestdisServer.PolicyStore
+  alias RestdisServer.QueryStore
   alias RestdisServer.Rewarm
   alias RestdisServer.Rewarm.Scheduler
   alias RestdisServer.TenantStore.InMemory
@@ -128,6 +129,64 @@ defmodule RestdisServer.Rewarm.SchedulerTest do
     refute_receive {:telemetry, [:restdis_server, :rewarm, :refetch], _, _}, 300
 
     assert Agent.get(agent, & &1) == 0
+  end
+
+  test "(e) cold eviction also removes the QueryStore entry for the evicted key" do
+    attach_telemetry([:restdis_server, :rewarm, :refetch])
+    attach_telemetry([:restdis_server, :rewarm, :evicted])
+
+    key = Key.build(:table, "cold_query_items", %{"id" => "eq.5"})
+    wire_key = Key.encode(key)
+    Restdis.Cache.put(@tenant_id, key, [%{"id" => 5}], ttl_ms: 60_000)
+    QueryStore.put(@tenant_id, wire_key, "id=eq.5")
+
+    PolicyStore.put(@tenant_id, wire_key, %{rewarm_s: 1, persist: false})
+    Rewarm.touch(@tenant_id, wire_key, key)
+
+    assert_receive {:telemetry, [:restdis_server, :rewarm, :refetch], _, _}, 1500
+    assert_receive {:telemetry, [:restdis_server, :rewarm, :evicted], _, meta}, 3000
+    assert meta.reason == :cold
+
+    :timer.sleep(50)
+    assert QueryStore.get(@tenant_id, wire_key) == ""
+  end
+
+  test "(f) stop_tenant clears the tenant's QueryStore entries" do
+    key = Key.build(:table, "teardown_items", %{"id" => "eq.9"})
+    wire_key = Key.encode(key)
+    QueryStore.put(@tenant_id, wire_key, "id=eq.9")
+
+    pid = ensure_scheduler()
+    assert Process.alive?(pid)
+
+    Rewarm.stop_tenant(@tenant_id)
+
+    assert QueryStore.get(@tenant_id, wire_key) == ""
+  end
+
+  test "(g) rewarm refetch reuses the original query string, not the bare path" do
+    Application.delete_env(:restdis_server, :postgrest_fetcher)
+
+    key = Key.build(:table, "filtered_items", %{"id" => "eq.1"})
+    wire_key = Key.encode(key)
+    QueryStore.put(@tenant_id, wire_key, "id=eq.1")
+    Restdis.Cache.put(@tenant_id, key, [%{"id" => 1}], ttl_ms: 60_000)
+
+    test_pid = self()
+
+    Req.Test.stub(RestdisServer.Finch, fn conn ->
+      send(test_pid, {:outbound_query, conn.query_string})
+      Req.Test.json(conn, [%{"id" => 1}])
+    end)
+
+    PolicyStore.put(@tenant_id, wire_key, %{rewarm_s: 1, persist: false})
+    Rewarm.touch(@tenant_id, wire_key, key)
+
+    scheduler_pid = ensure_scheduler()
+    Req.Test.allow(RestdisServer.Finch, test_pid, scheduler_pid)
+
+    assert_receive {:outbound_query, query_string}, 1500
+    assert query_string == "id=eq.1"
   end
 
   defp ensure_scheduler do
