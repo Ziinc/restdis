@@ -7,7 +7,7 @@ defmodule Restdis.Cache.TenantTest do
   alias Restdis.Cache.TenantSupervisor
 
   @tag :restart
-  test "CubDB serves warm data after tenant supervisor restart" do
+  test "disk cache serves warm data after tenant supervisor restart" do
     tenant_id = "restart_#{System.unique_integer([:positive])}"
     key = Key.build(:table, "products", %{"id" => "eq.1"})
     value = %{"id" => 1, "name" => "Widget"}

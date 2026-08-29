@@ -1,6 +1,7 @@
 defmodule Restdis.Cache.ReadThrough do
   @moduledoc """
-  Named multi-layer read-through cache: ETS query cache in front of a CubDB disk cache.
+  Named multi-layer read-through cache: ETS query cache in front of a
+  `Restdis.Cache.DiskCache` disk cache.
 
   Unlike the per-tenant aggregate, an instance is configured where it is
   supervised rather than resolved from a tenant id:

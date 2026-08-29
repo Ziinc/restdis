@@ -112,8 +112,8 @@ defmodule Restdis.Cache.PersistTest do
 
     disk_cache_pid = TenantRegistry.whereis(tenant_id, :disk_cache)
     state = :sys.get_state(disk_cache_pid)
-    cubdb = state.cubdb
-    :ok = CubDB.put(cubdb, key, raw_value)
+    %{backend: backend, handle: handle} = state
+    :ok = backend.put(handle, key, raw_value)
 
     assert {:ok, ^raw_value} = Restdis.Cache.peek(tenant_id, key)
   end

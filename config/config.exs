@@ -20,7 +20,9 @@ config :restdis,
   cache_data_dir: "./cache_data",
   origin: Restdis.Cache.Origin.Stub,
   replication_transport: Restdis.Cache.Replication.Transport.Distribution,
-  tenant_config_lookup: {RestdisServer.TenantConfig, :lookup_by_tenant_id, []}
+  tenant_config_lookup: {RestdisServer.TenantConfig, :lookup_by_tenant_id, []},
+  # :cubdb (default) or :feoxdb — see Restdis.Cache.Storage.
+  storage_backend: Restdis.Cache.Storage.CubDB
 
 config :restdis_server,
   topologies: [],

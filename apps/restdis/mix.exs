@@ -28,6 +28,7 @@ defmodule Restdis.MixProject do
   defp deps do
     [
       {:cubdb, "~> 2.0"},
+      {:rustler, "~> 0.35"},
       {:jason, "~> 1.4"},
       {:telemetry, "~> 1.0"},
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},

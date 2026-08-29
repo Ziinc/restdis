@@ -10,3 +10,5 @@ test_cache_data/
 /tmp/
 .elixir_ls/
 /priv/plts/
+apps/restdis/native/feoxdb_nif/target/
+apps/restdis/priv/native/

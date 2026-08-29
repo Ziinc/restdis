@@ -1,11 +1,14 @@
 defmodule Restdis.Cache.DiskCache do
   @moduledoc """
-  CubDB-backed disk cache for persisted entries of a tenant.
+  Disk cache for persisted entries of a tenant, backed by a pluggable
+  `Restdis.Cache.Storage` implementation (CubDB or FeoxDB, selected via
+  `:restdis, :storage_backend`).
   """
 
   use GenServer
 
   alias Restdis.Cache.Key
+  alias Restdis.Cache.Storage
   alias Restdis.Cache.TenantRegistry
 
   @doc """
@@ -18,7 +21,7 @@ defmodule Restdis.Cache.DiskCache do
   end
 
   @doc """
-  Reads `key` from the tenant's CubDB store.
+  Reads `key` from the tenant's disk store.
   """
   @spec get(String.t(), Key.t()) :: {:ok, term()} | :miss
   def get(tenant_id, key) do
@@ -81,17 +84,19 @@ defmodule Restdis.Cache.DiskCache do
   def init(opts) do
     tenant_id = Keyword.fetch!(opts, :tenant_id)
     data_dir = Keyword.fetch!(opts, :data_dir)
+    backend = Keyword.get(opts, :storage_backend, Storage.backend())
     tenant_dir = Path.join(data_dir, tenant_id)
     File.mkdir_p!(tenant_dir)
-    {:ok, cubdb} = CubDB.start_link(data_dir: tenant_dir)
-    recount_persist(tenant_id, cubdb)
-    {:ok, %{cubdb: cubdb}}
+    {:ok, handle} = backend.open(data_dir: tenant_dir)
+    state = %{backend: backend, handle: handle}
+    recount_persist(tenant_id, state)
+    {:ok, state}
   end
 
   @impl GenServer
-  def handle_call({:get, key}, _from, %{cubdb: cubdb} = state) do
+  def handle_call({:get, key}, _from, %{backend: backend, handle: handle} = state) do
     result =
-      case CubDB.fetch(cubdb, key) do
+      case backend.fetch(handle, key) do
         {:ok, {:v1, %{value: value}}} -> {:ok, value}
         {:ok, value} -> {:ok, value}
         :error -> :miss
@@ -100,20 +105,20 @@ defmodule Restdis.Cache.DiskCache do
     {:reply, result, state}
   end
 
-  def handle_call({:put, key, value, persist}, _from, %{cubdb: cubdb} = state) do
-    :ok = CubDB.put(cubdb, key, {:v1, %{value: value, persist: persist}})
+  def handle_call({:put, key, value, persist}, _from, %{backend: backend, handle: handle} = state) do
+    :ok = backend.put(handle, key, {:v1, %{value: value, persist: persist}})
     {:reply, :ok, state}
   end
 
-  def handle_call({:set_persist, key, persist}, _from, %{cubdb: cubdb} = state) do
+  def handle_call({:set_persist, key, persist}, _from, %{backend: backend, handle: handle} = state) do
     result =
-      case CubDB.fetch(cubdb, key) do
+      case backend.fetch(handle, key) do
         {:ok, {:v1, %{value: value}}} ->
-          :ok = CubDB.put(cubdb, key, {:v1, %{value: value, persist: persist}})
+          :ok = backend.put(handle, key, {:v1, %{value: value, persist: persist}})
           :ok
 
         {:ok, value} ->
-          :ok = CubDB.put(cubdb, key, {:v1, %{value: value, persist: persist}})
+          :ok = backend.put(handle, key, {:v1, %{value: value, persist: persist}})
           :ok
 
         :error ->
@@ -123,9 +128,9 @@ defmodule Restdis.Cache.DiskCache do
     {:reply, result, state}
   end
 
-  def handle_call({:peek_meta, key}, _from, %{cubdb: cubdb} = state) do
+  def handle_call({:peek_meta, key}, _from, %{backend: backend, handle: handle} = state) do
     result =
-      case CubDB.fetch(cubdb, key) do
+      case backend.fetch(handle, key) do
         {:ok, {:v1, %{persist: persist}}} -> {:ok, %{persist: persist}}
         {:ok, _} -> {:ok, %{persist: false}}
         :error -> :miss
@@ -134,30 +139,31 @@ defmodule Restdis.Cache.DiskCache do
     {:reply, result, state}
   end
 
-  def handle_call(:persisted_entries, _from, %{cubdb: cubdb} = state) do
+  def handle_call(:persisted_entries, _from, %{backend: backend, handle: handle} = state) do
     entries =
-      cubdb
-      |> CubDB.select()
+      handle
+      |> backend.select()
       |> Stream.filter(&match?({_key, {:v1, %{persist: true}}}, &1))
       |> Enum.map(fn {key, {:v1, %{value: value}}} -> {key, value} end)
 
     {:reply, entries, state}
   end
 
-  def handle_call(:flush, _from, %{cubdb: cubdb} = state) do
-    CubDB.clear(cubdb)
+  def handle_call(:flush, _from, %{backend: backend, handle: handle} = state) do
+    backend.clear(handle)
     {:reply, :ok, state}
   end
 
   @impl GenServer
-  def handle_cast({:delete, key}, %{cubdb: cubdb} = state) do
-    CubDB.delete(cubdb, key)
+  def handle_cast({:delete, key}, %{backend: backend, handle: handle} = state) do
+    backend.delete(handle, key)
     {:noreply, state}
   end
 
-  defp recount_persist(tenant_id, cubdb) do
+  defp recount_persist(tenant_id, %{backend: backend, handle: handle}) do
     count =
-      CubDB.select(cubdb)
+      handle
+      |> backend.select()
       |> Stream.filter(fn {_k, v} ->
         match?({:v1, %{persist: true}}, v)
       end)
