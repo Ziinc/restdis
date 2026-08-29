@@ -25,6 +25,7 @@ defmodule RestdisServer.Application do
           tenant_config_cache_spec(),
           TenantConfig.Cache,
           RestdisServer.PolicyStore,
+          RestdisServer.QueryStore,
           RestdisServer.Rewarm.Supervisor,
           {Finch, name: RestdisServer.Finch},
           {TelemetryMetricsPrometheus.Core,

@@ -25,7 +25,7 @@ defmodule RestdisServer.Commands.PgrstQuery do
     } do
       ttl_ms = parse_ttl_opt(opts)
 
-      with {:ok, key, _params} <- QueryParser.parse(path),
+      with {:ok, key, _params} <- QueryParser.parse(state.tenant_id, path),
            {:ok, config} <- TenantConfig.lookup_by_tenant_id(state.tenant_id) do
         wire_key = Key.encode(key)
 
