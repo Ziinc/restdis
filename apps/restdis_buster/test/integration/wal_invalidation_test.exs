@@ -152,6 +152,53 @@ defmodule RestdisBuster.Integration.WalInvalidationTest do
            "Cache entry was not invalidated after tailer restart"
   end
 
+  test "DROP TABLE flushes all cache entries for the tenant's table", %{
+    fixture_conn: conn
+  } do
+    drop_table = "wal_int_drop_products"
+
+    {:ok, _} =
+      Postgrex.query(
+        conn,
+        "CREATE TABLE IF NOT EXISTS #{@test_schema}.#{drop_table} (id integer PRIMARY KEY, name text)",
+        []
+      )
+
+    {:ok, _} =
+      Postgrex.query(
+        conn,
+        """
+        INSERT INTO tenant_table_config (tenant_id, schema, table_name, mode, pk_column, inserted_at, updated_at)
+        VALUES ($1, $2, $3, 'ttl', 'id', now(), now())
+        ON CONFLICT (tenant_id, schema, table_name) DO UPDATE
+          SET mode = EXCLUDED.mode, pk_column = EXCLUDED.pk_column, updated_at = now()
+        """,
+        [@tenant_id, @test_schema, drop_table]
+      )
+
+    RestdisBuster.TenantTableConfig.invalidate(@test_schema, drop_table)
+
+    key = Key.build(:table, drop_table, %{"id" => "eq.1"})
+    value = %{"id" => 1, "name" => "seed-1"}
+    Restdis.Cache.put(@tenant_id, key, value, primary_keys: [1])
+    assert {:ok, ^value} = Restdis.Cache.peek(@tenant_id, key)
+
+    {:ok, _} = Postgrex.query(conn, "DROP TABLE #{@test_schema}.#{drop_table}", [])
+
+    assert wait_until(
+             fn -> Restdis.Cache.peek(@tenant_id, key) == :miss end,
+             2_000,
+             50
+           ),
+           "Cache entry was not flushed after DROP TABLE within 2s"
+
+    Postgrex.query(
+      conn,
+      "DELETE FROM tenant_table_config WHERE tenant_id = $1 AND table_name = $2",
+      [@tenant_id, drop_table]
+    )
+  end
+
   # Helpers
 
   defp wait_until(predicate, deadline_ms, poll_ms) do
