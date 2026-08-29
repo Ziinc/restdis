@@ -57,7 +57,7 @@ defmodule Restdis.Migrations.Postgres do
   def down(opts \\ []) do
     prefix = fetch_prefix(opts)
 
-    # `:version` names the version being undone: `down(version: 1)` reverses exactly what `up(version: 1)` applied, landing on version 0.
+    # `:version` names the version undone: `down(version: 1)` reverses `up(version: 1)`, landing on version 0.
     target = Keyword.get(opts, :version, @latest_version) - 1
 
     current = migrated_version(opts)
@@ -117,7 +117,7 @@ defmodule Restdis.Migrations.Postgres do
 
   defp fetch_prefix(opts), do: Keyword.get(opts, :prefix, Restdis.Migration.default_prefix())
 
-  # Inside a running `Ecto.Migration`, the repo is implicit in the runner process; outside of one (e.g. inspecting the version at runtime, or this library's own tests), an explicit `:repo` must be given.
+  # Inside a running migration the repo is implicit; otherwise an explicit `:repo` option must be given.
   defp fetch_repo(opts) do
     case Keyword.fetch(opts, :repo) do
       {:ok, repo} ->

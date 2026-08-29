@@ -46,7 +46,7 @@ defmodule Restdis.MigrationPublicationTest do
     Ecto.Migrator.up(TestRepo, version_1, CreatePublicationMigration, log: false)
     assert publication_exists?("restdis_migration_test_pub")
 
-    # Applying the same helper again (as a distinct migration, the way a host might re-run it after a partial deploy) must not raise.
+    # Re-running the helper as a distinct migration (as after a partial deploy) must not raise.
     Ecto.Migrator.up(TestRepo, version_2, RerunPublicationMigration, log: false)
 
     assert publication_exists?("restdis_migration_test_pub")

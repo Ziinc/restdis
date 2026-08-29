@@ -12,7 +12,7 @@ File.rm_rf!(test_dir)
 {:ok, _} = Application.ensure_all_started(:ecto_sql)
 {:ok, _} = Application.ensure_all_started(:postgrex)
 
-# Recreate the test database on every run: migration tests assign version numbers with `System.unique_integer/1`, which restarts at 1 each VM boot, and a stale `schema_migrations` table left over from a previous run would make `Ecto.Migrator` believe those versions are already applied.
+# Recreate the DB every run: a stale `schema_migrations` table would fool `Ecto.Migrator` about applied versions.
 _ = Ecto.Adapters.Postgres.storage_down(Restdis.TestRepo.config())
 :ok = Ecto.Adapters.Postgres.storage_up(Restdis.TestRepo.config())
 

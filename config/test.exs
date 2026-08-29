@@ -34,7 +34,7 @@ config :restdis,
   tenant_config_lookup: nil,
   ecto_repos: [Restdis.TestRepo]
 
-# Exercises `Restdis.Migration` against a real repo. Kept in sync with `apps/restdis/config/test.exs`, which configures the same repo when the library's own suite runs standalone, outside of this umbrella.
+# Exercises `Restdis.Migration` against a real repo. Kept in sync with `apps/restdis/config/test.exs`.
 config :restdis, Restdis.TestRepo,
   username: "postgres",
   password: "postgres",
