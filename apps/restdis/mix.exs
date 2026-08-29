@@ -32,7 +32,8 @@ defmodule Restdis.MixProject do
       {:jason, "~> 1.4"},
       {:telemetry, "~> 1.0"},
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
-      {:stream_data, "~> 1.1", only: :test}
+      {:stream_data, "~> 1.1", only: :test},
+      {:redix, "~> 1.5", only: [:dev, :test]}
     ]
   end
 
