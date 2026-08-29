@@ -52,4 +52,32 @@ defmodule RestdisBuster.DispatcherTest do
 
     Process.exit(second, :kill)
   end
+
+  test "dispatch/1 fans out to all known AZ groups, not just the dispatching node's own AZ" do
+    other_az = "other-az-#{System.unique_integer([:positive])}"
+    parent = self()
+
+    {:ok, remote} =
+      Task.start(fn ->
+        :syn.join(:wal_fanout, {:az, other_az}, self())
+        send(parent, :joined)
+
+        receive do
+          {:wal_event, event} -> send(parent, {:remote_got, event})
+        after
+          1000 -> send(parent, :remote_timeout)
+        end
+      end)
+
+    assert_receive :joined, 200
+
+    event = TestUtils.insert_event("multi_az")
+    Dispatcher.dispatch(event)
+
+    assert_receive {:wal_event, ^event}, 200
+    assert_receive {:remote_got, ^event}, 200
+
+    :syn.leave(:wal_fanout, {:az, other_az}, remote)
+    Process.exit(remote, :kill)
+  end
 end
