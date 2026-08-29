@@ -14,10 +14,10 @@ defmodule RestdisServer.Commands.Ttl do
     case Key.decode(wire_key) do
       {:ok, key} ->
         case ets_lookup(state.tenant_id, key) do
-          [{^key, _value, :infinity}] ->
+          [{^key, _value, :infinity, _last_access}] ->
             {Encoder.integer(-1), state}
 
-          [{^key, _value, expires_at}] ->
+          [{^key, _value, expires_at, _last_access}] ->
             now = System.monotonic_time(:millisecond)
             remaining_s = max(0, div(expires_at - now, 1000))
             {Encoder.integer(remaining_s), state}

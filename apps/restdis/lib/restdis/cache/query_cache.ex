@@ -31,6 +31,8 @@ defmodule Restdis.Cache.QueryCache do
     GenServer.start_link(__MODULE__, tenant_id, name: TenantRegistry.via(tenant_id, :query_cache))
   end
 
+  @default_ets_cap_bytes 500 * 1024 * 1024
+
   @doc """
   Reads `key`, treating an expired entry as a miss.
   """
@@ -40,13 +42,15 @@ defmodule Restdis.Cache.QueryCache do
     now = System.monotonic_time(:millisecond)
 
     case :ets.lookup(tid, key) do
-      [{^key, value, :infinity}] ->
+      [{^key, value, :infinity, _last_access}] ->
+        touch(tid, key)
         {:ok, value}
 
-      [{^key, value, expires_at}] when expires_at > now ->
+      [{^key, value, expires_at, _last_access}] when expires_at > now ->
+        touch(tid, key)
         {:ok, value}
 
-      [{^key, _, _}] ->
+      [{^key, _, _, _}] ->
         :ets.delete(tid, key)
         :miss
 
@@ -57,6 +61,10 @@ defmodule Restdis.Cache.QueryCache do
 
   @doc """
   Writes `value` under `key`, expiring it after `opts[:ttl_ms]`.
+
+  Enforces the per-tenant ETS memory cap (`Application.get_env(:restdis, :ets_cap_bytes)`,
+  defaulting to 500 MB) by evicting the least-recently-used entries when the
+  write pushes the tenant's table over the cap.
   """
   @spec put(String.t(), Key.t(), term(), keyword()) :: :ok
   def put(tenant_id, key, value, opts \\ []) do
@@ -68,8 +76,69 @@ defmodule Restdis.Cache.QueryCache do
         ms -> System.monotonic_time(:millisecond) + ms
       end
 
-    :ets.insert(tid, {key, value, expires_at})
+    :ets.insert(tid, {key, value, expires_at, System.monotonic_time()})
+    evict_over_cap(tenant_id, tid)
     :ok
+  end
+
+  @doc """
+  Returns the approximate memory footprint, in bytes, of the tenant's ETS
+  query cache table.
+  """
+  @spec memory_bytes(String.t()) :: non_neg_integer()
+  def memory_bytes(tenant_id) do
+    tid = table(tenant_id)
+    :ets.info(tid, :memory) * :erlang.system_info(:wordsize)
+  end
+
+  defp touch(tid, key) do
+    :ets.update_element(tid, key, {4, System.monotonic_time()})
+  end
+
+  defp evict_over_cap(tenant_id, tid) do
+    cap = Application.get_env(:restdis, :ets_cap_bytes, @default_ets_cap_bytes)
+    do_evict_over_cap(tenant_id, tid, cap)
+  end
+
+  defp do_evict_over_cap(tenant_id, tid, cap) do
+    mem_bytes = :ets.info(tid, :memory) * :erlang.system_info(:wordsize)
+
+    if mem_bytes > cap do
+      case oldest_entry(tid) do
+        nil ->
+          :ok
+
+        lru_key ->
+          :ets.delete(tid, lru_key)
+
+          :telemetry.execute([:restdis, :cache, :ets_evict], %{count: 1}, %{
+            tenant_id: tenant_id,
+            key: lru_key
+          })
+
+          do_evict_over_cap(tenant_id, tid, cap)
+      end
+    else
+      :ok
+    end
+  end
+
+  defp oldest_entry(tid) do
+    :ets.foldl(
+      fn {key, _value, _expires_at, last_access}, acc ->
+        case acc do
+          nil -> {key, last_access}
+          {_, acc_last_access} when last_access < acc_last_access -> {key, last_access}
+          _ -> acc
+        end
+      end,
+      nil,
+      tid
+    )
+    |> case do
+      nil -> nil
+      {key, _last_access} -> key
+    end
   end
 
   @doc """
@@ -105,7 +174,7 @@ defmodule Restdis.Cache.QueryCache do
     now = System.monotonic_time(:millisecond)
 
     :ets.select_delete(tid, [
-      {{:_, :_, :"$1"}, [{:is_integer, :"$1"}, {:<, :"$1", {:const, now}}], [true]}
+      {{:_, :_, :"$1", :_}, [{:is_integer, :"$1"}, {:<, :"$1", {:const, now}}], [true]}
     ])
 
     schedule_sweep()

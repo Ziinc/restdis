@@ -44,7 +44,7 @@ services:
       context: .
       dockerfile: Dockerfile.dev
     working_dir: /app
-    command: sh -c "mix deps.get && mix run --no-halt"
+    command: sh -c "mix deps.get && mix ecto.create --quiet && mix ecto.migrate --quiet && mix run --no-halt"
     environment:
       MIX_ENV: dev
       POSTGRES_HOSTNAME: db
