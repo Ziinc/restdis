@@ -1,0 +1,317 @@
+{
+  "id": null,
+  "uid": "restdis-overview",
+  "title": "Restdis Overview",
+  "description": "Cache hit/miss, WAL tailer, rewarm, replication lag, cluster distribution, backpressure, and BEAM VM metrics for restdis, scraped from TelemetryMetricsPrometheus.Core's /metrics endpoint.",
+  "tags": ["restdis"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "30s",
+  "time": { "from": "now-6h", "to": "now" },
+  "templating": {
+    "list": [
+      {
+        "name": "datasource",
+        "type": "datasource",
+        "query": "prometheus",
+        "current": {},
+        "hide": 0,
+        "label": "Prometheus"
+      },
+      {
+        "name": "tenant_id",
+        "type": "query",
+        "datasource": { "type": "prometheus", "uid": "${datasource}" },
+        "query": "label_values(restdis_persist_count_count, tenant_id)",
+        "includeAll": true,
+        "multi": true,
+        "current": { "text": "All", "value": "$__all" },
+        "label": "Tenant"
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "row",
+      "title": "Cache: rewarm & disk persistence",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 }
+    },
+    {
+      "id": 2,
+      "type": "timeseries",
+      "title": "Rewarm cold reads / refetches (rate)",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 1 },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "fieldConfig": { "defaults": { "unit": "reqps" }, "overrides": [] },
+      "targets": [
+        {
+          "expr": "sum(rate(restdis_server_rewarm_cold_read_count[5m])) by (tenant_id)",
+          "legendFormat": "cold reads {{tenant_id}}"
+        },
+        {
+          "expr": "sum(rate(restdis_server_rewarm_error_count[5m])) by (tenant_id, reason)",
+          "legendFormat": "errors {{tenant_id}}/{{reason}}"
+        },
+        {
+          "expr": "sum(rate(restdis_server_rewarm_evicted_count[5m])) by (tenant_id, reason)",
+          "legendFormat": "evicted {{tenant_id}}/{{reason}}"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "type": "heatmap",
+      "title": "Rewarm refetch duration",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 1 },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "targets": [
+        {
+          "expr": "sum(rate(restdis_server_rewarm_refetch_duration_us_bucket[5m])) by (le)",
+          "format": "heatmap",
+          "legendFormat": "{{le}}"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "type": "timeseries",
+      "title": "Persisted entry count & cap-reached events",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 9 },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "targets": [
+        {
+          "expr": "restdis_persist_count_count{tenant_id=~\"$tenant_id\"}",
+          "legendFormat": "persisted count {{tenant_id}}"
+        },
+        {
+          "expr": "sum(rate(restdis_persist_cap_reached_count[5m])) by (tenant_id)",
+          "legendFormat": "cap reached {{tenant_id}}"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "type": "row",
+      "title": "Cluster distribution & replication",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 17 }
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "Cluster forward / unreachable / fallback (rate)",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 18 },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "targets": [
+        {
+          "expr": "sum(rate(restdis_cluster_forward_count[5m])) by (op, owner)",
+          "legendFormat": "forward {{op}}/{{owner}}"
+        },
+        {
+          "expr": "sum(rate(restdis_cluster_unreachable_count[5m])) by (op, owner)",
+          "legendFormat": "unreachable {{op}}/{{owner}}"
+        },
+        {
+          "expr": "sum(rate(restdis_server_cluster_fallback_count[5m])) by (tenant_id)",
+          "legendFormat": "fallback {{tenant_id}}"
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "type": "timeseries",
+      "title": "Cluster rebalance & migration events",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 18 },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "targets": [
+        {
+          "expr": "sum(rate(restdis_cluster_rebalance_count[5m])) by (change, node)",
+          "legendFormat": "rebalance {{change}}/{{node}}"
+        },
+        {
+          "expr": "restdis_cluster_rebalance_nodes",
+          "legendFormat": "ring size {{change}}"
+        },
+        {
+          "expr": "sum(rate(restdis_cluster_migrated_count[5m])) by (tenant_id, owner)",
+          "legendFormat": "migrated {{tenant_id}}/{{owner}}"
+        }
+      ]
+    },
+    {
+      "id": 8,
+      "type": "timeseries",
+      "title": "Replication lag (p50/p95/p99, us)",
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 26 },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "fieldConfig": { "defaults": { "unit": "µs" }, "overrides": [] },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.5, sum(rate(restdis_replication_lag_lag_us_bucket[5m])) by (le, tenant_id))",
+          "legendFormat": "p50 {{tenant_id}}"
+        },
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(restdis_replication_lag_lag_us_bucket[5m])) by (le, tenant_id))",
+          "legendFormat": "p95 {{tenant_id}}"
+        },
+        {
+          "expr": "histogram_quantile(0.99, sum(rate(restdis_replication_lag_lag_us_bucket[5m])) by (le, tenant_id))",
+          "legendFormat": "p99 {{tenant_id}}"
+        }
+      ]
+    },
+    {
+      "id": 9,
+      "type": "row",
+      "title": "WAL tailer & reverse index",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 34 }
+    },
+    {
+      "id": 10,
+      "type": "timeseries",
+      "title": "WAL tailer throughput (bytes/events per sec)",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 35 },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "targets": [
+        {
+          "expr": "rate(restdis_buster_wal_received_bytes[5m])",
+          "legendFormat": "bytes/s"
+        },
+        {
+          "expr": "rate(restdis_buster_wal_received_count[5m])",
+          "legendFormat": "received events/s"
+        },
+        {
+          "expr": "rate(restdis_buster_wal_decoded_count[5m])",
+          "legendFormat": "decoded events/s"
+        }
+      ]
+    },
+    {
+      "id": 11,
+      "type": "timeseries",
+      "title": "WAL tailer lag (us) & singleton ownership",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 35 },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "fieldConfig": { "defaults": { "unit": "µs" }, "overrides": [] },
+      "targets": [
+        {
+          "expr": "restdis_buster_tailer_lag_lag_us",
+          "legendFormat": "tailer lag"
+        },
+        {
+          "expr": "restdis_buster_singleton_owner_is_owner",
+          "legendFormat": "is_owner {{node}}"
+        }
+      ]
+    },
+    {
+      "id": 12,
+      "type": "timeseries",
+      "title": "Reverse index hit / miss (rate)",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 43 },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "targets": [
+        {
+          "expr": "sum(rate(restdis_buster_reverse_index_hit_keys[5m])) by (tenant_id, table)",
+          "legendFormat": "hit keys {{tenant_id}}/{{table}}"
+        },
+        {
+          "expr": "sum(rate(restdis_buster_reverse_index_miss_count[5m])) by (tenant_id, table)",
+          "legendFormat": "miss {{tenant_id}}/{{table}}"
+        }
+      ]
+    },
+    {
+      "id": 13,
+      "type": "stat",
+      "title": "Reverse index hit ratio",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 43 },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "fieldConfig": { "defaults": { "unit": "percentunit", "min": 0, "max": 1 }, "overrides": [] },
+      "targets": [
+        {
+          "expr": "sum(rate(restdis_buster_reverse_index_hit_keys[5m])) / (sum(rate(restdis_buster_reverse_index_hit_keys[5m])) + sum(rate(restdis_buster_reverse_index_miss_count[5m])))",
+          "legendFormat": "hit ratio"
+        }
+      ]
+    },
+    {
+      "id": 14,
+      "type": "row",
+      "title": "Backpressure & invalidation latency",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 51 }
+    },
+    {
+      "id": 15,
+      "type": "timeseries",
+      "title": "Backpressure triggers & coalesced flush size",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 52 },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "targets": [
+        {
+          "expr": "sum(rate(restdis_buster_backpressure_triggered_count[5m])) by (tenant_id, table)",
+          "legendFormat": "triggered {{tenant_id}}/{{table}}"
+        },
+        {
+          "expr": "sum(rate(restdis_buster_backpressure_flushed_coalesced_count[5m])) by (tenant_id, table)",
+          "legendFormat": "coalesced flush/s {{tenant_id}}/{{table}}"
+        }
+      ]
+    },
+    {
+      "id": 16,
+      "type": "timeseries",
+      "title": "Invalidation latency (p50/p95/p99, us) & change event throughput",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 52 },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "fieldConfig": { "defaults": { "unit": "µs" }, "overrides": [] },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.5, sum(rate(restdis_buster_invalidation_latency_duration_us_bucket[5m])) by (le, tenant_id, table, op))",
+          "legendFormat": "p50 {{tenant_id}}/{{table}}/{{op}}"
+        },
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(restdis_buster_invalidation_latency_duration_us_bucket[5m])) by (le, tenant_id, table, op))",
+          "legendFormat": "p95 {{tenant_id}}/{{table}}/{{op}}"
+        },
+        {
+          "expr": "histogram_quantile(0.99, sum(rate(restdis_buster_invalidation_latency_duration_us_bucket[5m])) by (le, tenant_id, table, op))",
+          "legendFormat": "p99 {{tenant_id}}/{{table}}/{{op}}"
+        },
+        {
+          "expr": "sum(rate(restdis_buster_event_processed_count[5m])) by (op, schema, table)",
+          "legendFormat": "events/s {{op}}/{{schema}}/{{table}}"
+        }
+      ]
+    },
+    {
+      "id": 17,
+      "type": "row",
+      "title": "BEAM VM",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 60 }
+    },
+    {
+      "id": 18,
+      "type": "timeseries",
+      "title": "VM total memory",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 61 },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "fieldConfig": { "defaults": { "unit": "bytes" }, "overrides": [] },
+      "targets": [
+        { "expr": "vm_memory_total", "legendFormat": "total memory {{instance}}" }
+      ]
+    },
+    {
+      "id": 19,
+      "type": "timeseries",
+      "title": "VM total run queue lengths",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 61 },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "targets": [
+        { "expr": "vm_total_run_queue_lengths_total", "legendFormat": "run queue {{instance}}" }
+      ]
+    }
+  ]
+}
