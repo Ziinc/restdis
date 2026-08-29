@@ -35,8 +35,7 @@ defmodule RestdisServer.Commands.PgrstPolicy do
       persist: Map.get(parsed, :persist, existing_policy.persist)
     }
 
-    PolicyStore.put(state.tenant_id, wire_key, new_policy)
-    Rewarm.policy_changed(state.tenant_id, wire_key, key, new_policy)
+    Rewarm.put_policy(state.tenant_id, wire_key, key, new_policy)
 
     persist_result =
       if new_policy.persist != existing_policy.persist do

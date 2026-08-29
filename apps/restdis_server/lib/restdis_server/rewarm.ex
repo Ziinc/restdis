@@ -35,6 +35,35 @@ defmodule RestdisServer.Rewarm do
   end
 
   @doc """
+  Sets the rewarm interval of `wire_key`, merging it into its existing policy,
+  persisting the result, and notifying the tenant scheduler. Shared by
+  `PGRST.QUERY` (initial fetch) and `PGRST.POLICY` (after the fact) so both
+  commands register rewarms through a single code path.
+  """
+  @spec set_rewarm(String.t(), binary(), Key.t(), pos_integer() | nil) :: :ok
+  def set_rewarm(tenant_id, wire_key, %Key{} = key, rewarm_s) do
+    new_policy =
+      tenant_id
+      |> PolicyStore.get(wire_key)
+      |> Map.put(:rewarm_s, rewarm_s)
+
+    put_policy(tenant_id, wire_key, key, new_policy)
+  end
+
+  @doc """
+  Persists `new_policy` for `wire_key` and notifies the tenant scheduler with
+  the final, fully-merged policy. Callers that update multiple policy fields
+  at once (e.g. `PGRST.POLICY` setting `REWARM` and `PERSIST` together) should
+  compute the complete merged policy first and call this once, so the
+  scheduler is never notified with a stale field.
+  """
+  @spec put_policy(String.t(), binary(), Key.t(), map()) :: :ok
+  def put_policy(tenant_id, wire_key, %Key{} = key, new_policy) do
+    PolicyStore.put(tenant_id, wire_key, new_policy)
+    policy_changed(tenant_id, wire_key, key, new_policy)
+  end
+
+  @doc """
   Applies a policy change to the tenant scheduler, starting or clearing rewarms.
   """
   @spec policy_changed(String.t(), binary(), Key.t(), map()) :: :ok

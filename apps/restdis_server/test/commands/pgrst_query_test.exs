@@ -2,7 +2,18 @@ defmodule RestdisServer.Commands.PgrstQueryTest do
   use ExUnit.Case
 
   alias RestdisServer.Commands.Dispatcher
+  alias RestdisServer.PolicyStore
+  alias RestdisServer.Rewarm
   alias RestdisServer.TenantStore.InMemory
+
+  defp decode_wire_key(reply) do
+    reply
+    |> IO.iodata_to_binary()
+    |> String.trim_leading("$")
+    |> String.split("\r\n", parts: 2)
+    |> List.last()
+    |> String.trim_trailing("\r\n")
+  end
 
   @tenant_id "test-pgrst-tenant"
 
@@ -41,5 +52,93 @@ defmodule RestdisServer.Commands.PgrstQueryTest do
 
     {_reply2, _} = Dispatcher.dispatch(state, ["PGRST.QUERY", "/users?id=eq.1"])
     assert :counters.get(call_count, 1) == 1
+  end
+
+  test "PGRST.QUERY without REWARM leaves rewarm policy unset", %{state: state} do
+    body = [%{"id" => 2, "name" => "Bob"}]
+
+    Req.Test.stub(RestdisServer.Finch, fn conn ->
+      Req.Test.json(conn, body)
+    end)
+
+    {reply, _} = Dispatcher.dispatch(state, ["PGRST.QUERY", "/users?id=eq.2"])
+    wire_key = decode_wire_key(reply)
+
+    policy = PolicyStore.get(@tenant_id, wire_key)
+    assert policy.rewarm_s == nil
+  end
+
+  test "PGRST.QUERY REWARM <seconds> registers the same rewarm policy as PGRST.POLICY", %{
+    state: state
+  } do
+    body = [%{"id" => 3, "name" => "Carol"}]
+
+    Req.Test.stub(RestdisServer.Finch, fn conn ->
+      Req.Test.json(conn, body)
+    end)
+
+    {reply, _} = Dispatcher.dispatch(state, ["PGRST.QUERY", "/users?id=eq.3", "REWARM", "30"])
+    wire_key = decode_wire_key(reply)
+
+    policy = PolicyStore.get(@tenant_id, wire_key)
+    assert policy.rewarm_s == 30
+  end
+
+  test "PGRST.QUERY TTL <seconds> REWARM <seconds> applies both options together", %{
+    state: state
+  } do
+    body = [%{"id" => 4, "name" => "Dave"}]
+
+    Req.Test.stub(RestdisServer.Finch, fn conn ->
+      Req.Test.json(conn, body)
+    end)
+
+    {reply, _} =
+      Dispatcher.dispatch(state, [
+        "PGRST.QUERY",
+        "/users?id=eq.4",
+        "TTL",
+        "120",
+        "REWARM",
+        "45"
+      ])
+
+    wire_key = decode_wire_key(reply)
+
+    policy = PolicyStore.get(@tenant_id, wire_key)
+    assert policy.rewarm_s == 45
+
+    {ttl_reply, _} = Dispatcher.dispatch(state, ["TTL", wire_key])
+    ttl_str = IO.iodata_to_binary(ttl_reply)
+    {remaining, _} = Integer.parse(String.trim_leading(ttl_str, ":"))
+    assert remaining > 100 and remaining <= 120
+  end
+
+  test "PGRST.QUERY REWARM <seconds> is picked up by the tenant rewarm scheduler", %{
+    state: state
+  } do
+    body = [%{"id" => 5, "name" => "Erin"}]
+
+    Req.Test.stub(RestdisServer.Finch, fn conn ->
+      Req.Test.json(conn, body)
+    end)
+
+    on_exit(fn -> Rewarm.stop_tenant(@tenant_id) end)
+
+    {reply, _} = Dispatcher.dispatch(state, ["PGRST.QUERY", "/users?id=eq.5", "REWARM", "30"])
+    wire_key = decode_wire_key(reply)
+
+    {:ok, pid} = fetch_scheduler_pid(@tenant_id)
+    table = :sys.get_state(pid).table
+
+    assert [{^wire_key, entry}] = :ets.lookup(table, wire_key)
+    assert entry.rewarm_s == 30
+  end
+
+  defp fetch_scheduler_pid(tenant_id) do
+    case Registry.lookup(RestdisServer.Rewarm.Registry, tenant_id) do
+      [{pid, _}] -> {:ok, pid}
+      [] -> :error
+    end
   end
 end
