@@ -114,7 +114,7 @@ defmodule RestdisBuster.Infra.LsnStore do
   end
 
   defp ensure_row_and_read(slot) do
-    repo = RestdisRepo
+    repo = repo()
     now = NaiveDateTime.utc_now() |> NaiveDateTime.truncate(:second)
 
     SQL.query!(
@@ -137,7 +137,7 @@ defmodule RestdisBuster.Infra.LsnStore do
   defp read_persisted(slot) do
     %{rows: rows} =
       SQL.query!(
-        RestdisRepo,
+        repo(),
         "SELECT lsn FROM #{@table} WHERE slot_name = $1",
         [slot]
       )
@@ -156,7 +156,7 @@ defmodule RestdisBuster.Infra.LsnStore do
     now = NaiveDateTime.utc_now() |> NaiveDateTime.truncate(:second)
 
     SQL.query!(
-      RestdisRepo,
+      repo(),
       "UPDATE #{@table} SET lsn = $1, updated_at = $2 WHERE slot_name = $3",
       [lsn, now, slot]
     )
@@ -169,4 +169,6 @@ defmodule RestdisBuster.Infra.LsnStore do
   catch
     _, _ -> :error
   end
+
+  defp repo, do: Application.get_env(:restdis_buster, :repo, RestdisRepo)
 end

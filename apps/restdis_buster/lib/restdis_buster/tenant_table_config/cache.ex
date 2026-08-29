@@ -39,8 +39,10 @@ defmodule RestdisBuster.TenantTableConfig.Cache do
 
   defp ident(schema, table_name), do: "tenant_table_config/#{schema}.#{table_name}"
 
+  defp repo, do: Application.get_env(:restdis_buster, :repo, RestdisRepo)
+
   defp fetch_from_db(schema, table_name) do
-    case RestdisRepo.one(
+    case repo().one(
            from(ttc in Schema,
              where: ttc.schema == ^schema and ttc.table_name == ^table_name,
              limit: 1
