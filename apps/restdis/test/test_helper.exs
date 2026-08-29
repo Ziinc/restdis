@@ -1,5 +1,7 @@
 ExUnit.start()
 
+{:ok, _pid} = Restdis.Cache.Supervisor.start_link([])
+
 test_dir =
   Application.get_env(
     :restdis,

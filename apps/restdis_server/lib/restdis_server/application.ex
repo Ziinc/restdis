@@ -22,6 +22,7 @@ defmodule RestdisServer.Application do
     children =
       cluster_formation() ++
         [
+          Restdis.Cache,
           tenant_config_cache_spec(),
           TenantConfig.Cache,
           RestdisServer.PolicyStore,

@@ -17,8 +17,7 @@ defmodule Restdis.MixProject do
 
   def application do
     [
-      extra_applications: [:logger],
-      mod: {Restdis.Cache.Application, []}
+      extra_applications: [:logger]
     ]
   end
 
