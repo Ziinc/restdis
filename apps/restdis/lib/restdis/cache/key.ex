@@ -3,7 +3,7 @@ defmodule Restdis.Cache.Key do
   Cache key construction, encoding and decoding of the wire representation.
   """
 
-  @type scope :: :table | :rpc | :view
+  @type scope :: :table | :rpc | :view | :raw
 
   @type t :: %__MODULE__{
           scope: scope(),
@@ -28,12 +28,22 @@ defmodule Restdis.Cache.Key do
   Encodes a key into its wire representation.
   """
   @spec encode(t()) :: String.t()
+  def encode(%__MODULE__{scope: :raw, ident: ident}), do: ident
+
   def encode(%__MODULE__{scope: scope, ident: ident, params_hash: hash}) do
     "pgrst:#{@scope_to_wire[scope]}:#{URI.encode(ident)}:#{hash}"
   end
 
   @doc """
   Decodes a wire key back into a `t:t/0`.
+
+  Keys prefixed `pgrst:` decode into the canonical `table`/`rpc`/`view` scopes
+  used by `PGRST.QUERY`/`PGRST.POLICY`. Any other colon-free string decodes as
+  a `:raw` key: a plain, user-managed key written via `SET` and readable via
+  `GET`/`MGET`/`TTL`/`EXISTS`/`DEL`. Keys containing a colon but lacking the
+  `pgrst:` prefix are reserved for the `<table>:<primary_key>` replicated
+  dataset address space (see `RestdisReplicator.Dataset`) and fail to decode
+  here so callers can fall back to that lookup.
   """
   @spec decode(String.t()) :: {:ok, t()} | :error
   def decode("pgrst:" <> rest) do
@@ -48,6 +58,14 @@ defmodule Restdis.Cache.Key do
 
       _ ->
         :error
+    end
+  end
+
+  def decode(raw) when is_binary(raw) do
+    if raw == "" or String.contains?(raw, ":") do
+      :error
+    else
+      {:ok, %__MODULE__{scope: :raw, ident: raw, params_hash: 0}}
     end
   end
 

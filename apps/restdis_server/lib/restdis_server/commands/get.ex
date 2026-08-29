@@ -27,7 +27,7 @@ defmodule RestdisServer.Commands.Get do
             {:ok, value} ->
               OpenTelemetry.Tracer.set_attribute("restdis.cache_result", "hit")
               Rewarm.touch(state.tenant_id, wire_key, key)
-              {Encoder.bulk_string(Jason.encode!(value)), state}
+              {Encoder.bulk_string(encode_value(key, value)), state}
 
             {:error, :unreachable} ->
               OpenTelemetry.Tracer.set_attribute("restdis.cache_result", "fallback")
@@ -66,6 +66,9 @@ defmodule RestdisServer.Commands.Get do
         {Encoder.error("ERR only PGRST.* and <table>:<primary_key> keys are supported"), state}
     end
   end
+
+  defp encode_value(%Key{scope: :raw}, value), do: value
+  defp encode_value(_key, value), do: Jason.encode!(value)
 
   defp maybe_cold_read(tenant_id, wire_key) do
     policy = PolicyStore.get(tenant_id, wire_key)
