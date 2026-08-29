@@ -8,6 +8,7 @@ defmodule RestdisReplicator.Application do
   @impl Application
   def start(_type, _args) do
     children = [
+      Restdis.Cache,
       {Registry, keys: :unique, name: RestdisReplicator.Registry},
       RestdisReplicator.Subscription.Supervisor,
       RestdisReplicator.Reconciler

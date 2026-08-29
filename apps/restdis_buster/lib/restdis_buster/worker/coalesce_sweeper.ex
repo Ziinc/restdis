@@ -4,13 +4,15 @@ defmodule RestdisBuster.Worker.CoalesceSweeper do
   `RestdisBuster.Worker.Supervisor` when per-tenant backpressure drops events.
 
   For every `(tenant_id, table)` bucket with `count > 0`, the sweeper resets the
-  counter to 0 and issues a coarse `Restdis.Cache.flush_table/2`, then emits a
-  `[:restdis_buster, :backpressure, :flushed]` telemetry event with the
-  coalesced count.
+  counter to 0 and issues a coarse flush through the configured
+  `Restdis.Wal.Handler` implementation (see `RestdisBuster.Worker.HandlerConfig`),
+  then emits a `[:restdis_buster, :backpressure, :flushed]` telemetry event with
+  the coalesced count.
   """
 
   use GenServer
 
+  alias RestdisBuster.Worker.HandlerConfig
   alias RestdisBuster.Worker.Supervisor, as: WorkerSupervisor
 
   @default_interval_ms 1_000
@@ -59,7 +61,7 @@ defmodule RestdisBuster.Worker.CoalesceSweeper do
   defp flush_entry(table, {{tenant_id, tbl} = key, count}) do
     # Subtract the observed count so events recorded mid-fold are not lost.
     :ets.update_counter(table, key, {2, -count}, {key, 0})
-    Restdis.Cache.flush_table(tenant_id, tbl)
+    HandlerConfig.handler().flush_table(tenant_id, tbl)
 
     :telemetry.execute(
       [:restdis_buster, :backpressure, :flushed],

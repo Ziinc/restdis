@@ -16,6 +16,22 @@ defmodule Restdis.Cache do
   @type primary_key :: term()
 
   @doc """
+  Child spec mounting the cache's supervision tree in a host's own
+  supervisor, e.g. `{Restdis.Cache, []}`.
+
+  `:restdis` declares no `mod:` application callback, so depending on it
+  starts no processes; a host must mount this explicitly.
+  """
+  @spec child_spec(keyword()) :: Supervisor.child_spec()
+  def child_spec(opts) do
+    %{
+      id: __MODULE__,
+      start: {Restdis.Cache.Supervisor, :start_link, [opts]},
+      type: :supervisor
+    }
+  end
+
+  @doc """
   Reads `key`, falling back from the query cache to the disk cache to the origin.
   """
   @spec get(tenant_id(), Key.t()) :: {:ok, term()} | :miss

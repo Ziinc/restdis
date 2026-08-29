@@ -8,6 +8,7 @@ defmodule RestdisBuster.Worker do
   alias RestdisBuster.Infra.LsnStore
   alias RestdisBuster.TenantTableConfig
   alias RestdisBuster.WAL.Event
+  alias RestdisBuster.Worker.HandlerConfig
 
   @infra_schema "public"
   @tenants_table "tenants"
@@ -51,7 +52,7 @@ defmodule RestdisBuster.Worker do
 
     if table_name && tenant_id do
       TenantTableConfig.invalidate(schema, table_name)
-      Restdis.Cache.flush_table(tenant_id, table_name)
+      handler().flush_table(tenant_id, table_name)
     end
 
     ack(event)
@@ -88,7 +89,7 @@ defmodule RestdisBuster.Worker do
 
   def run(%Event{op: :truncate} = event) do
     with {:ok, config} <- TenantTableConfig.lookup(event.schema, event.table) do
-      Restdis.Cache.flush_table(config.tenant_id, event.table)
+      handler().flush_table(config.tenant_id, event.table)
 
       :telemetry.execute(
         [:restdis_buster, :invalidation, :latency],
@@ -113,7 +114,7 @@ defmodule RestdisBuster.Worker do
     case Jason.decode(content) do
       {:ok, %{"op" => "drop", "schema" => schema, "table" => table}} ->
         case TenantTableConfig.lookup(schema, table) do
-          {:ok, config} -> Restdis.Cache.flush_table(config.tenant_id, table)
+          {:ok, config} -> handler().flush_table(config.tenant_id, table)
           :not_found -> :ok
         end
 
@@ -132,8 +133,10 @@ defmodule RestdisBuster.Worker do
   end
 
   defp apply_change(config, event, _row, pk) do
-    Restdis.Cache.invalidate_by_row(config.tenant_id, event.table, pk)
+    handler().invalidate_by_row(config.tenant_id, event.table, pk)
   end
+
+  defp handler, do: HandlerConfig.handler()
 
   defp elapsed_us(nil), do: 0
 

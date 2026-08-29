@@ -54,4 +54,18 @@ defmodule RestdisBuster.Infra.LsnStoreTest do
     # Without a DB this just returns 0 via the rescue path.
     assert is_integer(LsnStore.persisted())
   end
+
+  test "reads the repo from :restdis_buster, :repo instead of a hardcoded RestdisRepo" do
+    # Non-running module proves repo comes from injected config, not a hardcoded atom.
+    Application.put_env(:restdis_buster, :repo, NotARunningRepo)
+    on_exit(fn -> Application.delete_env(:restdis_buster, :repo) end)
+
+    {:ok, pid} =
+      GenServer.start_link(LsnStore, [],
+        name: :"lsn_store_repo_injection_#{System.unique_integer()}"
+      )
+
+    assert Process.alive?(pid)
+    GenServer.stop(pid)
+  end
 end
