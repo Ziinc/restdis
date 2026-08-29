@@ -22,9 +22,12 @@ defmodule RestdisServer.Commands.Mget do
   defp fetch_encoded(tenant_id, wire_key) do
     with {:ok, key} <- Key.decode(wire_key),
          {:ok, value} <- Restdis.Cache.get(tenant_id, key) do
-      Jason.encode!(value)
+      encode_value(key, value)
     else
       _ -> nil
     end
   end
+
+  defp encode_value(%Key{scope: :raw}, value), do: value
+  defp encode_value(_key, value), do: Jason.encode!(value)
 end

@@ -31,8 +31,16 @@ defmodule RestdisServer.Commands.GetReplicatedTest do
     assert IO.iodata_to_binary(reply) == "$-1\r\n"
   end
 
-  test "GET of a key that is neither a PGRST nor a KV key errors", %{tenant_id: tenant_id} do
+  test "GET of an unset plain (raw) key replies null, not an error", %{tenant_id: tenant_id} do
     {reply, _state} = Get.run(state(tenant_id), ["products"])
+
+    assert IO.iodata_to_binary(reply) == "$-1\r\n"
+  end
+
+  test "GET of a malformed <table>:<pk>-shaped key that isn't replicated errors", %{
+    tenant_id: tenant_id
+  } do
+    {reply, _state} = Get.run(state(tenant_id), ["products:"])
 
     assert IO.iodata_to_binary(reply) =~ "ERR"
   end
