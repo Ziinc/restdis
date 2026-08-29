@@ -8,6 +8,7 @@ defmodule RestdisBuster.Worker do
   alias RestdisBuster.Infra.LsnStore
   alias RestdisBuster.TenantTableConfig
   alias RestdisBuster.WAL.Event
+  alias RestdisBuster.Worker.HandlerConfig
 
   @infra_schema "public"
   @tenants_table "tenants"
@@ -135,7 +136,7 @@ defmodule RestdisBuster.Worker do
     handler().invalidate_by_row(config.tenant_id, event.table, pk)
   end
 
-  defp handler, do: RestdisBuster.Worker.HandlerConfig.handler()
+  defp handler, do: HandlerConfig.handler()
 
   defp elapsed_us(nil), do: 0
 

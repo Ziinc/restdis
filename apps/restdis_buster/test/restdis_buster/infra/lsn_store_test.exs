@@ -56,10 +56,7 @@ defmodule RestdisBuster.Infra.LsnStoreTest do
   end
 
   test "reads the repo from :restdis_buster, :repo instead of a hardcoded RestdisRepo" do
-    # Points the store at a module that isn't a running Ecto repo at all;
-    # LsnStore degrades gracefully rather than crashing, proving the target
-    # repo is resolved from injected config rather than the literal
-    # `RestdisRepo` atom.
+    # Non-running module proves repo comes from injected config, not a hardcoded atom.
     Application.put_env(:restdis_buster, :repo, NotARunningRepo)
     on_exit(fn -> Application.delete_env(:restdis_buster, :repo) end)
 

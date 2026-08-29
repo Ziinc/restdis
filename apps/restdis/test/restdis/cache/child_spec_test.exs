@@ -12,22 +12,11 @@ defmodule Restdis.Cache.ChildSpecTest do
   end
 
   test "start_link/1 accepts a caller-provided top-level name and is idempotent by name" do
-    # `Restdis.Cache.Supervisor` is already running under its default name
-    # (started by this app's own test_helper.exs). Asking for that same
-    # default name again must not crash the caller (the umbrella's several
-    # host apps each defensively mount it in test); it returns the existing
-    # supervisor rather than erroring.
+    # Already running under its default name; asking again must return the existing supervisor, not error.
     assert {:ok, pid} = Restdis.Cache.Supervisor.start_link([])
     assert pid == Process.whereis(Restdis.Cache.Supervisor)
 
-    # Only the top-level supervisor process's own registered name is
-    # instance-scoped in this change; the tenant registry and dynamic
-    # supervisor it starts are still named by fixed module atoms
-    # (`Restdis.Cache.TenantRegistry`, `Restdis.Cache.TenantSupervisor`), so
-    # two such instances cannot yet run fully independently in one VM.
-    # Threading an instance identifier through every cache call site
-    # (`Restdis.Cache`, `QueryCache`, `DiskCache`, `ReverseIndex`, `Tenant`)
-    # is tracked as PRD Phase 5 follow-up work; see PR description.
+    # Only the supervisor's own name is instance-scoped so far; other cache modules use fixed atoms (PRD Phase 5 follow-up).
     Process.flag(:trap_exit, true)
 
     assert {:error, _reason} =

@@ -20,11 +20,7 @@ defmodule Restdis.Cache.Supervisor do
   def start_link(opts \\ []) do
     name = Keyword.get(opts, :name, __MODULE__)
 
-    # Idempotent by name: the umbrella's test suite runs several host apps'
-    # test_helper.exs in one shared VM, each of which mounts the default
-    # instance defensively. A real host only ever mounts this once, from its
-    # own supervision tree, so this only matters for that shared-VM test
-    # topology.
+    # Idempotent by name: several host apps' test_helper.exs mount the default instance defensively in one shared VM.
     case Process.whereis(name) do
       nil -> Supervisor.start_link(__MODULE__, opts, name: name)
       pid -> {:ok, pid}
