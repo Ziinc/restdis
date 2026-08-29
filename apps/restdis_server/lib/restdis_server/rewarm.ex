@@ -47,6 +47,18 @@ defmodule RestdisServer.Rewarm do
       |> PolicyStore.get(wire_key)
       |> Map.put(:rewarm_s, rewarm_s)
 
+    put_policy(tenant_id, wire_key, key, new_policy)
+  end
+
+  @doc """
+  Persists `new_policy` for `wire_key` and notifies the tenant scheduler with
+  the final, fully-merged policy. Callers that update multiple policy fields
+  at once (e.g. `PGRST.POLICY` setting `REWARM` and `PERSIST` together) should
+  compute the complete merged policy first and call this once, so the
+  scheduler is never notified with a stale field.
+  """
+  @spec put_policy(String.t(), binary(), Key.t(), map()) :: :ok
+  def put_policy(tenant_id, wire_key, %Key{} = key, new_policy) do
     PolicyStore.put(tenant_id, wire_key, new_policy)
     policy_changed(tenant_id, wire_key, key, new_policy)
   end

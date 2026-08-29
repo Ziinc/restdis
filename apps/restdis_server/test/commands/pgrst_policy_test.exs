@@ -4,6 +4,7 @@ defmodule RestdisServer.Commands.PgrstPolicyTest do
   alias Restdis.Cache.Key
   alias RestdisServer.Commands.Dispatcher
   alias RestdisServer.PolicyStore
+  alias RestdisServer.Rewarm
   alias RestdisServer.TenantStore.InMemory
 
   @tenant_id "test-policy-tenant"
@@ -54,5 +55,30 @@ defmodule RestdisServer.Commands.PgrstPolicyTest do
     policy = PolicyStore.get(@tenant_id, wire_key)
     assert policy.rewarm_s == 30
     assert policy.persist == true
+  end
+
+  test "PGRST.POLICY REWARM+PERSIST notifies the scheduler with the final merged policy", %{
+    state: state,
+    wire_key: wire_key
+  } do
+    on_exit(fn -> Rewarm.stop_tenant(@tenant_id) end)
+
+    {reply, _} = Dispatcher.dispatch(state, ["PGRST.POLICY", wire_key, "REWARM", "30", "PERSIST"])
+    assert IO.iodata_to_binary(reply) == "+OK\r\n"
+
+    {:ok, pid} = fetch_scheduler_pid(@tenant_id)
+    table = :sys.get_state(pid).table
+
+    assert [{^wire_key, entry}] = :ets.lookup(table, wire_key)
+
+    assert entry.rewarm_s == 30
+    assert entry.persist == true
+  end
+
+  defp fetch_scheduler_pid(tenant_id) do
+    case Registry.lookup(RestdisServer.Rewarm.Registry, tenant_id) do
+      [{pid, _}] -> {:ok, pid}
+      [] -> :error
+    end
   end
 end

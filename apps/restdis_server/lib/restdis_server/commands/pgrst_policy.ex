@@ -29,16 +29,13 @@ defmodule RestdisServer.Commands.PgrstPolicy do
 
   defp apply_policy(state, wire_key, key, parsed) do
     existing_policy = PolicyStore.get(state.tenant_id, wire_key)
-    rewarm_s = Map.get(parsed, :rewarm_s, existing_policy.rewarm_s)
-
-    Rewarm.set_rewarm(state.tenant_id, wire_key, key, rewarm_s)
 
     new_policy = %{
-      rewarm_s: rewarm_s,
+      rewarm_s: Map.get(parsed, :rewarm_s, existing_policy.rewarm_s),
       persist: Map.get(parsed, :persist, existing_policy.persist)
     }
 
-    PolicyStore.put(state.tenant_id, wire_key, new_policy)
+    Rewarm.put_policy(state.tenant_id, wire_key, key, new_policy)
 
     persist_result =
       if new_policy.persist != existing_policy.persist do
