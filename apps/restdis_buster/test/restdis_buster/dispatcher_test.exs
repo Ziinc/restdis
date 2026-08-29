@@ -4,12 +4,7 @@ defmodule RestdisBuster.DispatcherTest do
   alias RestdisBuster.Dispatcher
   alias RestdisBuster.TestUtils
 
-  import RestdisBuster.TestUtils,
-    only: [
-      assert_receive_eventually: 1,
-      assert_receive_eventually: 2,
-      assert_receive_eventually: 3
-    ]
+  import RestdisBuster.TestUtils, only: [assert_receive_eventually: 1]
 
   setup do
     # Join the test AZ group before each test
