@@ -136,8 +136,13 @@ defmodule Credo.Check.Consistency.ModuleFilePath do
     |> Path.split()
     |> drop_up_to_lib()
     |> case do
-      nil -> nil
-      segments -> List.update_at(segments, -1, &String.replace_trailing(&1, ".ex", ""))
+      nil ->
+        nil
+
+      segments ->
+        segments
+        |> List.update_at(-1, &String.replace_trailing(&1, ".ex", ""))
+        |> Enum.flat_map(&String.split(&1, "."))
     end
   end
 
