@@ -5,6 +5,33 @@ defmodule RestdisBuster.TestUtils do
   alias RestdisBuster.TenantTableConfig
   alias RestdisBuster.WAL.Event
 
+  @doc """
+  Like `assert_receive/2`, but instead of blocking for a single long
+  timeout, retries in `interval`-sized slices until `total_timeout` has
+  elapsed. Succeeds as soon as a matching message arrives, so it doesn't
+  eat the full timeout on the happy path, while still tolerating slow
+  delivery under load without needing a big fixed timeout.
+  """
+  defmacro assert_receive_eventually(pattern, total_timeout \\ 1000, interval \\ 100) do
+    quote do
+      attempts = max(div(unquote(total_timeout), unquote(interval)), 1)
+
+      Enum.reduce_while(1..attempts, nil, fn attempt, _acc ->
+        try do
+          ExUnit.Assertions.assert_receive(unquote(pattern), unquote(interval))
+          {:halt, :ok}
+        rescue
+          e in ExUnit.AssertionError ->
+            if attempt == attempts do
+              reraise e, __STACKTRACE__
+            else
+              {:cont, nil}
+            end
+        end
+      end)
+    end
+  end
+
   @doc false
   @spec seed_table_config(String.t(), String.t(), map()) :: :ok
   def seed_table_config(schema, table, config) do

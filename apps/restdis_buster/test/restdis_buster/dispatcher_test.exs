@@ -4,6 +4,13 @@ defmodule RestdisBuster.DispatcherTest do
   alias RestdisBuster.Dispatcher
   alias RestdisBuster.TestUtils
 
+  import RestdisBuster.TestUtils,
+    only: [
+      assert_receive_eventually: 1,
+      assert_receive_eventually: 2,
+      assert_receive_eventually: 3
+    ]
+
   setup do
     # Join the test AZ group before each test
     az = Application.get_env(:restdis_buster, :az, "test")
@@ -16,7 +23,7 @@ defmodule RestdisBuster.DispatcherTest do
     event = TestUtils.insert_event("products", "public", %{"id" => "1"})
     Dispatcher.dispatch(event)
 
-    assert_receive {:wal_event, ^event}, 1000
+    assert_receive_eventually {:wal_event, ^event}
   end
 
   test "dispatch/1 returns :ok" do
@@ -47,8 +54,8 @@ defmodule RestdisBuster.DispatcherTest do
     event = TestUtils.insert_event("items")
     Dispatcher.dispatch(event)
 
-    assert_receive {:wal_event, ^event}, 1000
-    assert_receive {:second_got, ^event}, 1000
+    assert_receive_eventually {:wal_event, ^event}
+    assert_receive_eventually {:second_got, ^event}
 
     Process.exit(second, :kill)
   end
@@ -74,8 +81,8 @@ defmodule RestdisBuster.DispatcherTest do
     event = TestUtils.insert_event("multi_az")
     Dispatcher.dispatch(event)
 
-    assert_receive {:wal_event, ^event}, 1000
-    assert_receive {:remote_got, ^event}, 1000
+    assert_receive_eventually {:wal_event, ^event}
+    assert_receive_eventually {:remote_got, ^event}
 
     :syn.leave(:wal_fanout, {:az, other_az}, remote)
     Process.exit(remote, :kill)
