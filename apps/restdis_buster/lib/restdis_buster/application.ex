@@ -13,6 +13,7 @@ defmodule RestdisBuster.Application do
     :ok = :syn.add_node_to_scopes([:wal, :wal_fanout])
 
     children = [
+      Restdis.Cache,
       {DynamicSupervisor, name: RestdisBuster.TailerSupervisor, strategy: :one_for_one},
       table_config_cache_spec(),
       RestdisBuster.Worker.Supervisor,
