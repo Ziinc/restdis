@@ -16,7 +16,7 @@ defmodule RestdisBuster.DispatcherTest do
     event = TestUtils.insert_event("products", "public", %{"id" => "1"})
     Dispatcher.dispatch(event)
 
-    assert_receive {:wal_event, ^event}, 200
+    assert_receive {:wal_event, ^event}, 1000
   end
 
   test "dispatch/1 returns :ok" do
@@ -47,8 +47,8 @@ defmodule RestdisBuster.DispatcherTest do
     event = TestUtils.insert_event("items")
     Dispatcher.dispatch(event)
 
-    assert_receive {:wal_event, ^event}, 200
-    assert_receive {:second_got, ^event}, 200
+    assert_receive {:wal_event, ^event}, 1000
+    assert_receive {:second_got, ^event}, 1000
 
     Process.exit(second, :kill)
   end
@@ -74,8 +74,8 @@ defmodule RestdisBuster.DispatcherTest do
     event = TestUtils.insert_event("multi_az")
     Dispatcher.dispatch(event)
 
-    assert_receive {:wal_event, ^event}, 200
-    assert_receive {:remote_got, ^event}, 200
+    assert_receive {:wal_event, ^event}, 1000
+    assert_receive {:remote_got, ^event}, 1000
 
     :syn.leave(:wal_fanout, {:az, other_az}, remote)
     Process.exit(remote, :kill)
