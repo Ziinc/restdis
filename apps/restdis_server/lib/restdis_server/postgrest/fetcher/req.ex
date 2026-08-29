@@ -7,12 +7,15 @@ defmodule RestdisServer.PostgREST.Fetcher.Req do
 
   require OpenTelemetry.Tracer
 
+  alias Restdis.Cache.Key
   alias RestdisServer.PostgREST.Fetcher
+  alias RestdisServer.QueryStore
 
   @impl RestdisServer.PostgREST.Fetcher
   def fetch(tenant_id, key, config) do
     base_url = config[:replica_url] || config.pgrst_base_url
-    path = Fetcher.path_for(key)
+    query_string = QueryStore.get(tenant_id, Key.encode(key))
+    path = Fetcher.path_for(key, query_string)
 
     OpenTelemetry.Tracer.with_span "postgrest.fetch", %{
       kind: :client,

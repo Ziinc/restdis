@@ -5,6 +5,7 @@ defmodule RestdisServer.Rewarm do
 
   alias Restdis.Cache.Key
   alias RestdisServer.PolicyStore
+  alias RestdisServer.QueryStore
   alias RestdisServer.Rewarm.Scheduler
 
   @registry RestdisServer.Rewarm.Registry
@@ -62,6 +63,8 @@ defmodule RestdisServer.Rewarm do
       {:ok, pid} -> DynamicSupervisor.terminate_child(@dynamic_sup, pid)
       :error -> :ok
     end
+
+    QueryStore.delete_tenant(tenant_id)
 
     :ok
   end
