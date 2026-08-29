@@ -24,10 +24,15 @@ defmodule RestdisServer.Commands.PgrstQuery do
       attributes: %{"restdis.tenant_id" => state.tenant_id, "restdis.path" => path}
     } do
       ttl_ms = parse_ttl_opt(opts)
+      rewarm_s = parse_rewarm_opt(opts)
 
       with {:ok, key, _params} <- QueryParser.parse(path),
            {:ok, config} <- TenantConfig.lookup_by_tenant_id(state.tenant_id) do
         wire_key = Key.encode(key)
+
+        if rewarm_s do
+          Rewarm.set_rewarm(state.tenant_id, wire_key, key, rewarm_s)
+        end
 
         case Router.peek(state.tenant_id, key) do
           {:ok, _value} ->
@@ -122,4 +127,19 @@ defmodule RestdisServer.Commands.PgrstQuery do
   end
 
   defp ttl_ms(_pair), do: nil
+
+  defp parse_rewarm_opt(opts) do
+    opts
+    |> Enum.chunk_every(2)
+    |> Enum.find_value(&rewarm_s/1)
+  end
+
+  defp rewarm_s([k, v]) when is_binary(k) do
+    case {String.upcase(k), Integer.parse(v)} do
+      {"REWARM", {s, ""}} -> s
+      _ -> nil
+    end
+  end
+
+  defp rewarm_s(_pair), do: nil
 end
