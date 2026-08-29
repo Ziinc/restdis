@@ -50,6 +50,15 @@ defmodule RestdisServer.QueryStore do
     :ok
   end
 
+  @doc """
+  Drops all stored query strings belonging to `tenant_id`.
+  """
+  @spec delete_tenant(String.t()) :: :ok
+  def delete_tenant(tenant_id) do
+    :ets.match_delete(@table, {{tenant_id, :_}, :_})
+    :ok
+  end
+
   @impl GenServer
   def init(_opts) do
     :ets.new(@table, [
