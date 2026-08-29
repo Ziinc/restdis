@@ -30,6 +30,8 @@ defmodule Restdis.MixProject do
       {:cubdb, "~> 2.0"},
       {:jason, "~> 1.4"},
       {:telemetry, "~> 1.0"},
+      {:ecto_sql, "~> 3.13"},
+      {:postgrex, "~> 0.22"},
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
       {:stream_data, "~> 1.1", only: :test}
     ]

@@ -31,7 +31,19 @@ config :restdis_replicator,
 config :restdis,
   cache_data_dir: System.tmp_dir!() <> "/restdis_test",
   origin: Restdis.Cache.Origin.Stub,
-  tenant_config_lookup: nil
+  tenant_config_lookup: nil,
+  ecto_repos: [Restdis.TestRepo]
+
+# Exercises `Restdis.Migration` against a real repo. Kept in sync with
+# `apps/restdis/config/test.exs`, which configures the same repo when the
+# library's own suite runs standalone, outside of this umbrella.
+config :restdis, Restdis.TestRepo,
+  username: "postgres",
+  password: "postgres",
+  hostname: postgres_hostname,
+  database: "restdis_lib_test",
+  pool_size: 5,
+  priv: "test/support/test_repo"
 
 config :restdis_server,
   resp_port: 0,
