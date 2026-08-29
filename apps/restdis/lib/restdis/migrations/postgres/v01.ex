@@ -10,6 +10,7 @@ defmodule Restdis.Migrations.Postgres.V01 do
   import Ecto.Migration
 
   @doc false
+  @spec up(keyword()) :: :ok
   def up(opts \\ []) do
     prefix = Keyword.fetch!(opts, :prefix)
 
@@ -53,6 +54,7 @@ defmodule Restdis.Migrations.Postgres.V01 do
   end
 
   @doc false
+  @spec down(keyword()) :: :ok
   def down(opts \\ []) do
     prefix = Keyword.fetch!(opts, :prefix)
 

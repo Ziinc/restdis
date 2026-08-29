@@ -26,6 +26,7 @@ defmodule Restdis.Migration do
   @default_prefix "restdis"
 
   @doc "The schema prefix used when none is given."
+  @spec default_prefix() :: String.t()
   def default_prefix, do: @default_prefix
 
   @doc """
@@ -43,6 +44,7 @@ defmodule Restdis.Migration do
 
   Calling `up/1` twice at the same version is a no-op the second time.
   """
+  @spec up(keyword()) :: :ok
   def up(opts \\ []), do: Postgres.up(opts)
 
   @doc """
@@ -52,6 +54,7 @@ defmodule Restdis.Migration do
 
   Accepts the same `:version` and `:prefix` options as `up/1`.
   """
+  @spec down(keyword()) :: :ok
   def down(opts \\ []), do: Postgres.down(opts)
 
   @doc """
@@ -59,6 +62,7 @@ defmodule Restdis.Migration do
   `#{inspect(@default_prefix)}`), or `0` if the schema has never been
   migrated.
   """
+  @spec migrated_version(keyword()) :: non_neg_integer()
   def migrated_version(opts \\ []), do: Postgres.migrated_version(opts)
 
   @doc """
@@ -77,6 +81,7 @@ defmodule Restdis.Migration do
     * `:tables` - an explicit list of tables to publish, used instead of
       `:for_all_tables` when given.
   """
+  @spec create_publication(keyword()) :: :ok
   def create_publication(opts \\ []) do
     name = Keyword.get(opts, :name, "restdis_pub")
     tables = Keyword.get(opts, :tables)
@@ -102,6 +107,7 @@ defmodule Restdis.Migration do
   end
 
   @doc "Drops the WAL publication created by `create_publication/1`."
+  @spec drop_publication(keyword()) :: :ok
   def drop_publication(opts \\ []) do
     name = Keyword.get(opts, :name, "restdis_pub")
     execute("DROP PUBLICATION IF EXISTS #{quote_ident(name)}")

@@ -17,12 +17,14 @@ defmodule Restdis.Migrations.Postgres do
   @comment_prefix "restdis:version:"
 
   @doc false
+  @spec latest_version() :: pos_integer()
   def latest_version, do: @latest_version
 
   @doc """
   Applies every migration module between the recorded version (exclusive)
   and `version` (inclusive), in ascending order.
   """
+  @spec up(keyword()) :: :ok
   def up(opts \\ []) do
     prefix = fetch_prefix(opts)
     target = Keyword.get(opts, :version, @latest_version)
@@ -51,11 +53,11 @@ defmodule Restdis.Migrations.Postgres do
   Reverses every migration module between the recorded version and
   `version` (exclusive), in descending order.
   """
+  @spec down(keyword()) :: :ok
   def down(opts \\ []) do
     prefix = fetch_prefix(opts)
-    # `:version` names the version being undone, mirroring `up/1`'s
-    # `:version` (the version being reached): `down(version: 1)` reverses
-    # exactly what `up(version: 1)` applied, landing on version 0.
+
+    # `:version` names the version being undone: `down(version: 1)` reverses exactly what `up(version: 1)` applied, landing on version 0.
     target = Keyword.get(opts, :version, @latest_version) - 1
 
     current = migrated_version(opts)
@@ -80,6 +82,7 @@ defmodule Restdis.Migrations.Postgres do
   Reads the version recorded in the table comment on `tenants`, or `0` if
   `tenants` does not exist yet or carries no recognised comment.
   """
+  @spec migrated_version(keyword()) :: non_neg_integer()
   def migrated_version(opts \\ []) do
     prefix = fetch_prefix(opts)
     repo = fetch_repo(opts)
@@ -114,11 +117,7 @@ defmodule Restdis.Migrations.Postgres do
 
   defp fetch_prefix(opts), do: Keyword.get(opts, :prefix, Restdis.Migration.default_prefix())
 
-  # Inside a running `Ecto.Migration` (the normal case: a host app's
-  # migration delegates to `Restdis.Migration.up/1` etc.), the repo is
-  # implicit in the migration's own runner process. Outside of one - e.g. a
-  # host inspecting the current version at runtime, or this library's own
-  # tests - an explicit `:repo` must be given.
+  # Inside a running `Ecto.Migration`, the repo is implicit in the runner process; outside of one (e.g. inspecting the version at runtime, or this library's own tests), an explicit `:repo` must be given.
   defp fetch_repo(opts) do
     case Keyword.fetch(opts, :repo) do
       {:ok, repo} ->
