@@ -29,6 +29,7 @@ defmodule RestdisServer.Commands.SetTest do
     assert IO.iodata_to_binary(set_reply) == "+OK\r\n"
 
     {ttl_reply, _state} = Ttl.run(state(tenant_id), ["mykey"])
+
     assert IO.iodata_to_binary(ttl_reply) == ":60\r\n" or
              IO.iodata_to_binary(ttl_reply) == ":59\r\n"
   end

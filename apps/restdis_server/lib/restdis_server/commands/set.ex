@@ -29,9 +29,8 @@ defmodule RestdisServer.Commands.Set do
   def run(state, [wire_key, value | rest]) do
     case Key.decode(wire_key) do
       {:ok, %Key{scope: :raw} = key} ->
-        with {:ok, opts} <- parse_opts(rest) do
-          put(state, key, value, opts)
-        else
+        case parse_opts(rest) do
+          {:ok, opts} -> put(state, key, value, opts)
           :error -> {Encoder.error("ERR syntax error"), state}
         end
 
