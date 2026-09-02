@@ -15,7 +15,7 @@ Restdis already owns every expensive piece of that architecture except the shape
 
 What Restdis lacks is the **ordered, resumable, offset-addressed log** that Electric clients speak, and the **HTTP protocol** that carries it.
 
-The proposal: expose an `Electric.Shapes`-compatible `GET /v1/shape` endpoint from `restdis_server`, backed by a new `restdis_shape` bounded context, so that **any existing Electric client integration works unmodified against Restdis by changing one base URL** — while the log is served out of Restdis's multi-layer cache instead of Electric's single-instance file store plus an external CDN.
+The proposal: expose an `Electric.Shapes`-compatible `GET /v1/shape` endpoint from `restdis_server`, backed by a new `restdis_electric` bounded context, so that **any existing Electric client integration works unmodified against Restdis by changing one base URL** — while the log is served out of Restdis's multi-layer cache instead of Electric's single-instance file store plus an external CDN.
 
 ### Who is asking for this
 
@@ -75,23 +75,61 @@ Also: `DELETE /v1/shape` behind an `allow_shape_deletion` flag, mirroring the ex
 | --- | --- | --- |
 | `Electric.Postgres.ReplicationClient` | `RestdisBuster.Tailer` + `Wal.PGOutput` | Require `REPLICA IDENTITY FULL` on shape-backing tables; carry full old/new tuples through `Wal.Event`. |
 | `ShapeLogCollector` | `RestdisBuster.Dispatcher` | New dispatch target alongside invalidate/refresh: `:shape_append`. |
-| `Electric.Shapes.Consumer` (per-shape GenServer) | new `RestdisShape.Consumer` | New. One per active shape, under the tenant aggregate. |
-| `Electric.Shapes.Filter` (hash-indexed routing) | `Restdis.Cache.ReverseIndex` (same shape of problem, different key) | New `RestdisShape.Filter`: `(table, column, constant) -> MapSet(shape_handle)`. |
-| `PureFileStorage` (log + sparse offset index) | `Restdis.Cache.DiskCache` (CubDB) + ETS | New `RestdisShape.Log` — append-only, chunked, sparse-indexed. See "Storage" below. |
+| `Electric.Shapes.Consumer` (per-shape GenServer) | new `RestdisElectric.Consumer` | New. One per active shape, under the tenant aggregate. |
+| `Electric.Shapes.Filter` (hash-indexed routing) | `Restdis.Cache.ReverseIndex` (same shape of problem, different key) | New `RestdisElectric.Filter`: `(table, column, constant) -> MapSet(shape_handle)`. |
+| `PureFileStorage` (log + sparse offset index) | `Restdis.Cache.DiskCache` (CubDB) + ETS | New `RestdisElectric.Log` — append-only, chunked, sparse-indexed. See "Storage" below. |
 | Snapshot via read-only txn + `pg_current_snapshot()` | `Restdis.Cache.Origin.PostgREST` | New snapshotter; consistency handled by LSN-buffer + idempotent apply (below). |
 | CDN request collapsing | Restdis multi-layer cache + per-AZ `syn` fan-out + global `persist` replication | Serve the collapsing role in-process; remain CDN-compatible on top. |
 | Auth gatekeeper proxy (user-built) | `RestdisServer.HTTP.Plug.Auth` + tenant config | Native. Shape definitions bound server-side per API key. |
 
-New umbrella child: **`restdis_shape`** — the shape bounded context. It owns shape definitions, handles, the log, the filter index, and consumers. Per `AGENT.md`, cross-context calls go through public APIs only; `restdis_shape` depends on `restdis` (cache/storage primitives) and is driven by `restdis_buster` via the dispatcher, and read by `restdis_server` via a public API. `restdis_shape` must not reach into `RestdisBuster` internals, and `restdis` (the standalone library) must not reference it at all.
+### The `restdis_electric` bounded context
+
+All of this lands in a new umbrella child, **`restdis_electric`**, under the `RestdisElectric` namespace. It is a self-contained context, not a feature folder inside `restdis_server`.
+
+The context owns: shape definitions, handles, the append-only log and its offset index, the filter index, per-shape consumers, snapshotting, and where-clause parsing and evaluation. It owns the *semantics* of the Electric protocol — what a shape is, what its log contains, when a handle dies. It does not own HTTP.
+
+**Dependency direction.** `restdis_electric` depends on `restdis` (cache, storage, tenant primitives) and on nothing else in the umbrella. It is *driven by* `restdis_buster` and *read by* `restdis_server`, but depends on neither: the dispatcher pushes into it, and the HTTP layer pulls from it. That keeps the arrows pointing one way and means the context can be tested with no server and no WAL tailer running.
+
+```
+restdis_buster ──push──▶ ┌─────────────────┐ ◀──pull── restdis_server
+                         │ restdis_electric│              (HTTP)
+                         └────────┬────────┘
+                                  │ depends on
+                                  ▼
+                               restdis
+```
+
+**Public API.** Exactly three modules are public; everything else is internal to the context.
+
+- `RestdisElectric` — the read/subscribe surface the HTTP layer calls: resolve a definition to a handle, read a log range at an offset, await new data at an offset, delete a shape. Returns domain results (`{:ok, messages, offset}`, `{:error, :must_refetch, new_handle}`, `{:error, {:unsupported_where, expr}}`), never `Plug.Conn` and never HTTP status codes.
+- `RestdisElectric.Definition` — construct and validate a shape definition. The gatekeeper path in `restdis_server` builds definitions from tenant config through this module.
+- `RestdisElectric.WAL` — the ingestion entry point `restdis_buster` calls with a decoded change, plus the persistence acknowledgement the tailer needs before advancing the slot.
+
+**Boundary enforcement.** `apps/restdis/mix.exs` already runs a `check.boundary` alias asserting that the `restdis` library never references an umbrella namespace, driven by an `@umbrella_namespaces` list. Add `RestdisElectric` to that list, and add the symmetric check inside `restdis_electric`: it must not reference `RestdisServer`, `RestdisBuster`, `RestdisRepo`, or `RestdisReplicator`. (Worth noting while touching that list: `RestdisReplicator` is currently missing from it, so the existing check has a hole. Fixing that is a small, separate change.)
+
+**Why its own context rather than part of `restdis_server`.** Three reasons, in order of weight. The shape log is stateful and long-lived, while `restdis_server` is a request/protocol layer — mixing them puts supervision trees with very different lifecycles under one roof. The context is driven from two directions (WAL in, HTTP out) and belongs to neither. And the Electric protocol is a compatibility target owned by someone else; isolating it means a protocol change is a change to one app, with one test suite, and no blast radius in the RESP or PostgREST paths.
+
+### Integration into `restdis_server`
+
+`restdis_server` gains `{:restdis_electric, in_umbrella: true}` and a thin adapter layer — the only place where Electric's HTTP contract exists.
+
+1. **Routing.** `RestdisServer.HTTP.Endpoint` gains `get "/v1/shape"` and `delete "/v1/shape"`, alongside the existing `/pgrst/query` and `/pgrst/policy` routes.
+2. **Auth.** Both routes run the existing `RestdisServer.HTTP.Plug.Auth` to resolve the tenant, exactly as `/pgrst/query` does today. Gatekeeper mode resolves the shape definition from tenant config; open mode builds one from the request params.
+3. **Adapter.** A new `RestdisServer.HTTP.Electric` module is the *entire* translation layer: query params → `RestdisElectric.Definition`, domain result → status code, headers, and JSON body. Every Electric-specific header (`electric-handle`, `electric-offset`, `electric-up-to-date`, `electric-schema`) and every status mapping (`400`/`409`+`location`/`429`) lives here and nowhere else.
+4. **Transport.** Long-poll waiting and SSE framing are `restdis_server`'s concern, built on the `await` call in the context's public API. The context signals "new data at offset N"; the server decides whether that becomes a held connection, an SSE frame, or a 200 with `up-to-date`.
+5. **Supervision.** The context exposes a `child_spec/1` mounted by the host, following the pattern `Restdis.Cache` already uses (`:restdis` declares no `mod:` callback and the host mounts it explicitly). `restdis_electric` does the same, so it starts no processes merely by being a dependency.
+6. **Observability.** Telemetry events are emitted by the context; `RestdisServer.Metrics` attaches and exports them, so the context takes no dependency on the server's Prometheus wiring.
+
+The test of whether this separation is real: deleting the `/v1/shape` routes and the adapter module should leave `restdis_electric` compiling and its full test suite green.
 
 ### Storage: the shape log on Restdis's layers
 
 Electric's v1.1 lesson is explicit: a general-purpose KV store (CubDB) was the wrong substrate for an append-only log, and replacing it with a purpose-built chunked file store bought ~102x writes and ~73x reads on SSD, plus lock-free readers, read replicas, and zero-downtime deploys. Restdis's Phase 1 PRD already flags CubDB write throughput as unvalidated.
 
-We do not repeat Electric's mistake. `RestdisShape.Log` is a purpose-built append-only store from the start, mapped onto the three layers:
+We do not repeat Electric's mistake. `RestdisElectric.Log` is a purpose-built append-only store from the start, mapped onto the three layers:
 
 1. **Layer 1 (ETS, hot).** The open (unfinalized) chunk and shape metadata: current offset, handle, schema, subscriber set. Live long-polls are served entirely from here — a live reader never touches disk.
-2. **Layer 2 (append-only chunk files on NVMe, durable).** Finalized immutable chunks of pre-serialized JSON lines plus a sparse offset index appended only at chunk finalization. Readers binary-search the sparse index, then scan the chunk. Append-only + append-only index ⇒ readers and the single writer never contend, no locks. CubDB continues to hold shape *metadata* (definition, handle, last offset, snapshot LSN), not log bodies — metadata is small, transactional, and already replicated. CubDB is slated for replacement in Restdis generally; confining shapes to metadata keeps the shape context off the critical path of that migration, and `RestdisShape.Log` should reach it only through the `Restdis.Cache` public API so the swap is a one-context change.
+2. **Layer 2 (append-only chunk files on NVMe, durable).** Finalized immutable chunks of pre-serialized JSON lines plus a sparse offset index appended only at chunk finalization. Readers binary-search the sparse index, then scan the chunk. Append-only + append-only index ⇒ readers and the single writer never contend, no locks. CubDB continues to hold shape *metadata* (definition, handle, last offset, snapshot LSN), not log bodies — metadata is small, transactional, and already replicated. CubDB is slated for replacement in Restdis generally; confining shapes to metadata keeps the shape context off the critical path of that migration, and `RestdisElectric.Log` should reach it only through the `Restdis.Cache` public API so the swap is a one-context change.
 3. **Layer 3 (origin).** PostgREST (or the tenant's configured read replica) for the initial snapshot, paginated, reusing `Restdis.Cache.Origin` and the existing per-tenant API key.
 
 Finalized chunks are immutable and therefore replicable: the existing global `persist` replication path can push hot shape chunks to peer nodes, which is what lets any node in the region serve a resume request without a cross-node hop.
@@ -116,7 +154,7 @@ Cost and trade-off, stated plainly:
 
 - **Cost:** a bounded window of duplicated operations at the snapshot boundary — bytes, not correctness. Bounded by write volume during the snapshot fetch.
 - **Trade-off vs. Electric:** we give up exact-once at the boundary and gain the ability to snapshot through PostgREST — which means the snapshot inherits PostgREST's RLS enforcement, the tenant's read-replica routing, and Restdis's existing origin plumbing, instead of requiring a second privileged direct-Postgres pool.
-- **Escape hatch:** where a tenant has a direct Postgres pool configured, `RestdisShape.Snapshotter` may use the exact `pg_current_snapshot()` xid-dedup path instead. Same log output, fewer duplicates. Phase 5.
+- **Escape hatch:** where a tenant has a direct Postgres pool configured, `RestdisElectric.Snapshotter` may use the exact `pg_current_snapshot()` xid-dedup path instead. Same log output, fewer duplicates. Phase 5.
 - **Client-visible:** none for `log=full`. For `log=changes_only` (Phase 5), Electric exposes the snapshot descriptor to the client in the `snapshot-end` control message so the client performs the skip. Without a descriptor we cannot populate that field, so `changes_only` is gated on the direct-Postgres path and returns 400 otherwise.
 
 ### Where-clause evaluation
@@ -136,7 +174,7 @@ Compatibility strategy, ordered by risk:
 
 Electric evaluates every shape's where clause against every row, and optimizes with a hash index over the constant in `field = constant`-shaped clauses, keeping throughput flat (~5,000 changes/sec) regardless of shape count; non-optimized clauses degrade roughly inversely with shape count.
 
-`RestdisShape.Filter` implements the same idea, and Restdis's reverse index is the existing proof the team can build it. Two Restdis-native advantages:
+`RestdisElectric.Filter` implements the same idea, and Restdis's reverse index is the existing proof the team can build it. Two Restdis-native advantages:
 
 - **Tenant sharding is a first filter.** The consistent hash ring already partitions tenants across nodes, so a node only evaluates shapes for tenants it owns. Electric's single-instance model has no equivalent.
 - **Per-AZ `syn` fan-out already bounds broadcast volume**, so cross-AZ traffic stays at one message per AZ per event regardless of how many shapes exist.
@@ -188,8 +226,8 @@ Migration guidance for an existing Electric deployment is documentation, not cod
 
 **In scope:**
 
-- `restdis_shape` umbrella child: shape definitions, handles, append-only chunked log, sparse offset index, filter index, per-shape consumers.
-- `GET /v1/shape` on `RestdisServer.HTTP.Endpoint` with the full parameter, header, message, and status-code contract above.
+- `restdis_electric` umbrella child, a standalone bounded context under the `RestdisElectric` namespace: shape definitions, handles, append-only chunked log, sparse offset index, filter index, per-shape consumers, snapshotting, where-clause evaluation.
+- Integration into `restdis_server`: `GET`/`DELETE /v1/shape` on `RestdisServer.HTTP.Endpoint` behind the existing `Auth` plug, with a single `RestdisServer.HTTP.Electric` adapter owning the full parameter, header, message, and status-code contract above.
 - `DELETE /v1/shape` behind `allow_shape_deletion`.
 - Initial snapshot via PostgREST with LSN-bracketed, idempotent-apply consistency.
 - Long-poll live mode with in-process request collapsing; SSE transport.
@@ -216,15 +254,16 @@ Migration guidance for an existing Electric deployment is documentation, not cod
 
 Delivers a durable shape log and a `GET /v1/shape` that serves a snapshot and resumes by offset. No live mode, no filtering.
 
-1. Add `restdis_shape` as the fifth umbrella child, with boundary enforcement in `mix check.boundary`.
-2. Define `RestdisShape.Definition` (table, columns, where, params) and `RestdisShape.Handle` (truncated SHA-256 over the canonical definition, per tenant, formatted `{hash}-{epoch_ms}`).
-3. Implement `RestdisShape.Log`: append-only chunk writer, chunk finalization at a size threshold, sparse offset index appended on finalization, and a reader that binary-searches the index then scans the chunk.
-4. Implement `RestdisShape.Offset` over `RestdisBuster.Infra.LSN`: encode/decode `-1`, `0_inf`, `now`, `{lsn}_{op_offset}`; total ordering.
-5. Implement `RestdisShape.Snapshotter`: record `L0`, page the shape's rows from PostgREST via `Restdis.Cache.Origin`, append each as an `insert` up to `0_inf`.
-6. Add the `:shape` scope to `Restdis.Cache.Key` so chunks inherit per-tenant caps and flush.
-7. Implement `GET /v1/shape` for `table`, `offset`, `handle`: 200 with the message array, `electric-handle`/`electric-offset`/`electric-schema` headers, and `cache-control`/`etag` marking immutable offsets immutable.
-8. Return `409` with a `location` header when a handle is unknown or invalidated.
-9. Return `400` for an unknown table or a projection omitting the primary key.
+1. Add `restdis_electric` as the fifth umbrella child, depending on `restdis` only, with a `check.boundary` alias asserting it references no other umbrella namespace, and `RestdisElectric` added to `restdis`'s own `@umbrella_namespaces` list.
+2. Expose `RestdisElectric.child_spec/1` mounted explicitly by the host, with no `mod:` application callback, following `Restdis.Cache`.
+3. Define `RestdisElectric.Definition` (table, columns, where, params) and `RestdisElectric.Handle` (truncated SHA-256 over the canonical definition, per tenant, formatted `{hash}-{epoch_ms}`).
+4. Implement `RestdisElectric.Log`: append-only chunk writer, chunk finalization at a size threshold, sparse offset index appended on finalization, and a reader that binary-searches the index then scans the chunk.
+5. Implement `RestdisElectric.Offset`: encode/decode `-1`, `0_inf`, `now`, `{lsn}_{op_offset}`; total ordering. The LSN is carried in as an integer across the context boundary, so this module does not depend on `RestdisBuster.Infra.LSN`.
+6. Implement `RestdisElectric.Snapshotter`: record `L0`, page the shape's rows from PostgREST via `Restdis.Cache.Origin`, append each as an `insert` up to `0_inf`.
+7. Add the `:shape` scope to `Restdis.Cache.Key` so chunks inherit per-tenant caps and flush.
+8. Expose the public read API on `RestdisElectric`: resolve definition to handle, read a log range at an offset, delete a shape — returning domain results, no HTTP concepts.
+9. Add `{:restdis_electric, in_umbrella: true}` to `restdis_server`, mount its `child_spec` in `RestdisServer.Application`, and add `get "/v1/shape"` behind the existing `Auth` plug.
+10. Implement `RestdisServer.HTTP.Electric`: params → `Definition`, domain result → status, headers (`electric-handle`/`electric-offset`/`electric-schema`, `cache-control`/`etag` marking settled offsets immutable), and JSON body — including `409` + `location` on an unknown or invalidated handle and `400` on an unknown table or a projection omitting the primary key.
 
 **Completion criteria:**
 
@@ -232,6 +271,8 @@ Delivers a durable shape log and a `GET /v1/shape` that serves a snapshot and re
 - Resuming at any mid-snapshot offset returns exactly the operations after it, with no gap and no reordering.
 - A request at an immutable offset returns a byte-identical body and the same `etag` across restarts.
 - Log chunks survive a simulated node restart and serve warm data on recovery.
+- `mix check.boundary` passes in both directions: `restdis` references no `RestdisElectric`, and `restdis_electric` references no other umbrella namespace.
+- `restdis_electric`'s test suite passes with neither `restdis_server` nor `restdis_buster` started.
 - Property test: for any sequence of appends and any resume offset, replaying from that offset reconstructs the same materialized map as replaying from `-1`.
 
 **Risks:**
@@ -245,16 +286,17 @@ Delivers a durable shape log and a `GET /v1/shape` that serves a snapshot and re
 
 Delivers real-time updates and the first end-to-end proof of drop-in compatibility.
 
-1. Add a `:shape_append` dispatch target in `RestdisBuster.Dispatcher`, alongside invalidate and refresh.
-2. Implement `RestdisShape.Consumer`: one GenServer per active shape, appending matching changes to its log, hibernating when idle.
+1. Expose `RestdisElectric.WAL` as the ingestion entry point (decoded change in, persistence acknowledgement out), and add a `:shape_append` dispatch target in `RestdisBuster.Dispatcher` that calls it — the dependency arrow points from buster into the context, never the reverse.
+2. Implement `RestdisElectric.Consumer`: one GenServer per active shape, appending matching changes to its log, hibernating when idle.
 3. Require and verify `REPLICA IDENTITY FULL` on shape-backing tables at subscription time; 400 with a remediation message if absent.
-4. Implement long-poll: hold the request until new data or timeout; on timeout return 200 with only an `up-to-date` control message.
-5. Implement in-process request collapsing: all waiters on `(tenant, handle, offset)` share one waiter set and are woken by a single append.
-6. Implement `columns` projection, validating that the primary key is included.
-7. Implement `secret` gating and gatekeeper mode: shape definitions resolved from tenant config by name; client-supplied definition params rejected in this mode.
-8. Constrain `RestdisBuster.Infra.LSNStore` to confirm the slot only at an LSN persisted by every active shape consumer.
-9. Wire per-tenant shape eviction to `409` rather than silent drop.
-10. Add metrics: active shapes per tenant, append latency, live waiters, collapse ratio, 409 rate by cause.
+4. Add `RestdisElectric.await/3` to the public API: block until the log passes a given offset or a deadline elapses, returning domain results only.
+5. Implement long-poll in `RestdisServer.HTTP.Electric` on top of `await/3`: hold the request until new data or timeout; on timeout return 200 with only an `up-to-date` control message.
+6. Implement in-process request collapsing: all waiters on `(tenant, handle, offset)` share one waiter set in the context and are woken by a single append.
+7. Implement `columns` projection, validating that the primary key is included.
+8. Implement `secret` gating and gatekeeper mode in `restdis_server`: shape definitions resolved from tenant config by name via `RestdisElectric.Definition`; client-supplied definition params rejected in this mode.
+9. Constrain `RestdisBuster.Infra.LSNStore` to confirm the slot only at an LSN acknowledged as persisted by `RestdisElectric.WAL`.
+10. Wire per-tenant shape eviction to `409` rather than silent drop.
+11. Emit telemetry from the context and attach it in `RestdisServer.Metrics`: active shapes per tenant, append latency, live waiters, collapse ratio, 409 rate by cause.
 
 **Completion criteria:**
 
@@ -276,12 +318,12 @@ Delivers real-time updates and the first end-to-end proof of drop-in compatibili
 Delivers partial replication, the feature that makes shapes worth having.
 
 1. Integrate `datafusion-sqlparser-rs` via Rustler, parsing `where` with `PostgreSqlDialect` into an AST at subscription time only.
-2. Implement `RestdisShape.Eval`: evaluation over exactly the documented subset (comparison, logical, arithmetic, bitwise, `LIKE`/`ILIKE`, array operators, null/boolean tests, `IN`/`NOT IN`, `BETWEEN`, `ANY`/`ALL`, `lower`/`upper`/`coalesce`/`greatest`/`least`).
+2. Implement `RestdisElectric.Eval`: evaluation over exactly the documented subset (comparison, logical, arithmetic, bitwise, `LIKE`/`ILIKE`, array operators, null/boolean tests, `IN`/`NOT IN`, `BETWEEN`, `ANY`/`ALL`, `lower`/`upper`/`coalesce`/`greatest`/`least`).
 3. Reject anything outside the subset at subscription time with a `400` naming the unsupported construct.
 4. Implement `params` / `$1` positional interpolation with no string concatenation into SQL text.
 5. Implement move-in/move-out: evaluate the predicate against both the pre-image and post-image of every update; emit `insert` on newly-matching, `delete` on newly-non-matching.
 6. Implement `replica=full` so update and delete messages carry `old_value`.
-7. Implement `RestdisShape.Filter`: hash index from `(table, column, constant) -> MapSet(shape_handle)` for `field = constant`, `constant = field`, `field IN list`, `array_field @> constant`, `const = ANY(array_field)`, and `AND`/`OR` combinations. Mixed clauses filter on the optimized part first, then iterate survivors.
+7. Implement `RestdisElectric.Filter`: hash index from `(table, column, constant) -> MapSet(shape_handle)` for `field = constant`, `constant = field`, `field IN list`, `array_field @> constant`, `const = ANY(array_field)`, and `AND`/`OR` combinations. Mixed clauses filter on the optimized part first, then iterate survivors.
 8. Add metrics: filter index hit rate, shapes evaluated per WAL event, throughput vs. shape count.
 
 **Completion criteria:**
@@ -303,7 +345,7 @@ Delivers partial replication, the feature that makes shapes worth having.
 
 Delivers the remaining transport surface and validates cache behaviour end to end.
 
-1. Implement `live_sse=true`: SSE framing with `: keep-alive` comments every 21 seconds.
+1. Implement `live_sse=true` in `RestdisServer.HTTP.Electric`: SSE framing with `: keep-alive` comments every 21 seconds, over the same `RestdisElectric.await/3` the long-poll path uses. No transport knowledge enters the context.
 2. Implement the `cursor` cache-busting parameter for live reconnects.
 3. Emit `cache-control` with `max-age` and `stale-while-revalidate` matching Electric's semantics: immutable for settled offsets, short-lived for live responses.
 4. Validate behind Nginx, Caddy, and one commercial CDN that request collapsing works and that no live response is cached as immutable.
