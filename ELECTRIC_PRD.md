@@ -39,6 +39,10 @@ This RFC's success criterion is **drop-in replacement**, defined precisely as:
 
 Everything in Scope below is subordinate to that. Where Restdis's internals differ from Electric's, the difference must be invisible at the protocol boundary or explicitly documented as an unsupported shape definition that fails **at subscription time with a 400**, never as silent divergence in the log.
 
+**The target is fixed, not tracked.** We implement the Electric 1.x protocol and the published client majors as a frozen specification. We do not follow Electric's roadmap, do not port protocol changes made after our pin, and make no forward-compatibility commitment. Electric's roadmap now sits inside Databricks/Neon; chasing it would make an external team's release schedule a dependency of ours, for the benefit of clients that already work. If a future Electric protocol version matters, that is a scoped decision with its own RFC, not a standing obligation.
+
+The corollary for adopters is a **hard cutoff migration**, not a dual-run: point the clients at Restdis, let them resync from `offset=-1`, and delete the Electric deployment. Running both against one Postgres means two replication slots and two sets of WAL retention risk for no benefit, and the resync is exactly the 409 path every Electric client already implements. The migration cost is one initial snapshot per shape.
+
 ### Protocol surface to implement
 
 `GET /v1/shape` query parameters:
@@ -134,6 +138,15 @@ We do not repeat Electric's mistake. `RestdisElectric.Log` is a purpose-built ap
 
 Finalized chunks are immutable and therefore replicable: the existing global `persist` replication path can push hot shape chunks to peer nodes, which is what lets any node in the region serve a resume request without a cross-node hop.
 
+**One storage layer, shared with `restdis_replicator`.** The shape log is modeled as KV storage, not as a second parallel store. An operation at offset N is a value under a key derived from the offset; the log is a contiguous key range. This collapses what would otherwise be three storage models (query cache entries, replicated KV datasets, shape logs) into one substrate with three access patterns, and means the eventual CubDB replacement is a single migration rather than three.
+
+Retention is therefore a **user-configurable log length**: the number of trailing operations a shape retains, set per shape (with a tenant-level default). Keys older than the window are dropped from the head. The consequences are worth being explicit about, because this is where the KV model earns its keep and where it bites:
+
+- **A resume below the retained window is a `must-refetch`.** A client whose offset has fallen off the head gets a 409 and resyncs from `-1`. That is already a defined path in the protocol — this just adds one more trigger to the 409 table.
+- **The window is a latency/storage dial, not a correctness one.** A long window means more clients can reconnect cheaply after being offline; a short one bounds disk. Neither changes what a caught-up client sees.
+- **Sizing is the tenant's call, and getting it wrong is visible.** Too short, and intermittently-connected clients resync constantly — expensive, and it shows up directly as a 409 rate. Metrics must expose 409-by-cause (Phase 2 already requires this) so a badly-sized window is diagnosable rather than mysterious.
+- **This is a deliberate divergence from Electric,** which compacts an unbounded log rather than truncating it. Compaction preserves resumability for arbitrarily old clients at the cost of unbounded growth and a non-trivial compaction routine that must preserve creation/deletion ordering. Truncation trades that for a hard storage bound and much simpler code. For a multi-tenant platform with per-tenant caps, the bound is worth more than the unbounded tail. Both remain protocol-compatible, because the client's only observable is whether its offset is still serviceable.
+
 **Durability rule (inherited from Electric, and required for correctness):** never `fsync` per write; instead only advance the replication slot's confirmed LSN to a position durably persisted in the shape logs. A crash replays from the last persisted LSN. This constrains `RestdisBuster.Infra.LSNStore` — today it confirms on dispatch; with shapes it must confirm on *persist acknowledgement from every active shape consumer*, or the log can lose acknowledged changes.
 
 ### Snapshot/log consistency without a Postgres snapshot descriptor
@@ -192,6 +205,8 @@ Restdis has this already: `RestdisServer.HTTP.Plug.Auth` resolves a tenant from 
 - **Gatekeeper mode (default).** Shape definitions are named in tenant config; the client passes a shape *name* plus protocol params. `table`/`where`/`columns` from the client are rejected. This is the pattern Electric documents but makes you build.
 - **Open mode.** Client-supplied shape definitions, bounded by a `queryable_columns` allow-list and an optional shared `secret`, for parity with a bare Electric deployment behind someone else's proxy.
 
+Both modes ship, and the tenant configures which applies — this is a per-tenant setting, not a deployment-wide or platform-wide policy. Gatekeeper is the default, because the failure mode of defaulting the other way is a tenant unintentionally exposing arbitrary client-supplied where clauses.
+
 Both modes serve byte-identical logs. Gatekeeper mode is what makes the endpoint safe to expose multi-tenant, which Electric cannot do at all.
 
 ### Handles, offsets, and cache keys
@@ -209,6 +224,7 @@ Every path that discards a shape log must surface as `409` with a `location` hea
 | Replication slot recreated or invalidated | `RestdisBuster` slot config; slot invalidation purges all shapes. |
 | Schema change on the shape's table | Existing DDL event trigger (`DROP TABLE` invalidation) plus a periodic reconciliation of cached table metadata, matching Electric's 60s check for changes that emit no relation message. |
 | Shape evicted under per-tenant caps | Existing LRU eviction. **Must be wired to 409, not silent eviction** — a silently dropped shape becomes a permanently stale client. |
+| Client resumes below the retained log window | Log truncation at the configured length. See "Storage" below. |
 | Explicit `DELETE /v1/shape` | New, behind `allow_shape_deletion`. |
 | Postgres timeline / system identifier change | `RestdisBuster` slot config check on connect. |
 
@@ -393,14 +409,14 @@ Delivers exact snapshot dedup and the remaining `log` mode where a direct pool i
 2. Implement periodic schema reconciliation (60s) catching changes that emit no relation message, invalidating affected shapes.
 3. Enforce per-tenant shape caps: max shapes, max log bytes, max live waiters, with 429 and actionable errors.
 4. Extend the Grafana dashboard: shapes per tenant, append latency, WAL-to-client propagation, 409 rate by cause, collapse ratio, log disk per tenant.
-5. Implement log compaction preserving the temporal ordering of key creation and deletion.
+5. Implement log truncation at the configured retained length, per shape with a tenant default, and serve a `409` to any resume below the retained window.
 6. Publish a client-migration guide and a compatibility matrix stating exactly which protocol features and where-clause constructs are supported, plus a documentation-only table mapping Electric operational settings to their Restdis equivalents.
 7. Run the conformance suite in CI against the published Electric client packages, pinned by version, as a merge gate.
 
 **Completion criteria:**
 
 - Archiving a parent row moves its children out of a subquery-filtered shape incrementally, with no 409.
-- Compaction reduces log size without changing any client's materialized result, verified by property test.
+- Truncation holds a shape's log at its configured length under sustained writes, and a client resuming inside the window is unaffected while one resuming below it gets a 409 and recovers to correct state.
 - The conformance suite is green in CI and fails the build on regression.
 - The compatibility matrix is published and every "unsupported" entry corresponds to a 400 at subscription time, never to silent divergence.
 
@@ -423,6 +439,7 @@ Delivers exact snapshot dedup and the remaining `log` mode where a direct pool i
 | `log=changes_only` + `snapshot-end` descriptor | ✅ | ⚠️ | Requires a direct Postgres pool; 400 otherwise. |
 | Include trees / multi-table shapes | ❌ | ❌ | Neither. |
 | Mutable shape definitions | ❌ | ❌ | Neither. |
+| Log retention | Unbounded + compaction | Configurable length + truncation | Protocol-compatible: a resume below the window is the existing 409 path. |
 | Write path / conflict resolution | ❌ | ❌ | Deliberate in both. |
 | Multi-tenant on one deployment | ❌ | ✅ | Restdis's tenant aggregate. |
 | Native auth / gatekeeper | ❌ | ✅ | No user-built proxy required. |
@@ -438,7 +455,7 @@ Delivers exact snapshot dedup and the remaining `log` mode where a direct pool i
 | --- | --- | --- |
 | ~~1~~ | ~~Do shape logs count against the existing per-tenant CubDB budget?~~ | **Resolved.** Separate budget: shape logs have different growth and eviction semantics than query cache entries, and one shared cap means a large shape silently evicts hot query results. CubDB is slated for replacement; it holds shape *metadata* only for the MVP, so shape log storage does not deepen the dependency. |
 | ~~2~~ | ~~Which SQL parser?~~ | **Resolved.** `datafusion-sqlparser-rs` via Rustler. |
-| 3 | Should gatekeeper mode be the only mode on the managed platform? | Yes for multi-tenant platform deployments; open mode for self-hosted single-tenant. Confirm with the platform team. |
-| 4 | How do shapes interact with the existing `restdis_replicator` always-live datasets? | They overlap substantially. Recommend shapes become the strategic surface and the replicator's KV datasets stay for RESP-only consumers, rather than building a third refresh path. Needs a product decision. |
-| 5 | What is the migration story for a tenant already running Electric — cutover or dual-run? | Dual-run: point a fraction of clients at Restdis, diff materialized state against Electric for the same shape definition, then cut over. The log is deterministic enough to diff. |
-| 6 | Do we track Electric's protocol post-Databricks/Neon? | Pin to the 1.x protocol and the published client majors. The engine stays Apache 2.0, so the protocol is documented and forkable, but roadmap control now sits with Databricks — a compatibility target we follow, not one we commit to matching indefinitely. |
+| ~~3~~ | ~~Should gatekeeper mode be the only mode on the managed platform?~~ | **Resolved.** Both modes ship; the tenant configures which one applies. Gatekeeper is the default. |
+| ~~4~~ | ~~How do shapes interact with the existing `restdis_replicator` always-live datasets?~~ | **Resolved.** They share the storage layer: the shape log is modeled as KV storage with a user-configurable retained log length. See "Storage" above. |
+| 5 | What is the migration story for a tenant already running Electric? | Hard cutoff. Point the clients at Restdis and let them resync from `offset=-1`. |
+| ~~6~~ | ~~Do we track Electric's protocol post-Databricks/Neon?~~ | **Resolved.** No. The 1.x protocol and the published client majors are a fixed target. |
