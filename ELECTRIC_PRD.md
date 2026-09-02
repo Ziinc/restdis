@@ -91,7 +91,7 @@ Electric's v1.1 lesson is explicit: a general-purpose KV store (CubDB) was the w
 We do not repeat Electric's mistake. `RestdisShape.Log` is a purpose-built append-only store from the start, mapped onto the three layers:
 
 1. **Layer 1 (ETS, hot).** The open (unfinalized) chunk and shape metadata: current offset, handle, schema, subscriber set. Live long-polls are served entirely from here — a live reader never touches disk.
-2. **Layer 2 (append-only chunk files on NVMe, durable).** Finalized immutable chunks of pre-serialized JSON lines plus a sparse offset index appended only at chunk finalization. Readers binary-search the sparse index, then scan the chunk. Append-only + append-only index ⇒ readers and the single writer never contend, no locks. CubDB continues to hold shape *metadata* (definition, handle, last offset, snapshot LSN), not log bodies — metadata is small, transactional, and already replicated.
+2. **Layer 2 (append-only chunk files on NVMe, durable).** Finalized immutable chunks of pre-serialized JSON lines plus a sparse offset index appended only at chunk finalization. Readers binary-search the sparse index, then scan the chunk. Append-only + append-only index ⇒ readers and the single writer never contend, no locks. CubDB continues to hold shape *metadata* (definition, handle, last offset, snapshot LSN), not log bodies — metadata is small, transactional, and already replicated. CubDB is slated for replacement in Restdis generally; confining shapes to metadata keeps the shape context off the critical path of that migration, and `RestdisShape.Log` should reach it only through the `Restdis.Cache` public API so the swap is a one-context change.
 3. **Layer 3 (origin).** PostgREST (or the tenant's configured read replica) for the initial snapshot, paginated, reusing `Restdis.Cache.Origin` and the existing per-tenant API key.
 
 Finalized chunks are immutable and therefore replicable: the existing global `persist` replication path can push hot shape chunks to peer nodes, which is what lets any node in the region serve a resume request without a cross-node hop.
@@ -125,8 +125,8 @@ Electric ships its own Postgres expression parser and evaluator in Elixir and ev
 
 Compatibility strategy, ordered by risk:
 
-1. **Parse with a real Postgres parser, not a hand-rolled one.** The where clause is Postgres SQL; a `pg_query` NIF (libpg_query) gives us the same AST Postgres would produce and eliminates a whole class of divergence from Electric's `parser.ex`.
-2. **Evaluate a documented subset**, matching Electric's `known_functions.ex`: comparison, logical, arithmetic, bitwise, `LIKE`/`ILIKE`, array operators (`@>`, `<@`, `&&`), null/boolean tests, `IN`/`NOT IN`, `BETWEEN`, `ANY`/`ALL`, and `lower`/`upper`/`coalesce`/`greatest`/`least`. Unsupported, same as Electric: JSONB operators, full-text search, geometric, network-address, range operators, and non-deterministic functions (`now()`, `count()`).
+1. **Parse with [`datafusion-sqlparser-rs`](https://github.com/apache/datafusion-sqlparser-rs) via Rustler**, not a hand-rolled Elixir parser. Its `PostgreSqlDialect` covers the whole expression grammar we accept, it is fast enough to be irrelevant on a subscription-time path, and it is a safe-Rust library — a malformed expression returns a parse error rather than risking the memory-unsafety surface a C parser NIF would bring into the VM. It parses a *superset* of what we evaluate, which is the right direction: the accepted-construct boundary is enforced by our own AST walk, not by whatever the parser happens to reject.
+2. **Evaluate exactly the documented subset**, matching Electric's `known_functions.ex`: comparison, logical, arithmetic, bitwise, `LIKE`/`ILIKE`, array operators (`@>`, `<@`, `&&`), null/boolean tests, `IN`/`NOT IN`, `BETWEEN`, `ANY`/`ALL`, and `lower`/`upper`/`coalesce`/`greatest`/`least`. Unsupported, same as Electric: JSONB operators, full-text search, geometric, network-address, range operators, and non-deterministic functions (`now()`, `count()`).
 3. **Fail closed at subscription.** Anything outside the subset returns `400` with the offending expression named. Never accept a shape we will silently mis-filter — a wrong filter is a data leak.
 4. **Subqueries (`field IN (subquery)`) are Phase 6, not MVP.** They require cross-table dependency tracking so rows move in and out when the subquery result changes. Until then, they 400.
 
@@ -174,11 +174,13 @@ Every path that discards a shape log must surface as `409` with a `location` hea
 | Explicit `DELETE /v1/shape` | New, behind `allow_shape_deletion`. |
 | Postgres timeline / system identifier change | `RestdisBuster` slot config check on connect. |
 
-### Deployment compatibility
+### Compatibility boundary: client-side only
 
-To be genuinely drop-in at the ops layer, the Electric endpoint honors the `ELECTRIC_*` environment variables an existing deployment already sets, mapped onto Restdis config: `ELECTRIC_PORT`, `ELECTRIC_STORAGE_DIR`, `ELECTRIC_MAX_SHAPES`, `ELECTRIC_REPLICATION_STREAM_ID`, `ELECTRIC_SECRET`, `ELECTRIC_PROTOCOL_QUERY_PARAMS`, `ELECTRIC_OTLP_ENDPOINT`, `ELECTRIC_PROMETHEUS_PORT`, `DATABASE_URL`, `ELECTRIC_POOLED_DATABASE_URL`. Unmapped `ELECTRIC_*` variables log a warning at boot naming the Restdis equivalent rather than being ignored.
+Compatibility stops at the HTTP protocol. Restdis is configured, deployed, and operated as Restdis: its own environment variables, its own storage layout, its own `/metrics` endpoint, its own tenant config. No `ELECTRIC_*` environment variable is read, and no attempt is made to look like an Electric deployment to an operator.
 
-Note the Prometheus footgun Electric documents: setting a metrics port that nothing scrapes buffers histograms unboundedly until the service dies. Restdis's existing `/metrics` scrape endpoint avoids this; do not replicate Electric's separate-port behaviour.
+The reason is that server-side compatibility buys nothing and costs a permanent constraint. The people we are unblocking are application developers with Electric client code they do not want to rewrite; the operator is deploying Restdis deliberately. Honoring `ELECTRIC_STORAGE_DIR` or `ELECTRIC_MAX_SHAPES` would pin Restdis's internals to Electric's operational model — one instance, one storage dir, one flat shape cap — which is precisely the model the tenant aggregate and hash ring replace.
+
+Migration guidance for an existing Electric deployment is documentation, not code: a table of which Restdis setting serves the same purpose.
 
 ---
 
@@ -191,14 +193,15 @@ Note the Prometheus footgun Electric documents: setting a metrics port that noth
 - `DELETE /v1/shape` behind `allow_shape_deletion`.
 - Initial snapshot via PostgREST with LSN-bracketed, idempotent-apply consistency.
 - Long-poll live mode with in-process request collapsing; SSE transport.
-- Postgres where-clause parsing and in-process evaluation over Electric's documented subset, with move-in/move-out.
+- Where-clause parsing and in-process evaluation over **exactly** Electric's documented supported subset — no more, no less — with move-in/move-out.
 - Hash-indexed shape filter with flat throughput vs. shape count.
 - Gatekeeper auth mode binding shape definitions to API keys server-side.
-- `ELECTRIC_*` environment variable compatibility mapping.
 - Conformance suite run against the published Electric client packages.
 
 **Out of scope:**
 
+- **Server-side / operational compatibility.** No `ELECTRIC_*` environment variables, no Electric storage layout, no Electric-shaped config surface. Compatibility is client-side only. See "Compatibility boundary" above.
+- **Any where-clause construct outside Electric's documented subset**, even where it would be easy to add. A superset is a divergence: shapes that work on Restdis and 400 on Electric make migration one-way and break the drop-in claim in the other direction.
 - **Writes.** Same deliberate scope reduction as Electric: no write path, no conflict resolution, no CRDTs. Writes go to PostgREST as today.
 - **Include trees / multi-table shapes.** Electric does not have them either; parity is the bar.
 - **Mutable shape definitions.** A changed definition is a new handle, as in Electric.
@@ -272,8 +275,8 @@ Delivers real-time updates and the first end-to-end proof of drop-in compatibili
 
 Delivers partial replication, the feature that makes shapes worth having.
 
-1. Integrate a `pg_query`/libpg_query NIF to parse `where` into a Postgres AST.
-2. Implement `RestdisShape.Eval`: evaluation over the documented subset (comparison, logical, arithmetic, bitwise, `LIKE`/`ILIKE`, array operators, null/boolean tests, `IN`/`NOT IN`, `BETWEEN`, `ANY`/`ALL`, `lower`/`upper`/`coalesce`/`greatest`/`least`).
+1. Integrate `datafusion-sqlparser-rs` via Rustler, parsing `where` with `PostgreSqlDialect` into an AST at subscription time only.
+2. Implement `RestdisShape.Eval`: evaluation over exactly the documented subset (comparison, logical, arithmetic, bitwise, `LIKE`/`ILIKE`, array operators, null/boolean tests, `IN`/`NOT IN`, `BETWEEN`, `ANY`/`ALL`, `lower`/`upper`/`coalesce`/`greatest`/`least`).
 3. Reject anything outside the subset at subscription time with a `400` naming the unsupported construct.
 4. Implement `params` / `$1` positional interpolation with no string concatenation into SQL text.
 5. Implement move-in/move-out: evaluate the predicate against both the pre-image and post-image of every update; emit `insert` on newly-matching, `delete` on newly-non-matching.
@@ -291,7 +294,8 @@ Delivers partial replication, the feature that makes shapes worth having.
 **Risks:**
 
 - Predicate evaluation divergence from Postgres is a correctness *and security* bug: a wrong `true` leaks another tenant's row. The differential test against real Postgres is the gate, not a nice-to-have.
-- libpg_query is a NIF; a parser crash takes down the VM. Parse in a dirty scheduler with input size limits, and only at subscription time — never on the WAL hot path.
+- Rustler puts parsing in a NIF, so a long parse blocks a scheduler. Parse on a dirty CPU scheduler with an input size limit, and only at subscription time — never on the WAL hot path. Safe Rust removes the memory-safety class of failure, not the scheduler-blocking one.
+- `datafusion-sqlparser-rs` is a SQL parser, not Postgres itself, so its AST is not guaranteed to agree with Postgres on every literal, cast, and operator-precedence corner. That gap is exactly what the differential test against live Postgres is for; any disagreement is resolved by narrowing what we accept, never by guessing.
 
 ---
 
@@ -348,7 +352,7 @@ Delivers exact snapshot dedup and the remaining `log` mode where a direct pool i
 3. Enforce per-tenant shape caps: max shapes, max log bytes, max live waiters, with 429 and actionable errors.
 4. Extend the Grafana dashboard: shapes per tenant, append latency, WAL-to-client propagation, 409 rate by cause, collapse ratio, log disk per tenant.
 5. Implement log compaction preserving the temporal ordering of key creation and deletion.
-6. Publish an `ELECTRIC_*` migration guide and a compatibility matrix stating exactly what is and is not supported.
+6. Publish a client-migration guide and a compatibility matrix stating exactly which protocol features and where-clause constructs are supported, plus a documentation-only table mapping Electric operational settings to their Restdis equivalents.
 7. Run the conformance suite in CI against the published Electric client packages, pinned by version, as a merge gate.
 
 **Completion criteria:**
@@ -390,8 +394,8 @@ Delivers exact snapshot dedup and the remaining `log` mode where a direct pool i
 
 | # | Question | Current lean |
 | --- | --- | --- |
-| 1 | Do shape logs count against the existing 500 MB per-tenant CubDB budget, or get a separate budget? | Separate budget. Shape logs have different growth and eviction semantics than query cache entries, and sharing one cap means a large shape silently evicts hot query results. |
-| 2 | Is the `pg_query` NIF acceptable in the release image, or do we need a pure-Elixir parser? | NIF. A hand-rolled Postgres expression parser is exactly the divergence risk Phase 3 exists to eliminate. Needs a security review of input limits. |
+| ~~1~~ | ~~Do shape logs count against the existing per-tenant CubDB budget?~~ | **Resolved.** Separate budget: shape logs have different growth and eviction semantics than query cache entries, and one shared cap means a large shape silently evicts hot query results. CubDB is slated for replacement; it holds shape *metadata* only for the MVP, so shape log storage does not deepen the dependency. |
+| ~~2~~ | ~~Which SQL parser?~~ | **Resolved.** `datafusion-sqlparser-rs` via Rustler. |
 | 3 | Should gatekeeper mode be the only mode on the managed platform? | Yes for multi-tenant platform deployments; open mode for self-hosted single-tenant. Confirm with the platform team. |
 | 4 | How do shapes interact with the existing `restdis_replicator` always-live datasets? | They overlap substantially. Recommend shapes become the strategic surface and the replicator's KV datasets stay for RESP-only consumers, rather than building a third refresh path. Needs a product decision. |
 | 5 | What is the migration story for a tenant already running Electric — cutover or dual-run? | Dual-run: point a fraction of clients at Restdis, diff materialized state against Electric for the same shape definition, then cut over. The log is deterministic enough to diff. |
