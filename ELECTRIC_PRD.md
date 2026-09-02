@@ -1,98 +1,147 @@
-# RFC: Electric-Compatible Shape API on Restdis
+# RFC: An Electric-Compatible Shape API on Restdis
+
+---
+
+## Terms used in this document
+
+Read this section first if you have not worked on Electric or on Restdis. Every later section uses these terms with exactly these meanings.
+
+| Term | Meaning |
+| --- | --- |
+| **WAL** | Write-Ahead Log. Postgres writes every change to this log before it changes the table itself. Other programs can read the log to learn what changed. |
+| **Logical replication slot** | A bookmark that Postgres keeps for one reader of the WAL. Postgres holds the log data until that reader confirms it has processed it. |
+| **LSN** | Log Sequence Number. A position in the WAL. LSNs always increase, so they order changes in time. |
+| **Shape** | A subset of one Postgres table, defined by a table name, an optional filter, and an optional list of columns. This is Electric's core idea. |
+| **Shape log** | The ordered list of insert, update, and delete operations for one shape. A client reads this list to build its own copy of the data. |
+| **Offset** | A position in a shape log. A client stores its offset so it can continue from where it stopped. |
+| **Handle** | A short identifier for one shape. The client sends the handle back on later requests. |
+| **Snapshot** | The first read of a shape. It returns every row that matches the shape at that moment. |
+| **Long-poll** | The client sends a request. The server holds the request open until new data arrives or a timer expires. |
+| **ETS** | Erlang Term Storage. An in-memory table built into the Erlang virtual machine. Restdis uses it as its fastest cache layer. |
+| **CubDB** | An embedded key-value database written in Elixir. Restdis uses it as its on-disk cache layer today. |
+| **PostgREST** | A server that turns a Postgres database into an HTTP API. Restdis reads through it. |
+| **Tenant** | One customer of the platform. Restdis keeps each tenant's cache and configuration separate. |
+| **Bounded context** | One umbrella application in this repository. It owns its own data and exposes a small public API. Other contexts must use that API. |
 
 ---
 
 ## Problem
 
-ElectricSQL is a read-path sync engine for Postgres: it tails one logical replication slot, filters the stream into per-client subsets called *shapes*, and serves each shape as an append-only, offset-addressed log over a cacheable HTTP API. Its client ecosystem — `@electric-sql/client`, `@electric-sql/react`, `@tanstack/electric-db-collection`, `electric_client` (Hex), `y-electric` — is the practical reason teams adopt it. The sync service itself is a commodity; the integration surface is not.
+ElectricSQL, which we call Electric below, keeps a copy of Postgres data up to date on client devices. It works in three steps.
 
-Restdis already owns every expensive piece of that architecture except the shape log:
+1. It reads the Postgres WAL through one replication slot.
+2. It splits that single stream of changes into shapes. Each shape holds the rows one group of clients needs.
+3. It serves each shape as a shape log over an ordinary HTTP API.
 
-- a cluster-wide WAL tailer (`restdis_buster`) consuming exactly one replication slot, with `syn`-based singleton failover, per-AZ fan-out, and LSN resume;
-- a per-tenant three-layer cache (ETS → CubDB → PostgREST origin) with global disk replication for `persist` entries;
-- a reverse index mapping `(table, primary_key) -> cache_keys`, which is structurally the same routing problem Electric solves with its shape filter;
-- tenant config, API-key auth, consistent-hash tenant routing, and Prometheus/OTel instrumentation.
+Because the API is ordinary HTTP, a browser or a CDN can cache the responses.
 
-What Restdis lacks is the **ordered, resumable, offset-addressed log** that Electric clients speak, and the **HTTP protocol** that carries it.
+Teams do not adopt Electric because the server is hard to build. They adopt it because of the client libraries: `@electric-sql/client`, `@electric-sql/react`, `@tanstack/electric-db-collection`, `electric_client` on Hex, and `y-electric`. Those libraries hold the value. The server behind them is replaceable.
 
-The proposal: expose an `Electric.Shapes`-compatible `GET /v1/shape` endpoint from `restdis_server`, backed by a new `restdis_electric` bounded context, so that **any existing Electric client integration works unmodified against Restdis by changing one base URL** — while the log is served out of Restdis's multi-layer cache instead of Electric's single-instance file store plus an external CDN.
+Restdis already has almost every expensive part of this design. It has:
 
-### Who is asking for this
+- a WAL reader (`restdis_buster`) that uses exactly one replication slot for the whole cluster, moves to another node if its node fails, spreads changes across availability zones, and continues from the last LSN after a restart;
+- a three-layer cache for each tenant (ETS, then CubDB, then PostgREST) that copies its durable entries to other nodes;
+- a reverse index that maps `(table, primary_key)` to the cache keys that contain that row, which is the same routing problem Electric solves with its shape filter;
+- tenant configuration, API-key authentication, routing of tenants to nodes, and Prometheus and OpenTelemetry instrumentation.
 
-- **Platform customers already running Electric** who want sync without operating a second stateful service, a second replication slot, and a CDN contract.
-- **Existing Restdis tenants** who want live-updating reads (dashboards, collaborative UIs, agent state) and today poll `PGRST.QUERY` on a timer.
-- **Teams evaluating Electric** who are blocked on it being a separate, single-instance, non-multi-tenant service with its own auth-proxy requirement.
+Restdis is missing two things: the ordered shape log that Electric clients read, and the HTTP protocol that delivers it.
 
-### Why this matters
+This RFC proposes that we build both. We will serve `GET /v1/shape` from `restdis_server` and back it with a new bounded context named `restdis_electric`. An application that already uses an Electric client library will then work against Restdis after it changes one base URL. Restdis will serve the log from its own cache layers. It will not need Electric's single-instance file store or an external CDN.
 
-Electric's own framing is that the hard, don't-DIY parts of sync are partial replication, fan-out, and delivery. Restdis already solves fan-out and delivery for the request/response path and already pays the WAL-ingestion cost. Adding the shape log reuses that investment across a second, higher-value access pattern instead of standing up parallel infrastructure. And because the client protocol is a documented HTTP contract, compatibility is *testable*: the Electric TypeScript client's own conformance expectations become our acceptance criteria.
+### Who asks for this
+
+- **Customers who already run Electric.** They want this kind of sync without running a second stateful service, a second replication slot, and a CDN contract.
+- **Restdis tenants who want live data.** They build dashboards, shared editing screens, and agent state. Today they call `PGRST.QUERY` on a timer, which wastes work and adds delay.
+- **Teams that considered Electric and stopped.** Electric runs as a separate service, serves one tenant, and requires them to build an authentication proxy in front of it.
+
+### Why it is worth doing
+
+Electric argues that the hard parts of sync are partial replication, fan-out, and delivery. Restdis already solves fan-out and delivery for normal request and response traffic. It already pays the cost of reading the WAL. Building the shape log reuses that work for a second, more valuable access pattern. The alternative is to run a second system that reads the same database.
+
+The client protocol is documented and stable, so we can test compatibility directly. The published Electric client libraries become our acceptance tests. We do not have to guess whether we are compatible. We can run their code against our server.
 
 ---
 
 ## Background
 
-### Non-negotiable: the compatibility contract
+### The compatibility contract
 
-This RFC's success criterion is **drop-in replacement**, defined precisely as:
+This RFC succeeds only if Restdis is a drop-in replacement. We define that exactly:
 
-> An application using `@electric-sql/client@^1`, `@electric-sql/react@^1`, or `@tanstack/electric-db-collection` continues to work correctly after changing only the `url` option (and, where used, the gatekeeper proxy target) to point at Restdis. No client code change, no dependency change, no fork.
+> An application that uses `@electric-sql/client@^1`, `@electric-sql/react@^1`, or `@tanstack/electric-db-collection` continues to work after it changes the `url` option to point at Restdis. It changes no other code. It changes no dependency. It uses no fork.
 
-Everything in Scope below is subordinate to that. Where Restdis's internals differ from Electric's, the difference must be invisible at the protocol boundary or explicitly documented as an unsupported shape definition that fails **at subscription time with a 400**, never as silent divergence in the log.
+Every item in Scope is subordinate to that sentence. Our internals will differ from Electric's in several places. Each difference must meet one of two conditions:
 
-**The target is fixed, not tracked.** We implement the Electric 1.x protocol and the published client majors as a frozen specification. We do not follow Electric's roadmap, do not port protocol changes made after our pin, and make no forward-compatibility commitment. Electric's roadmap now sits inside Databricks/Neon; chasing it would make an external team's release schedule a dependency of ours, for the benefit of clients that already work. If a future Electric protocol version matters, that is a scoped decision with its own RFC, not a standing obligation.
+1. The client cannot observe it.
+2. We reject the request when the client subscribes, with HTTP status `400` and a message that names the problem.
 
-The corollary for adopters is a **hard cutoff migration**, not a dual-run: point the clients at Restdis, let them resync from `offset=-1`, and delete the Electric deployment. Running both against one Postgres means two replication slots and two sets of WAL retention risk for no benefit, and the resync is exactly the 409 path every Electric client already implements. The migration cost is one initial snapshot per shape.
+We must never accept a shape and then serve a log that quietly differs from what Electric would serve. A silent difference produces wrong data on the client, and the client has no way to detect it.
 
-### Protocol surface to implement
+**We aim at a fixed version. We do not follow Electric's development.** We will implement the Electric 1.x protocol and the published major versions of the client libraries. We treat them as a frozen specification. We will not port protocol changes that Electric makes after we pin the version. We make no promise about future versions.
 
-`GET /v1/shape` query parameters:
+The reason is ownership. Electric's roadmap now belongs to Databricks and Neon. If we followed it, another company's release schedule would become a dependency of our own. We would pay that cost to help clients that already work. If a future Electric protocol version matters to us later, we will decide that in its own RFC.
 
-| Param | Semantics | Phase |
+This has a direct consequence for anyone moving to Restdis. **They migrate in one step.** They point their clients at Restdis, the clients resynchronise from `offset=-1`, and they then shut Electric down. They do not run both systems together. Running both against one database means two replication slots and two sources of WAL retention risk, and it gains them nothing. The resynchronisation uses the `409` path that every Electric client already implements. The cost of the migration is one snapshot for each shape.
+
+### The protocol we must implement
+
+These are the query parameters of `GET /v1/shape`. The Phase column shows when we build each one.
+
+| Parameter | What it does | Phase |
 | --- | --- | --- |
-| `table` | Root table, optionally schema-qualified. Required unless resuming with a handle. | 1 |
-| `offset` | `-1` (from start, triggers snapshot), `0_inf` (end of snapshot), `{lsn}_{op_offset}` (resume), `now` (skip history). | 1 |
-| `handle` | Shape handle. Required when `offset > -1`. | 1 |
-| `live` | Long-poll for new data. | 2 |
-| `cursor` | Cache-busting cursor for live reconnects. | 2 |
-| `columns` | Projection. Must include the primary key. | 2 |
-| `where` | Postgres SQL boolean expression, with `params` / `$1` placeholders. | 3 |
-| `params` | Positional parameter values for `where`. | 3 |
-| `replica` | `default` or `full` — whether update/delete carry the full old row. | 3 |
-| `live_sse` | Server-Sent Events transport instead of long-poll. | 4 |
-| `log` | `full` (snapshot then changes) or `changes_only`. | 5 |
-| `secret` | Shared secret gating direct access. | 2 |
+| `table` | Names the table. May include the schema. Required unless the client resumes with a handle. | 1 |
+| `offset` | Sets the start position. `-1` starts from the beginning and triggers a snapshot. `0_inf` means the end of the snapshot. `{lsn}_{op_offset}` resumes at a position. `now` skips all history. | 1 |
+| `handle` | Identifies the shape. Required whenever `offset` is not `-1`. | 1 |
+| `live` | Asks the server to hold the request open until new data arrives. | 2 |
+| `cursor` | Defeats stale caching when a live client reconnects. | 2 |
+| `columns` | Selects which columns to return. Must include the primary key. | 2 |
+| `where` | Filters rows with a Postgres SQL boolean expression. | 3 |
+| `params` | Supplies values for the `$1` placeholders in `where`. | 3 |
+| `replica` | `default` or `full`. Controls whether update and delete messages carry the complete old row. | 3 |
+| `live_sse` | Uses Server-Sent Events instead of long-polling. | 4 |
+| `log` | `full` returns the snapshot and then the changes. `changes_only` returns only the changes. | 5 |
+| `secret` | Restricts direct access to holders of a shared secret. | 2 |
 
-Response headers: `electric-handle`, `electric-offset`, `electric-up-to-date`, `electric-schema`, `cache-control`, `etag`, and `location` on 409.
+Responses carry these headers: `electric-handle`, `electric-offset`, `electric-up-to-date`, `electric-schema`, `cache-control`, `etag`, and, on a `409`, `location`.
 
-Body: a JSON array of messages.
+The body is a JSON array of messages. There are two kinds.
 
-- `ChangeMessage`: `{ key, value, old_value?, headers: { operation: "insert"|"update"|"delete", lsn?, op_position?, handle? } }`
-- `ControlMessage`: `{ headers: { control: "up-to-date" | "must-refetch" } }`, plus `snapshot-end` carrying the Postgres snapshot descriptor in `changes_only` mode.
+- A change message: `{ key, value, old_value?, headers: { operation: "insert"|"update"|"delete", lsn?, op_position?, handle? } }`
+- A control message: `{ headers: { control: "up-to-date" | "must-refetch" } }`. In `changes_only` mode there is also a `snapshot-end` message that carries the Postgres snapshot descriptor.
 
-Status codes: `200` (data, or live timeout with only an `up-to-date` control message), `400` (invalid shape definition — unparseable or unsupported `where`, unknown table, projection missing the PK), `409` (`must-refetch`; handle invalidated, with `location` pointing at a fresh handle), `429` (per-tenant limits).
+We use four status codes.
 
-Also: `DELETE /v1/shape` behind an `allow_shape_deletion` flag, mirroring the existing per-tenant flush path.
+| Status | When we send it |
+| --- | --- |
+| `200` | We are returning data. We also send `200` when a live request times out. In that case the body holds only an `up-to-date` control message. |
+| `400` | The shape definition is invalid. The table does not exist, the `where` clause does not parse or is not supported, or the column list omits the primary key. |
+| `409` | The handle is no longer valid. The client must discard its data and start again. The `location` header carries a new handle. |
+| `429` | The tenant has reached a configured limit. |
 
-### Architecture: mapping Electric concepts onto Restdis contexts
+We also serve `DELETE /v1/shape`. It is available only when the `allow_shape_deletion` setting is on. It reuses the existing per-tenant cache flush.
 
-| Electric component | Restdis equivalent | Delta to build |
+### How Electric's parts map onto Restdis
+
+| Electric component | What Restdis has now | What we must build |
 | --- | --- | --- |
-| `Electric.Postgres.ReplicationClient` | `RestdisBuster.Tailer` + `Wal.PGOutput` | Require `REPLICA IDENTITY FULL` on shape-backing tables; carry full old/new tuples through `Wal.Event`. |
-| `ShapeLogCollector` | `RestdisBuster.Dispatcher` | New dispatch target alongside invalidate/refresh: `:shape_append`. |
-| `Electric.Shapes.Consumer` (per-shape GenServer) | new `RestdisElectric.Consumer` | New. One per active shape, under the tenant aggregate. |
-| `Electric.Shapes.Filter` (hash-indexed routing) | `Restdis.Cache.ReverseIndex` (same shape of problem, different key) | New `RestdisElectric.Filter`: `(table, column, constant) -> MapSet(shape_handle)`. |
-| `PureFileStorage` (log + sparse offset index) | `Restdis.Cache.DiskCache` (CubDB) + ETS | New `RestdisElectric.Log` — append-only, chunked, sparse-indexed. See "Storage" below. |
-| Snapshot via read-only txn + `pg_current_snapshot()` | `Restdis.Cache.Origin.PostgREST` | New snapshotter; consistency handled by LSN-buffer + idempotent apply (below). |
-| CDN request collapsing | Restdis multi-layer cache + per-AZ `syn` fan-out + global `persist` replication | Serve the collapsing role in-process; remain CDN-compatible on top. |
-| Auth gatekeeper proxy (user-built) | `RestdisServer.HTTP.Plug.Auth` + tenant config | Native. Shape definitions bound server-side per API key. |
+| `Electric.Postgres.ReplicationClient` | `RestdisBuster.Tailer` and `Wal.PGOutput` | Set `REPLICA IDENTITY FULL` on the tables that shapes read. Carry the complete old and new row through `Wal.Event`. |
+| `ShapeLogCollector` | `RestdisBuster.Dispatcher` | Add a third dispatch target, `:shape_append`, beside invalidate and refresh. |
+| `Electric.Shapes.Consumer` | Nothing equivalent | `RestdisElectric.Consumer`. One process for each active shape. |
+| `Electric.Shapes.Filter` | `Restdis.Cache.ReverseIndex` solves the same problem with a different key | `RestdisElectric.Filter`, mapping `(table, column, constant)` to a set of shape handles. |
+| `PureFileStorage` | `Restdis.Cache.DiskCache` and ETS | `RestdisElectric.Log`. See "How we store the shape log". |
+| Snapshot inside a read-only transaction | `Restdis.Cache.Origin.PostgREST` | A new snapshot reader. See "How we keep the snapshot and the log consistent". |
+| CDN request collapsing | The Restdis cache layers and per-zone fan-out | Do the collapsing inside Restdis. Stay compatible with a CDN as well. |
+| An authentication proxy that the user writes | `RestdisServer.HTTP.Plug.Auth` and tenant configuration | Nothing. Restdis already binds shape definitions to an API key. |
 
 ### The `restdis_electric` bounded context
 
-All of this lands in a new umbrella child, **`restdis_electric`**, under the `RestdisElectric` namespace. It is a self-contained context, not a feature folder inside `restdis_server`.
+All of this new work goes into one new umbrella application, `restdis_electric`, under the `RestdisElectric` module namespace. It is a bounded context in its own right. It is not a folder of features inside `restdis_server`.
 
-The context owns: shape definitions, handles, the append-only log and its offset index, the filter index, per-shape consumers, snapshotting, and where-clause parsing and evaluation. It owns the *semantics* of the Electric protocol — what a shape is, what its log contains, when a handle dies. It does not own HTTP.
+The context owns the meaning of the Electric protocol. That includes shape definitions, handles, the shape log and its index, the filter index, the per-shape processes, snapshot reading, and the parsing and evaluation of `where` clauses. It decides what a shape is, what its log contains, and when a handle stops being valid.
 
-**Dependency direction.** `restdis_electric` depends on `restdis` (cache, storage, tenant primitives) and on nothing else in the umbrella. It is *driven by* `restdis_buster` and *read by* `restdis_server`, but depends on neither: the dispatcher pushes into it, and the HTTP layer pulls from it. That keeps the arrows pointing one way and means the context can be tested with no server and no WAL tailer running.
+The context does not own HTTP. It knows nothing about status codes, headers, or connections.
+
+**Which way the dependencies point.** `restdis_electric` depends on `restdis`, which gives it cache, storage, and tenant primitives. It depends on no other application in the umbrella. `restdis_buster` pushes changes into it. `restdis_server` reads from it. Neither of those appears in its dependency list.
 
 ```
 restdis_buster ──push──▶ ┌─────────────────┐ ◀──pull── restdis_server
@@ -103,138 +152,170 @@ restdis_buster ──push──▶ ┌──────────────
                                restdis
 ```
 
-**Public API.** Exactly three modules are public; everything else is internal to the context.
+This gives us a practical benefit. We can start the context and run its full test suite without an HTTP server and without a WAL reader.
 
-- `RestdisElectric` — the read/subscribe surface the HTTP layer calls: resolve a definition to a handle, read a log range at an offset, await new data at an offset, delete a shape. Returns domain results (`{:ok, messages, offset}`, `{:error, :must_refetch, new_handle}`, `{:error, {:unsupported_where, expr}}`), never `Plug.Conn` and never HTTP status codes.
-- `RestdisElectric.Definition` — construct and validate a shape definition. The gatekeeper path in `restdis_server` builds definitions from tenant config through this module.
-- `RestdisElectric.WAL` — the ingestion entry point `restdis_buster` calls with a decoded change, plus the persistence acknowledgement the tailer needs before advancing the slot.
+**The public API.** Three modules are public. Everything else stays inside the context.
 
-**Boundary enforcement.** `apps/restdis/mix.exs` already runs a `check.boundary` alias asserting that the `restdis` library never references an umbrella namespace, driven by an `@umbrella_namespaces` list. Add `RestdisElectric` to that list, and add the symmetric check inside `restdis_electric`: it must not reference `RestdisServer`, `RestdisBuster`, `RestdisRepo`, or `RestdisReplicator`. (Worth noting while touching that list: `RestdisReplicator` is currently missing from it, so the existing check has a hole. Fixing that is a small, separate change.)
+- `RestdisElectric` is what the HTTP layer calls. It turns a definition into a handle, reads a range of the log, waits for new data, and deletes a shape. It returns domain values such as `{:ok, messages, offset}`, `{:error, :must_refetch, new_handle}`, and `{:error, {:unsupported_where, expr}}`. It never returns a `Plug.Conn` and never returns an HTTP status code.
+- `RestdisElectric.Definition` builds and validates a shape definition. `restdis_server` uses it to build definitions from tenant configuration.
+- `RestdisElectric.WAL` receives decoded changes from `restdis_buster`. It also tells the WAL reader which changes it has written to disk.
 
-**Why its own context rather than part of `restdis_server`.** Three reasons, in order of weight. The shape log is stateful and long-lived, while `restdis_server` is a request/protocol layer — mixing them puts supervision trees with very different lifecycles under one roof. The context is driven from two directions (WAL in, HTTP out) and belongs to neither. And the Electric protocol is a compatibility target owned by someone else; isolating it means a protocol change is a change to one app, with one test suite, and no blast radius in the RESP or PostgREST paths.
+**How we enforce the boundary.** `apps/restdis/mix.exs` already defines a `check.boundary` task. It reads a list named `@umbrella_namespaces` and fails the build if the `restdis` library mentions any of those namespaces. We will add `RestdisElectric` to that list. We will also add the opposite check inside `restdis_electric`: it must not mention `RestdisServer`, `RestdisBuster`, `RestdisRepo`, or `RestdisReplicator`.
 
-### Integration into `restdis_server`
+One note while we are in that file. The list today is `RestdisServer`, `RestdisBuster`, and `RestdisRepo`. `RestdisReplicator` is missing, so the current check does not catch every violation. That is a small fix and belongs in its own change.
 
-`restdis_server` gains `{:restdis_electric, in_umbrella: true}` and a thin adapter layer — the only place where Electric's HTTP contract exists.
+**Why this is a separate context and not part of `restdis_server`.** There are three reasons, in order of weight.
 
-1. **Routing.** `RestdisServer.HTTP.Endpoint` gains `get "/v1/shape"` and `delete "/v1/shape"`, alongside the existing `/pgrst/query` and `/pgrst/policy` routes.
-2. **Auth.** Both routes run the existing `RestdisServer.HTTP.Plug.Auth` to resolve the tenant, exactly as `/pgrst/query` does today. Gatekeeper mode resolves the shape definition from tenant config; open mode builds one from the request params.
-3. **Adapter.** A new `RestdisServer.HTTP.Electric` module is the *entire* translation layer: query params → `RestdisElectric.Definition`, domain result → status code, headers, and JSON body. Every Electric-specific header (`electric-handle`, `electric-offset`, `electric-up-to-date`, `electric-schema`) and every status mapping (`400`/`409`+`location`/`429`) lives here and nowhere else.
-4. **Transport.** Long-poll waiting and SSE framing are `restdis_server`'s concern, built on the `await` call in the context's public API. The context signals "new data at offset N"; the server decides whether that becomes a held connection, an SSE frame, or a 200 with `up-to-date`.
-5. **Supervision.** The context exposes a `child_spec/1` mounted by the host, following the pattern `Restdis.Cache` already uses (`:restdis` declares no `mod:` callback and the host mounts it explicitly). `restdis_electric` does the same, so it starts no processes merely by being a dependency.
-6. **Observability.** Telemetry events are emitted by the context; `RestdisServer.Metrics` attaches and exports them, so the context takes no dependency on the server's Prometheus wiring.
+1. The shape log holds state and lives for a long time. `restdis_server` handles requests and returns responses. Processes with such different lifetimes should not share one supervision tree.
+2. Two different applications drive this code. The WAL reader writes to it and the HTTP server reads from it. It belongs to neither one.
+3. The Electric protocol is a specification that another team controls. If we keep it in one application, a protocol change touches one application and one test suite. It cannot affect the Redis protocol path or the PostgREST path.
 
-The test of whether this separation is real: deleting the `/v1/shape` routes and the adapter module should leave `restdis_electric` compiling and its full test suite green.
+### How we connect it to `restdis_server`
 
-### Storage: the shape log on Restdis's layers
+`restdis_server` gains one dependency, `{:restdis_electric, in_umbrella: true}`, and one thin adapter. The adapter is the only place in the whole system that knows Electric's HTTP contract.
 
-Electric's v1.1 lesson is explicit: a general-purpose KV store (CubDB) was the wrong substrate for an append-only log, and replacing it with a purpose-built chunked file store bought ~102x writes and ~73x reads on SSD, plus lock-free readers, read replicas, and zero-downtime deploys. Restdis's Phase 1 PRD already flags CubDB write throughput as unvalidated.
+1. **Routes.** `RestdisServer.HTTP.Endpoint` gains `get "/v1/shape"` and `delete "/v1/shape"`. They sit beside the existing `/pgrst/query` and `/pgrst/policy` routes.
+2. **Authentication.** Both routes use the existing `RestdisServer.HTTP.Plug.Auth` to identify the tenant, exactly as `/pgrst/query` does today.
+3. **The adapter.** A new module, `RestdisServer.HTTP.Electric`, does all the translation. It converts query parameters into a `RestdisElectric.Definition`. It converts domain results into a status code, headers, and a JSON body. Every Electric header and every status code appears in this module and nowhere else.
+4. **Transport.** Holding a long-poll open and framing Server-Sent Events are jobs for `restdis_server`. Both use the same `await` function in the context's public API. The context reports that new data exists at a given offset. The server decides what to do with that fact.
+5. **Supervision.** The context provides `child_spec/1`, and the host application starts it. `Restdis.Cache` already works this way: the `:restdis` library declares no application callback, so adding it as a dependency starts no processes. `restdis_electric` follows the same rule.
+6. **Metrics.** The context emits telemetry events. `RestdisServer.Metrics` attaches to them and exports them. The context therefore does not depend on the server's Prometheus setup.
 
-We do not repeat Electric's mistake. `RestdisElectric.Log` is a purpose-built append-only store from the start, mapped onto the three layers:
+There is a simple test of whether this separation is real. Delete the two routes and the adapter module. `restdis_electric` must still compile, and its tests must still pass.
 
-1. **Layer 1 (ETS, hot).** The open (unfinalized) chunk and shape metadata: current offset, handle, schema, subscriber set. Live long-polls are served entirely from here — a live reader never touches disk.
-2. **Layer 2 (append-only chunk files on NVMe, durable).** Finalized immutable chunks of pre-serialized JSON lines plus a sparse offset index appended only at chunk finalization. Readers binary-search the sparse index, then scan the chunk. Append-only + append-only index ⇒ readers and the single writer never contend, no locks. CubDB continues to hold shape *metadata* (definition, handle, last offset, snapshot LSN), not log bodies — metadata is small, transactional, and already replicated. CubDB is slated for replacement in Restdis generally; confining shapes to metadata keeps the shape context off the critical path of that migration, and `RestdisElectric.Log` should reach it only through the `Restdis.Cache` public API so the swap is a one-context change.
-3. **Layer 3 (origin).** PostgREST (or the tenant's configured read replica) for the initial snapshot, paginated, reusing `Restdis.Cache.Origin` and the existing per-tenant API key.
+### How we store the shape log
 
-Finalized chunks are immutable and therefore replicable: the existing global `persist` replication path can push hot shape chunks to peer nodes, which is what lets any node in the region serve a resume request without a cross-node hop.
+Electric learned a lesson here that we should not have to learn again. Electric version 1.0 stored shape logs in CubDB, a general-purpose key-value store. Version 1.1 replaced it with a storage engine built for this one job. The published measurements on SSD are roughly 102 times faster writes and 73 times faster reads. The rewrite also let readers work without blocking the writer, which enabled read-only replicas and deployments with no downtime.
 
-**One storage layer, shared with `restdis_replicator`.** The shape log is modeled as KV storage, not as a second parallel store. An operation at offset N is a value under a key derived from the offset; the log is a contiguous key range. This collapses what would otherwise be three storage models (query cache entries, replicated KV datasets, shape logs) into one substrate with three access patterns, and means the eventual CubDB replacement is a single migration rather than three.
+This matters to us because the Restdis Phase 1 PRD already records that CubDB write throughput is unmeasured.
 
-Retention is therefore a **user-configurable log length**: the number of trailing operations a shape retains, set per shape (with a tenant-level default). Keys older than the window are dropped from the head. The consequences are worth being explicit about, because this is where the KV model earns its keep and where it bites:
+So we build `RestdisElectric.Log` as a purpose-built append-only store from the start. It maps onto the three Restdis layers as follows.
 
-- **A resume below the retained window is a `must-refetch`.** A client whose offset has fallen off the head gets a 409 and resyncs from `-1`. That is already a defined path in the protocol — this just adds one more trigger to the 409 table.
-- **The window is a latency/storage dial, not a correctness one.** A long window means more clients can reconnect cheaply after being offline; a short one bounds disk. Neither changes what a caught-up client sees.
-- **Sizing is the tenant's call, and getting it wrong is visible.** Too short, and intermittently-connected clients resync constantly — expensive, and it shows up directly as a 409 rate. Metrics must expose 409-by-cause (Phase 2 already requires this) so a badly-sized window is diagnosable rather than mysterious.
-- **This is a deliberate divergence from Electric,** which compacts an unbounded log rather than truncating it. Compaction preserves resumability for arbitrarily old clients at the cost of unbounded growth and a non-trivial compaction routine that must preserve creation/deletion ordering. Truncation trades that for a hard storage bound and much simpler code. For a multi-tenant platform with per-tenant caps, the bound is worth more than the unbounded tail. Both remain protocol-compatible, because the client's only observable is whether its offset is still serviceable.
+1. **Layer 1, ETS, for hot data.** This holds the chunk we are currently writing and the metadata for each shape: current offset, handle, schema, and the set of waiting clients. Live long-polls read only from here. A live client never causes a disk read.
+2. **Layer 2, files on NVMe, for durable data.** When a chunk reaches its size limit we close it. A closed chunk never changes again. Beside the chunks we keep a sparse index that records where each chunk starts. To read from an offset, we search the index for the right chunk and then scan that chunk. Because both the log and the index only ever grow at the end, readers never block the writer, and we need no locks. CubDB still holds shape *metadata*, which is small and needs transactions. It does not hold log bodies. Restdis plans to replace CubDB, so `RestdisElectric.Log` must reach it only through the `Restdis.Cache` public API. The replacement then changes one context.
+3. **Layer 3, the origin.** PostgREST, or the read replica that the tenant configured, serves the initial snapshot one page at a time. This reuses `Restdis.Cache.Origin` and the tenant's existing API key.
 
-**Durability rule (inherited from Electric, and required for correctness):** never `fsync` per write; instead only advance the replication slot's confirmed LSN to a position durably persisted in the shape logs. A crash replays from the last persisted LSN. This constrains `RestdisBuster.Infra.LSNStore` — today it confirms on dispatch; with shapes it must confirm on *persist acknowledgement from every active shape consumer*, or the log can lose acknowledged changes.
+Closed chunks never change, so we can copy them. The existing replication path for durable cache entries can push hot chunks to other nodes. Any node in the region can then answer a resume request without asking another node for the data.
 
-### Snapshot/log consistency without a Postgres snapshot descriptor
+**One storage layer, shared with `restdis_replicator`.** We model the shape log as key-value storage. We do not build a second, parallel store. The operation at offset N is a value stored under a key derived from N, so the log is a continuous range of keys. Restdis would otherwise have three storage models: cached query responses, replicated key-value datasets, and shape logs. Instead it has one substrate with three access patterns. When we replace CubDB, we perform one migration rather than three.
 
-This is the sharpest architectural difference, and it needs to be right.
+Retention follows from that model. Each shape keeps a **configurable number of recent operations**. The tenant sets this value for each shape, and a tenant-level default applies otherwise. We delete keys that fall outside that window. Four consequences follow, and they deserve to be stated plainly.
 
-Electric takes its initial snapshot with a direct SQL query in a read-only transaction, records `pg_current_snapshot()` (`xmin`, `xmax`, `xip_list`), and skips any buffered replication transaction whose `xid` satisfies `xmin < xid < xmax and xid not in xip_list` (already reflected in the snapshot). Restdis's Layer 3 is PostgREST, which cannot return a snapshot descriptor, and Restdis's tailer already has the WAL stream but not per-shape xids.
+- **A client that resumes below the window gets a `must-refetch`.** Its offset no longer exists, so we return `409` and it starts again from `-1`. The protocol already defines this path. We are adding one more reason to use it.
+- **The window controls cost and reconnection speed. It does not control correctness.** A large window lets clients reconnect cheaply after a long time offline. A small window bounds disk use. Neither changes what a client sees once it has caught up.
+- **The tenant chooses the size, and a wrong choice is visible.** If the window is too small, clients that connect intermittently will resynchronise again and again, which is expensive. This appears directly in the `409` rate. Phase 2 already requires us to report `409` counts by cause, so an operator can diagnose a badly sized window instead of guessing.
+- **This differs from Electric on purpose.** Electric keeps an unbounded log and compacts it. Compaction lets any client resume however old its offset is, but the log grows without limit, and the compaction routine must preserve the order in which keys were created and deleted. Truncation gives up the old tail and gains a hard limit on disk use and much simpler code. For a platform with per-tenant limits, the hard limit is worth more. Both designs satisfy the protocol, because the only thing a client can observe is whether its own offset still exists.
 
-Restdis uses **LSN-bracketing plus idempotent apply**:
+**A durability rule we take from Electric.** We must not call `fsync` on every write, because that is too slow. We must also not lose changes. The rule that satisfies both is this: only tell Postgres that we have processed the WAL up to an LSN after we have written every change up to that LSN to disk. If Restdis crashes, Postgres replays from the last confirmed LSN.
 
-1. Record `L0` = the tailer's current confirmed LSN, and begin buffering all matching WAL events for the shape from `L0`.
-2. Take the snapshot from PostgREST (paginated), writing each row as an `insert` operation into the log up to `0_inf`.
-3. Replay the buffer from `L0` forward, appending to the log after `0_inf`.
+This changes `RestdisBuster.Infra.LSNStore`. Today it confirms an LSN when it dispatches the change. Once shapes exist, it must wait until every active shape has written the change. If it does not wait, a crash loses changes that Postgres believes we have handled.
 
-Any transaction that committed between `L0` and the snapshot read appears **twice**: once in the snapshot, once in the replay. This is safe because the shape log's materialization semantics are idempotent per key — `insert` is a set, `update` is a merge, `delete` is a remove, all keyed by row key. A duplicate insert of a row already present converges to the same state; a delete of an absent row is a no-op. Electric relies on exactly this property for its own `changes_only` subset snapshots, where inserts are applied as upserts to tolerate overlap. The compatibility requirement is therefore narrow and satisfiable: **the log must never omit an operation, and every operation must be idempotent under the client's documented apply rules.** Restdis's scheme guarantees both.
+### How we keep the snapshot and the log consistent
 
-Cost and trade-off, stated plainly:
+This is the largest difference between our design and Electric's, and it is the part most likely to produce subtle bugs. It deserves care.
 
-- **Cost:** a bounded window of duplicated operations at the snapshot boundary — bytes, not correctness. Bounded by write volume during the snapshot fetch.
-- **Trade-off vs. Electric:** we give up exact-once at the boundary and gain the ability to snapshot through PostgREST — which means the snapshot inherits PostgREST's RLS enforcement, the tenant's read-replica routing, and Restdis's existing origin plumbing, instead of requiring a second privileged direct-Postgres pool.
-- **Escape hatch:** where a tenant has a direct Postgres pool configured, `RestdisElectric.Snapshotter` may use the exact `pg_current_snapshot()` xid-dedup path instead. Same log output, fewer duplicates. Phase 5.
-- **Client-visible:** none for `log=full`. For `log=changes_only` (Phase 5), Electric exposes the snapshot descriptor to the client in the `snapshot-end` control message so the client performs the skip. Without a descriptor we cannot populate that field, so `changes_only` is gated on the direct-Postgres path and returns 400 otherwise.
+The problem is the join between two sources of data. The snapshot reads the table as it exists now. The log carries changes as they happen. A row must not be lost between the two, and, ideally, it should not appear twice.
 
-### Where-clause evaluation
+Electric solves this with information that only a direct Postgres connection provides. It runs the snapshot query inside a read-only transaction and records the result of `pg_current_snapshot()`, which reports which transactions were running at that instant. It then discards any buffered WAL transaction that the snapshot already contains.
 
-Electric ships its own Postgres expression parser and evaluator in Elixir and evaluates the predicate against each replication row in-process. Restdis must do the same: asking Postgres or PostgREST to evaluate the predicate per row per shape defeats the point.
+Restdis cannot do that. Our origin is PostgREST, which does not expose transaction identifiers. Our WAL reader sees transaction identifiers but does not tie them to a shape's snapshot.
 
-Compatibility strategy, ordered by risk:
+Restdis therefore uses **LSN bracketing with idempotent operations**. It works in three steps.
 
-1. **Parse with [`datafusion-sqlparser-rs`](https://github.com/apache/datafusion-sqlparser-rs) via Rustler**, not a hand-rolled Elixir parser. Its `PostgreSqlDialect` covers the whole expression grammar we accept, it is fast enough to be irrelevant on a subscription-time path, and it is a safe-Rust library — a malformed expression returns a parse error rather than risking the memory-unsafety surface a C parser NIF would bring into the VM. It parses a *superset* of what we evaluate, which is the right direction: the accepted-construct boundary is enforced by our own AST walk, not by whatever the parser happens to reject.
-2. **Evaluate exactly the documented subset**, matching Electric's `known_functions.ex`: comparison, logical, arithmetic, bitwise, `LIKE`/`ILIKE`, array operators (`@>`, `<@`, `&&`), null/boolean tests, `IN`/`NOT IN`, `BETWEEN`, `ANY`/`ALL`, and `lower`/`upper`/`coalesce`/`greatest`/`least`. Unsupported, same as Electric: JSONB operators, full-text search, geometric, network-address, range operators, and non-deterministic functions (`now()`, `count()`).
-3. **Fail closed at subscription.** Anything outside the subset returns `400` with the offending expression named. Never accept a shape we will silently mis-filter — a wrong filter is a data leak.
-4. **Subqueries (`field IN (subquery)`) are Phase 6, not MVP.** They require cross-table dependency tracking so rows move in and out when the subquery result changes. Until then, they 400.
+1. Record `L0`, the WAL position at this moment, and start buffering every change that matches the shape.
+2. Read the snapshot from PostgREST, one page at a time. Write each row into the log as an `insert`, up to the `0_inf` marker.
+3. Replay the buffer from `L0` onward, appending after `0_inf`.
 
-**Move-in / move-out** is mandatory from Phase 3, not an optimization: a row that starts matching is emitted as an `insert` (the client has never seen it); a row that stops matching is emitted as a `delete` (the client must drop it) even though the row still exists. This is why `REPLICA IDENTITY FULL` is required — the old row values must be present to evaluate the predicate against the pre-image.
+Any transaction that commits between `L0` and the snapshot read appears twice: once from the snapshot, once from the replay.
 
-### Fan-out: where Restdis diverges by design
+That duplication is safe, and the reason is worth spelling out. Each operation is keyed by row. `insert` sets a key, `update` merges into a key, and `delete` removes a key. Applying `insert` twice for the same row produces the same result as applying it once. Deleting a row that is already absent does nothing. So the client reaches the same state either way. Electric depends on this same property in its `changes_only` mode, where it tells clients to treat inserts as upserts.
 
-Electric evaluates every shape's where clause against every row, and optimizes with a hash index over the constant in `field = constant`-shaped clauses, keeping throughput flat (~5,000 changes/sec) regardless of shape count; non-optimized clauses degrade roughly inversely with shape count.
+The requirement we must meet is therefore narrow and we can meet it: **the log must never omit an operation, and every operation must be safe to apply more than once.** Our design satisfies both.
 
-`RestdisElectric.Filter` implements the same idea, and Restdis's reverse index is the existing proof the team can build it. Two Restdis-native advantages:
+The trade-offs, stated directly:
 
-- **Tenant sharding is a first filter.** The consistent hash ring already partitions tenants across nodes, so a node only evaluates shapes for tenants it owns. Electric's single-instance model has no equivalent.
-- **Per-AZ `syn` fan-out already bounds broadcast volume**, so cross-AZ traffic stays at one message per AZ per event regardless of how many shapes exist.
+- **What it costs.** A limited number of duplicated operations at the snapshot boundary. The cost is extra bytes, not incorrect data. The number depends on how many writes occur while the snapshot runs.
+- **What we gain over Electric.** We can take the snapshot through PostgREST. The snapshot then obeys row-level security, follows the tenant's read-replica setting, and reuses the origin code we already have. Electric's approach needs a second, privileged connection pool directly to Postgres.
+- **An exact path where it is available.** If a tenant has configured a direct Postgres pool, `RestdisElectric.Snapshotter` can use Electric's exact method instead and produce fewer duplicates. The log it writes is the same. This arrives in Phase 5.
+- **What the client sees.** For `log=full`, nothing. For `log=changes_only`, Electric sends the snapshot descriptor to the client in the `snapshot-end` message so the client can skip duplicates itself. We cannot produce that descriptor without a direct connection. So `changes_only` requires the direct path, and we return `400` when it is not configured.
 
-And the caching divergence, which is the whole thesis:
+### How we evaluate `where` clauses
 
-Electric's scaling story requires a CDN performing request collapsing — a million long-polls become one origin request. Restdis's multi-layer cache plays that role in-process: identical live requests for `(tenant, handle, offset)` are collapsed into one waiter set in ETS, served from the open chunk on append; identical resume requests hit finalized immutable chunks in L1/L2, globally replicated. **The CDN becomes an optimization, not a prerequisite.** We still emit correct `cache-control`/`etag` on immutable offsets so a CDN in front collapses too — Electric-compatible, but not Electric-dependent. This matters for self-hosted and single-region deployments, where Electric's architecture is at its weakest.
+Electric parses and evaluates the `where` clause inside its own process, once for every row that arrives from the WAL. We must do the same. The alternative is to ask Postgres to test the predicate for every row and every shape, which would move the load back onto the database and defeat the purpose of the system.
 
-### Auth: gatekeeper by default
+Our approach, ordered by how much risk each step removes:
 
-Electric ships no auth and expects every production deployment to build a proxy that authenticates the request and sets the shape definition server-side, restricting the client to protocol-only params (`offset`, `handle`, `live`, `cursor`).
+1. **Parse with [`datafusion-sqlparser-rs`](https://github.com/apache/datafusion-sqlparser-rs) through Rustler.** We do not write our own parser. Its `PostgreSqlDialect` covers the whole grammar we accept. It is fast enough that parsing cost does not matter, because we parse only when a client subscribes. It is written in safe Rust, so a malformed expression returns an error rather than corrupting memory inside the virtual machine. It parses more than we evaluate, which is the safe direction: our own check over the parse tree decides what we accept, so the parser cannot widen our supported set by accident.
+2. **Evaluate exactly the subset Electric documents.** That is: comparison, logical, arithmetic, and bitwise operators; `LIKE` and `ILIKE`; the array operators `@>`, `<@`, and `&&`; null and boolean tests; `IN` and `NOT IN`; `BETWEEN`; `ANY` and `ALL`; and the functions `lower`, `upper`, `coalesce`, `greatest`, and `least`. We do not support, and neither does Electric: JSONB operators, full-text search, geometric types, network address types, range operators, and functions whose result changes between calls, such as `now()` and `count()`.
+3. **Reject early.** Anything outside the subset returns `400` when the client subscribes, and the message names the part we cannot handle. We must never accept a shape and then filter it incorrectly. An incorrect filter sends one tenant's rows to another tenant.
+4. **Subqueries come in Phase 6.** A clause such as `field IN (subquery)` requires us to track a second table, because rows can enter and leave the shape when the subquery result changes even though the row itself did not change. Until we build that, these clauses return `400`.
 
-Restdis has this already: `RestdisServer.HTTP.Plug.Auth` resolves a tenant from a Supabase API key, and tenant config is per-tenant. The Electric endpoint therefore ships with two modes:
+**Rows that enter and leave a shape.** We must handle this from Phase 3. It is not an optimisation; without it the client's data is wrong. When an update causes a row to start matching the filter, we write an `insert`, because the client has never seen that row. When an update causes a row to stop matching, we write a `delete`, because the client must remove it, even though the row still exists in Postgres.
 
-- **Gatekeeper mode (default).** Shape definitions are named in tenant config; the client passes a shape *name* plus protocol params. `table`/`where`/`columns` from the client are rejected. This is the pattern Electric documents but makes you build.
-- **Open mode.** Client-supplied shape definitions, bounded by a `queryable_columns` allow-list and an optional shared `secret`, for parity with a bare Electric deployment behind someone else's proxy.
+This is why we require `REPLICA IDENTITY FULL` on these tables. With the default setting, Postgres puts only the primary key in the WAL record for an update or a delete. We need the complete previous row, because we must test the filter against the row as it was before the change.
 
-Both modes ship, and the tenant configures which applies — this is a per-tenant setting, not a deployment-wide or platform-wide policy. Gatekeeper is the default, because the failure mode of defaulting the other way is a tenant unintentionally exposing arbitrary client-supplied where clauses.
+### Fan-out, and where we differ on purpose
 
-Both modes serve byte-identical logs. Gatekeeper mode is what makes the endpoint safe to expose multi-tenant, which Electric cannot do at all.
+Electric tests every shape's filter against every row that arrives. To keep that affordable, it indexes shapes by the constant in clauses of the form `field = constant`. With that index its throughput stays near 5,000 changes per second no matter how many shapes exist. Without it, throughput falls roughly in proportion to the number of shapes.
+
+`RestdisElectric.Filter` uses the same idea, and the existing reverse index shows that the team can build this kind of index. Restdis adds two advantages that Electric cannot have.
+
+- **Routing tenants to nodes filters first.** Each node owns a set of tenants, so it only tests shapes that belong to those tenants. Electric runs as a single instance and has no equivalent.
+- **Per-zone fan-out already limits traffic.** One message crosses to each availability zone for each change, whatever the number of shapes.
+
+Now the difference that matters most, because it is the main argument for building this on Restdis.
+
+Electric's scaling story depends on a CDN. When a million clients long-poll the same shape at the same offset, the CDN recognises one resource and sends one request to Electric. Without that collapsing, Electric holds a million connections itself.
+
+Restdis does this collapsing inside the server. All live requests for the same `(tenant, handle, offset)` join one waiting set in ETS, and one append wakes all of them. Resume requests for settled offsets read closed chunks from the cache layers, which are already copied across nodes.
+
+**So a CDN becomes an optimisation rather than a requirement.** We still send correct `cache-control` and `etag` headers, so a CDN in front of Restdis still collapses requests. We are compatible with that deployment without depending on it. This matters most for self-hosted and single-region deployments, which is exactly where Electric's design is weakest.
+
+### Authentication
+
+Electric includes no authentication. It expects every production deployment to place a proxy in front of it. That proxy authenticates the request and then sets the shape definition itself, so the client can send only protocol parameters such as `offset`, `handle`, `live`, and `cursor`. Electric documents this pattern, but each team must build it.
+
+Restdis has these parts already. `RestdisServer.HTTP.Plug.Auth` identifies the tenant from an API key, and configuration is per tenant. So the endpoint offers two modes.
+
+- **Gatekeeper mode.** Tenant configuration names each shape definition. The client sends a shape name and protocol parameters only. We reject `table`, `where`, and `columns` from the client.
+- **Open mode.** The client supplies the shape definition. A `queryable_columns` allow-list limits which columns it may reference, and an optional shared secret limits who may call at all.
+
+Both modes ship. Each tenant configures which one applies to it. This is a per-tenant setting, not a platform-wide policy. Gatekeeper is the default, because the failure caused by the wrong default is serious: a tenant would accept arbitrary filters written by its own clients without intending to.
+
+Both modes produce identical logs. Gatekeeper mode is what makes it safe to expose this endpoint to many tenants at once, which Electric cannot do at all.
 
 ### Handles, offsets, and cache keys
 
-- **Handle.** Electric's handle is a deterministic hash of the shape definition, formatted `{hash}-{epoch_ms}`, treated as opaque by clients. Restdis must keep that format. Note: **do not use `:erlang.phash2/1` here.** `Restdis.Cache.Key` uses `phash2` for cache keys, which is fine for process-local caching, but a shape handle is persisted to disk and held by clients across deploys and OTP upgrades. Handles use a truncated SHA-256 over the canonicalized shape definition. Identical definitions from different tenants must *not* collide into one log — the handle is computed per `(tenant_id, definition)`, with the tenant component never exposed to the client.
-- **Offset.** `{lsn}_{op_offset}` where `lsn` is the integer Postgres LSN and `op_offset` is the operation's position within its transaction. `RestdisBuster.Infra.LSN` already models this.
-- **Cache key.** Add a `:shape` scope to `Restdis.Cache.Key` so shape chunks live in the same addressing space as PGRST entries and inherit per-tenant caps, metrics, and flush.
+**Handles.** Electric computes the handle by hashing the shape definition and formatting the result as `{hash}-{epoch_ms}`. Clients treat it as opaque text. We must keep that format.
 
-### 409 / must-refetch triggers
+We must not use `:erlang.phash2/1` to compute it. `Restdis.Cache.Key` uses `phash2` today, which is correct for a cache key that lives only in one running process. A handle is different: we write it to disk, and clients hold it across our deployments and across Erlang upgrades. It must therefore be stable forever. We will use a truncated SHA-256 of the canonical form of the definition.
 
-Every path that discards a shape log must surface as `409` with a `location` header carrying a fresh handle, because that is the only signal Electric clients understand for "start over":
+We compute the hash over `(tenant_id, definition)`. Two tenants that define the same shape must not share one log. The tenant part never appears in the handle we return.
 
-| Trigger | Restdis source |
+**Offsets.** The format is `{lsn}_{op_offset}`. The first part is the Postgres LSN as an integer. The second is the position of the operation inside its transaction.
+
+**Cache keys.** We add a `:shape` scope to `Restdis.Cache.Key`. Shape chunks then share the addressing scheme used by cached PostgREST responses, and they inherit the existing per-tenant limits, metrics, and flush behaviour.
+
+### Every reason we return `409`
+
+A `409` tells the client to discard everything and start again. It is the only signal Electric clients understand for that. So every event that destroys or invalidates a log must produce one.
+
+| Cause | Where it comes from in Restdis |
 | --- | --- |
-| Replication slot recreated or invalidated | `RestdisBuster` slot config; slot invalidation purges all shapes. |
-| Schema change on the shape's table | Existing DDL event trigger (`DROP TABLE` invalidation) plus a periodic reconciliation of cached table metadata, matching Electric's 60s check for changes that emit no relation message. |
-| Shape evicted under per-tenant caps | Existing LRU eviction. **Must be wired to 409, not silent eviction** — a silently dropped shape becomes a permanently stale client. |
-| Client resumes below the retained log window | Log truncation at the configured length. See "Storage" below. |
-| Explicit `DELETE /v1/shape` | New, behind `allow_shape_deletion`. |
-| Postgres timeline / system identifier change | `RestdisBuster` slot config check on connect. |
+| The replication slot was recreated or invalidated | The slot configuration in `RestdisBuster`. Losing the slot invalidates every shape. |
+| The table's schema changed | The existing DDL event trigger for `DROP TABLE`, plus a periodic check that compares cached table metadata against the real schema. Electric runs the same check every 60 seconds, because some changes produce no notification in the WAL. |
+| The shape was evicted because the tenant hit a limit | The existing LRU eviction. **We must connect this to a `409`.** If we evict a shape silently, its client keeps stale data forever and never learns. |
+| The client resumed below the retained window | Log truncation, described in "How we store the shape log". |
+| Someone called `DELETE /v1/shape` | New, and only when `allow_shape_deletion` is on. |
+| The Postgres timeline or system identifier changed | The slot configuration check that runs when we connect. |
 
-### Compatibility boundary: client-side only
+### The boundary of compatibility: clients only
 
-Compatibility stops at the HTTP protocol. Restdis is configured, deployed, and operated as Restdis: its own environment variables, its own storage layout, its own `/metrics` endpoint, its own tenant config. No `ELECTRIC_*` environment variable is read, and no attempt is made to look like an Electric deployment to an operator.
+Our compatibility stops at the HTTP protocol. We configure, deploy, and operate Restdis as Restdis. It keeps its own environment variables, its own storage layout, its own `/metrics` endpoint, and its own tenant configuration. We read no `ELECTRIC_*` environment variable. We do not try to look like Electric to an operator.
 
-The reason is that server-side compatibility buys nothing and costs a permanent constraint. The people we are unblocking are application developers with Electric client code they do not want to rewrite; the operator is deploying Restdis deliberately. Honoring `ELECTRIC_STORAGE_DIR` or `ELECTRIC_MAX_SHAPES` would pin Restdis's internals to Electric's operational model — one instance, one storage dir, one flat shape cap — which is precisely the model the tenant aggregate and hash ring replace.
+The reason is that operational compatibility gains us nothing and costs us a permanent constraint. The people we are helping are application developers who do not want to rewrite working client code. The operator, by contrast, chose to deploy Restdis. Supporting `ELECTRIC_STORAGE_DIR` or `ELECTRIC_MAX_SHAPES` would tie our internals to Electric's operational model: one instance, one storage directory, one flat limit on shapes. That model is exactly what per-tenant limits and tenant routing replace.
 
-Migration guidance for an existing Electric deployment is documentation, not code: a table of which Restdis setting serves the same purpose.
+We will help operators migrate with documentation instead: a table that shows which Restdis setting serves the same purpose as each Electric setting.
 
 ---
 
@@ -242,220 +323,219 @@ Migration guidance for an existing Electric deployment is documentation, not cod
 
 **In scope:**
 
-- `restdis_electric` umbrella child, a standalone bounded context under the `RestdisElectric` namespace: shape definitions, handles, append-only chunked log, sparse offset index, filter index, per-shape consumers, snapshotting, where-clause evaluation.
-- Integration into `restdis_server`: `GET`/`DELETE /v1/shape` on `RestdisServer.HTTP.Endpoint` behind the existing `Auth` plug, with a single `RestdisServer.HTTP.Electric` adapter owning the full parameter, header, message, and status-code contract above.
-- `DELETE /v1/shape` behind `allow_shape_deletion`.
-- Initial snapshot via PostgREST with LSN-bracketed, idempotent-apply consistency.
-- Long-poll live mode with in-process request collapsing; SSE transport.
-- Where-clause parsing and in-process evaluation over **exactly** Electric's documented supported subset — no more, no less — with move-in/move-out.
-- Hash-indexed shape filter with flat throughput vs. shape count.
-- Gatekeeper auth mode binding shape definitions to API keys server-side.
-- Conformance suite run against the published Electric client packages.
+- The `restdis_electric` umbrella application, a standalone bounded context under the `RestdisElectric` namespace. It owns shape definitions, handles, the chunked append-only log, the offset index, the filter index, the per-shape processes, snapshot reading, and `where` clause evaluation.
+- Its integration into `restdis_server`: `GET` and `DELETE /v1/shape` on `RestdisServer.HTTP.Endpoint`, behind the existing authentication plug, with one adapter module that owns the whole HTTP contract.
+- The initial snapshot through PostgREST, made consistent by LSN bracketing and idempotent operations.
+- Live updates by long-polling, with request collapsing inside the server, and Server-Sent Events as a second transport.
+- Parsing and evaluating `where` clauses over exactly the subset Electric documents, including rows that enter and leave a shape.
+- A shape filter index whose throughput does not fall as the number of shapes grows.
+- Gatekeeper authentication, which binds shape definitions to an API key on the server.
+- A conformance test suite that runs the published Electric client libraries against Restdis.
 
 **Out of scope:**
 
-- **Server-side / operational compatibility.** No `ELECTRIC_*` environment variables, no Electric storage layout, no Electric-shaped config surface. Compatibility is client-side only. See "Compatibility boundary" above.
-- **Any where-clause construct outside Electric's documented subset**, even where it would be easy to add. A superset is a divergence: shapes that work on Restdis and 400 on Electric make migration one-way and break the drop-in claim in the other direction.
-- **Writes.** Same deliberate scope reduction as Electric: no write path, no conflict resolution, no CRDTs. Writes go to PostgREST as today.
-- **Include trees / multi-table shapes.** Electric does not have them either; parity is the bar.
-- **Mutable shape definitions.** A changed definition is a new handle, as in Electric.
-- **Electric's legacy (pre-2024) Satellite WebSocket protocol, DDLX, or client-side SQLite ownership.** Dead surface.
-- **PGlite / `y-electric` server-side support.** These are client-side libraries; they work if the log is correct, and are validated but not built.
-- **Non-Postgres origins.**
-- Replacing `PGRST.QUERY`. The shape API is additive; the RESP surface is untouched.
+- **Operational compatibility.** No `ELECTRIC_*` environment variables, no Electric storage layout, no Electric-shaped configuration. Compatibility covers clients only.
+- **Any `where` clause construct outside Electric's documented subset**, even where it would be easy to add. Supporting more than Electric is itself a compatibility failure: a shape that works on Restdis and fails on Electric makes the migration one-way.
+- **Writes.** We limit our scope exactly as Electric does. There is no write path, no conflict resolution, and no CRDTs. Writes continue to go to PostgREST.
+- **Shapes that span several tables.** Electric does not support them either.
+- **Changing a shape definition in place.** A different definition produces a different handle, as in Electric.
+- **Electric's pre-2024 protocol, its DDLX layer, and its client-side SQLite storage.** Electric abandoned all of it.
+- **Server-side support for PGlite or `y-electric`.** These run in the client. They work if our log is correct. We will test them, but we build nothing for them.
+- **Origins other than Postgres.**
+- **Replacing `PGRST.QUERY`.** This API is an addition. The Redis protocol surface does not change.
 
 ---
 
-## Phase 1: Shape Log and Static Reads
+## Phase 1: The shape log and reads without live updates
 
-Delivers a durable shape log and a `GET /v1/shape` that serves a snapshot and resumes by offset. No live mode, no filtering.
+This phase delivers a durable shape log and a `GET /v1/shape` that serves a snapshot and resumes from an offset. It has no live updates and no filtering.
 
-1. Add `restdis_electric` as the fifth umbrella child, depending on `restdis` only, with a `check.boundary` alias asserting it references no other umbrella namespace, and `RestdisElectric` added to `restdis`'s own `@umbrella_namespaces` list.
-2. Expose `RestdisElectric.child_spec/1` mounted explicitly by the host, with no `mod:` application callback, following `Restdis.Cache`.
-3. Define `RestdisElectric.Definition` (table, columns, where, params) and `RestdisElectric.Handle` (truncated SHA-256 over the canonical definition, per tenant, formatted `{hash}-{epoch_ms}`).
-4. Implement `RestdisElectric.Log`: append-only chunk writer, chunk finalization at a size threshold, sparse offset index appended on finalization, and a reader that binary-searches the index then scans the chunk.
-5. Implement `RestdisElectric.Offset`: encode/decode `-1`, `0_inf`, `now`, `{lsn}_{op_offset}`; total ordering. The LSN is carried in as an integer across the context boundary, so this module does not depend on `RestdisBuster.Infra.LSN`.
-6. Implement `RestdisElectric.Snapshotter`: record `L0`, page the shape's rows from PostgREST via `Restdis.Cache.Origin`, append each as an `insert` up to `0_inf`.
-7. Add the `:shape` scope to `Restdis.Cache.Key` so chunks inherit per-tenant caps and flush.
-8. Expose the public read API on `RestdisElectric`: resolve definition to handle, read a log range at an offset, delete a shape — returning domain results, no HTTP concepts.
-9. Add `{:restdis_electric, in_umbrella: true}` to `restdis_server`, mount its `child_spec` in `RestdisServer.Application`, and add `get "/v1/shape"` behind the existing `Auth` plug.
-10. Implement `RestdisServer.HTTP.Electric`: params → `Definition`, domain result → status, headers (`electric-handle`/`electric-offset`/`electric-schema`, `cache-control`/`etag` marking settled offsets immutable), and JSON body — including `409` + `location` on an unknown or invalidated handle and `400` on an unknown table or a projection omitting the primary key.
+1. Add `restdis_electric` as the fifth umbrella application. It depends on `restdis` only. Add a `check.boundary` task that fails if it mentions any other umbrella namespace, and add `RestdisElectric` to the list that `restdis` checks against.
+2. Provide `RestdisElectric.child_spec/1` and let the host application start it. Declare no application callback, following `Restdis.Cache`.
+3. Write `RestdisElectric.Definition`, which holds the table, columns, filter, and parameters, and `RestdisElectric.Handle`, which computes a truncated SHA-256 for each tenant and formats it as `{hash}-{epoch_ms}`.
+4. Write `RestdisElectric.Log`: append to the open chunk, close a chunk when it reaches its size limit, append to the sparse index when a chunk closes, and read by searching the index and then scanning one chunk.
+5. Write `RestdisElectric.Offset`: encode and decode `-1`, `0_inf`, `now`, and `{lsn}_{op_offset}`, and order them. The LSN crosses the context boundary as a plain integer, so this module does not depend on `RestdisBuster.Infra.LSN`.
+6. Write `RestdisElectric.Snapshotter`: record `L0`, read the shape's rows from PostgREST page by page through `Restdis.Cache.Origin`, and append each row as an `insert` up to `0_inf`.
+7. Add the `:shape` scope to `Restdis.Cache.Key` so chunks inherit the per-tenant limits and flush behaviour.
+8. Expose the read API on `RestdisElectric`: turn a definition into a handle, read a range of the log, and delete a shape. Return domain values only.
+9. Add `{:restdis_electric, in_umbrella: true}` to `restdis_server`, start its `child_spec` in `RestdisServer.Application`, and add `get "/v1/shape"` behind the existing authentication plug.
+10. Write `RestdisServer.HTTP.Electric`: convert parameters into a definition, and convert domain results into a status code, headers, and a JSON body. This includes `409` with a `location` header for an unknown or invalid handle, and `400` for an unknown table or a column list that omits the primary key.
 
-**Completion criteria:**
+**We are done when:**
 
-- A shape over a 10,000-row table serves a complete, correctly paginated snapshot; concatenating responses reproduces the table exactly.
-- Resuming at any mid-snapshot offset returns exactly the operations after it, with no gap and no reordering.
-- A request at an immutable offset returns a byte-identical body and the same `etag` across restarts.
-- Log chunks survive a simulated node restart and serve warm data on recovery.
-- `mix check.boundary` passes in both directions: `restdis` references no `RestdisElectric`, and `restdis_electric` references no other umbrella namespace.
-- `restdis_electric`'s test suite passes with neither `restdis_server` nor `restdis_buster` started.
-- Property test: for any sequence of appends and any resume offset, replaying from that offset reconstructs the same materialized map as replaying from `-1`.
+- A shape over a 10,000-row table returns the complete snapshot across several pages, and joining those pages reproduces the table exactly.
+- Resuming at any offset inside the snapshot returns exactly the operations after it, with none missing and none reordered.
+- A request at a settled offset returns an identical body and the same `etag` after a restart.
+- Log chunks survive a simulated node restart and serve their data on recovery.
+- `mix check.boundary` passes in both directions: `restdis` does not mention `RestdisElectric`, and `restdis_electric` does not mention any other umbrella namespace.
+- The `restdis_electric` test suite passes with neither `restdis_server` nor `restdis_buster` running.
+- A property test shows that, for any series of appends and any resume offset, replaying from that offset produces the same final data as replaying from `-1`.
 
 **Risks:**
 
-- Chunked-file storage is new code on the critical path. Electric's own numbers say the general-purpose-KV approach fails here, so the risk of *not* doing this is higher. Benchmark against the PRD Phase 1 target (10k writes/sec per tenant) before Phase 2.
-- Handle stability across deploys. Any input to the hash that varies with OTP version, node, or map iteration order breaks every client at once. The canonicalization function needs a dedicated property test.
+- The chunked file store is new code, and every read and write passes through it. Electric's published numbers say the general-purpose store fails at this job, so not building it carries the larger risk. We must benchmark against the existing Phase 1 target of 10,000 writes per second per tenant before we start Phase 2.
+- The handle must stay stable across deployments. If anything that varies by Erlang version, by node, or by map ordering reaches the hash function, every client breaks at once. The function that produces the canonical form needs its own property test.
 
 ---
 
-## Phase 2: Live Mode and Client Conformance
+## Phase 2: Live updates and proof of client compatibility
 
-Delivers real-time updates and the first end-to-end proof of drop-in compatibility.
+This phase delivers real-time updates and the first end-to-end evidence that Electric clients work against Restdis.
 
-1. Expose `RestdisElectric.WAL` as the ingestion entry point (decoded change in, persistence acknowledgement out), and add a `:shape_append` dispatch target in `RestdisBuster.Dispatcher` that calls it — the dependency arrow points from buster into the context, never the reverse.
-2. Implement `RestdisElectric.Consumer`: one GenServer per active shape, appending matching changes to its log, hibernating when idle.
-3. Require and verify `REPLICA IDENTITY FULL` on shape-backing tables at subscription time; 400 with a remediation message if absent.
-4. Add `RestdisElectric.await/3` to the public API: block until the log passes a given offset or a deadline elapses, returning domain results only.
-5. Implement long-poll in `RestdisServer.HTTP.Electric` on top of `await/3`: hold the request until new data or timeout; on timeout return 200 with only an `up-to-date` control message.
-6. Implement in-process request collapsing: all waiters on `(tenant, handle, offset)` share one waiter set in the context and are woken by a single append.
-7. Implement `columns` projection, validating that the primary key is included.
-8. Implement `secret` gating and gatekeeper mode in `restdis_server`: shape definitions resolved from tenant config by name via `RestdisElectric.Definition`; client-supplied definition params rejected in this mode.
-9. Constrain `RestdisBuster.Infra.LSNStore` to confirm the slot only at an LSN acknowledged as persisted by `RestdisElectric.WAL`.
-10. Wire per-tenant shape eviction to `409` rather than silent drop.
-11. Emit telemetry from the context and attach it in `RestdisServer.Metrics`: active shapes per tenant, append latency, live waiters, collapse ratio, 409 rate by cause.
+1. Expose `RestdisElectric.WAL`, which receives a decoded change and reports when it has written it to disk. Add a `:shape_append` target in `RestdisBuster.Dispatcher` that calls it. The dependency points from the WAL reader into the context, never the other way.
+2. Write `RestdisElectric.Consumer`: one process for each active shape. It appends matching changes to its log and hibernates when idle.
+3. Check that each table a shape reads has `REPLICA IDENTITY FULL`. If it does not, return `400` with a message that says how to fix it.
+4. Add `RestdisElectric.await/3` to the public API. It waits until the log passes a given offset or a deadline expires, and returns domain values only.
+5. Build long-polling in `RestdisServer.HTTP.Electric` on top of `await/3`. Hold the request until data arrives or the timer expires. On a timeout, return `200` with only an `up-to-date` message.
+6. Collapse duplicate live requests inside the server. Every client waiting on the same `(tenant, handle, offset)` joins one waiting set, and one append wakes all of them.
+7. Support the `columns` parameter, and check that the list includes the primary key.
+8. Support the shared secret and gatekeeper mode in `restdis_server`. Read shape definitions from tenant configuration by name, and reject definition parameters sent by the client.
+9. Change `RestdisBuster.Infra.LSNStore` so that it confirms an LSN to Postgres only after `RestdisElectric.WAL` reports that it has written every change up to that point.
+10. Connect per-tenant shape eviction to a `409` instead of dropping the shape silently.
+11. Emit telemetry from the context and export it from `RestdisServer.Metrics`: active shapes per tenant, append latency, number of waiting clients, how many requests each append serves, and `409` counts by cause.
 
-**Completion criteria:**
+**We are done when:**
 
-- `@electric-sql/client`'s `ShapeStream` and `Shape` consume a Restdis shape end to end with only the `url` changed, and `useShape` from `@electric-sql/react` re-renders on write.
-- A committed Postgres write appears in a live long-poll response within 2 seconds.
-- 1,000 concurrent live requests on one shape produce exactly one append-driven wakeup path and one response body.
-- Killing the node holding the WAL tailer loses no appended operation: after failover and LSN resume, every client's materialized state matches Postgres.
-- A shape evicted under per-tenant caps produces a 409 with a usable `location`, and the client recovers to correct state.
+- `ShapeStream` and `Shape` from `@electric-sql/client` work end to end against Restdis with only the `url` changed, and `useShape` from `@electric-sql/react` redraws when the database changes.
+- A committed Postgres write reaches a waiting live client within 2 seconds.
+- 1,000 concurrent live requests on one shape produce one wake-up and one response body.
+- Killing the node that holds the WAL reader loses no operation. After another node takes over and resumes from the last LSN, every client's data matches Postgres.
+- A shape evicted by a tenant limit produces a `409` with a usable `location`, and the client recovers to correct data.
 
 **Risks:**
 
-- Live long-polls hold connections. Restdis's collapsing makes this a memory question rather than a socket-fan-out question, but per-tenant waiter caps are required before load testing.
-- Slot-confirmation now depends on the slowest shape consumer. A stuck consumer holds back WAL and risks retention bloat — the same footgun Electric documents. Needs a watchdog that kills and 409s a consumer that falls beyond a threshold, trading one shape's resync for cluster health.
+- Live long-polls hold connections open. Collapsing turns this into a question of memory rather than sockets, but we must add a per-tenant limit on waiting clients before we load test.
+- The confirmed LSN now depends on the slowest shape. A stuck shape stops us confirming, which makes Postgres retain WAL and can fill its disk. Electric documents the same hazard. We need a watchdog that stops a shape that falls too far behind and returns `409` to its clients. We trade one shape's resynchronisation for the health of the cluster.
 
 ---
 
-## Phase 3: Where Clauses and Move-In/Move-Out
+## Phase 3: Filters, and rows that enter and leave a shape
 
-Delivers partial replication, the feature that makes shapes worth having.
+This phase delivers partial replication, which is the feature that makes shapes worth having.
 
-1. Integrate `datafusion-sqlparser-rs` via Rustler, parsing `where` with `PostgreSqlDialect` into an AST at subscription time only.
-2. Implement `RestdisElectric.Eval`: evaluation over exactly the documented subset (comparison, logical, arithmetic, bitwise, `LIKE`/`ILIKE`, array operators, null/boolean tests, `IN`/`NOT IN`, `BETWEEN`, `ANY`/`ALL`, `lower`/`upper`/`coalesce`/`greatest`/`least`).
-3. Reject anything outside the subset at subscription time with a `400` naming the unsupported construct.
-4. Implement `params` / `$1` positional interpolation with no string concatenation into SQL text.
-5. Implement move-in/move-out: evaluate the predicate against both the pre-image and post-image of every update; emit `insert` on newly-matching, `delete` on newly-non-matching.
-6. Implement `replica=full` so update and delete messages carry `old_value`.
-7. Implement `RestdisElectric.Filter`: hash index from `(table, column, constant) -> MapSet(shape_handle)` for `field = constant`, `constant = field`, `field IN list`, `array_field @> constant`, `const = ANY(array_field)`, and `AND`/`OR` combinations. Mixed clauses filter on the optimized part first, then iterate survivors.
-8. Add metrics: filter index hit rate, shapes evaluated per WAL event, throughput vs. shape count.
+1. Add `datafusion-sqlparser-rs` through Rustler. Parse `where` with `PostgreSqlDialect`, and parse only when a client subscribes.
+2. Write `RestdisElectric.Eval`, which evaluates exactly the documented subset listed earlier in this document.
+3. Reject anything outside that subset when the client subscribes. Return `400` and name the construct we do not support.
+4. Support `params` and `$1` placeholders. Never build the expression by joining strings.
+5. Handle rows that enter and leave the shape. Test the filter against the row before the change and after it. Write an `insert` when it starts matching and a `delete` when it stops matching.
+6. Support `replica=full`, so update and delete messages carry `old_value`.
+7. Write `RestdisElectric.Filter`, a hash index from `(table, column, constant)` to a set of shape handles. Index the clause forms `field = constant`, `constant = field`, `field IN list`, `array_field @> constant`, and `const = ANY(array_field)`, including combinations joined by `AND` and `OR`. When a clause mixes indexed and non-indexed parts, use the index first and test the remaining shapes one by one.
+8. Add metrics: how often the index answers, how many shapes we test for each change, and throughput against shape count.
 
-**Completion criteria:**
+**We are done when:**
 
-- Every expression in Electric's documented supported subset produces the same match/no-match decision as Postgres evaluating the same predicate, verified by a differential property test against a live Postgres.
-- Every expression outside the subset returns 400 at subscription. No shape is ever accepted and then mis-filtered.
-- An update that moves a row into a shape emits an `insert`; one that moves it out emits a `delete`; the client's materialized map matches a fresh snapshot in both cases.
-- Throughput stays flat at the Phase 2 measured rate from 10 to 1,000 optimized shapes, and degradation with non-optimized clauses is measured and documented.
+- Every expression in the supported subset produces the same decision as Postgres evaluating the same expression. We prove this with a test that runs both against a live Postgres and compares.
+- Every expression outside the subset returns `400` when the client subscribes. We never accept a shape and then filter it incorrectly.
+- An update that moves a row into a shape produces an `insert`, and one that moves it out produces a `delete`. In both cases the client's data matches a fresh snapshot.
+- Throughput stays at the rate measured in Phase 2 as the number of indexed shapes rises from 10 to 1,000. We measure and document what happens with non-indexed clauses.
 
 **Risks:**
 
-- Predicate evaluation divergence from Postgres is a correctness *and security* bug: a wrong `true` leaks another tenant's row. The differential test against real Postgres is the gate, not a nice-to-have.
-- Rustler puts parsing in a NIF, so a long parse blocks a scheduler. Parse on a dirty CPU scheduler with an input size limit, and only at subscription time — never on the WAL hot path. Safe Rust removes the memory-safety class of failure, not the scheduler-blocking one.
-- `datafusion-sqlparser-rs` is a SQL parser, not Postgres itself, so its AST is not guaranteed to agree with Postgres on every literal, cast, and operator-precedence corner. That gap is exactly what the differential test against live Postgres is for; any disagreement is resolved by narrowing what we accept, never by guessing.
+- A difference between our evaluation and Postgres's is both a correctness bug and a security bug. If we return true where Postgres returns false, we send one tenant's row to another. The comparison test against a real Postgres is the gate for this phase, not an extra.
+- Rustler runs the parser inside the Erlang virtual machine, so a slow parse blocks a scheduler. Parse on a dirty CPU scheduler, limit the size of the input, and parse only when a client subscribes. Never parse while processing the WAL. Safe Rust removes the memory-safety risk. It does not remove this one.
+- `datafusion-sqlparser-rs` is a SQL parser, not Postgres. Its parse tree may disagree with Postgres about an unusual literal, cast, or operator precedence. The comparison test exists to find those cases. We resolve each one by accepting less, never by guessing.
 
 ---
 
-## Phase 4: Transport and CDN Parity
+## Phase 4: The second transport, and cache behaviour
 
-Delivers the remaining transport surface and validates cache behaviour end to end.
+This phase delivers the remaining transport and proves that caching behaves correctly from end to end.
 
-1. Implement `live_sse=true` in `RestdisServer.HTTP.Electric`: SSE framing with `: keep-alive` comments every 21 seconds, over the same `RestdisElectric.await/3` the long-poll path uses. No transport knowledge enters the context.
-2. Implement the `cursor` cache-busting parameter for live reconnects.
-3. Emit `cache-control` with `max-age` and `stale-while-revalidate` matching Electric's semantics: immutable for settled offsets, short-lived for live responses.
-4. Validate behind Nginx, Caddy, and one commercial CDN that request collapsing works and that no live response is cached as immutable.
-5. Verify the client's documented SSE fallback (reverting to long-poll after repeated quick closes behind a buffering proxy) behaves correctly against Restdis.
-6. Load test: 100,000 concurrent live clients across 100 tenants and 1,000 shapes, with and without a CDN in front, measuring memory, P99 latency, and origin request count.
+1. Support `live_sse=true` in `RestdisServer.HTTP.Electric`. Frame Server-Sent Events and send a keep-alive comment every 21 seconds. Use the same `await/3` that long-polling uses. No transport detail enters the context.
+2. Support the `cursor` parameter, which prevents a stale cached response when a live client reconnects.
+3. Send `cache-control` with `max-age` and `stale-while-revalidate` that match Electric's meaning: settled offsets never change, live responses expire quickly.
+4. Test behind Nginx, Caddy, and one commercial CDN. Confirm that they collapse duplicate requests and that none of them caches a live response as permanent.
+5. Confirm the client's documented fallback works against us. The client gives up on Server-Sent Events and returns to long-polling after several quick disconnections, which happen behind a proxy that buffers responses.
+6. Load test with 100,000 concurrent live clients across 100 tenants and 1,000 shapes, with and without a CDN. Measure memory, 99th-percentile latency, and how many requests reach the origin.
 
-**Completion criteria:**
+**We are done when:**
 
-- Both transports deliver identical logical message sequences for the same shape.
-- With no CDN, 100k concurrent live clients are served with flat memory and P99 propagation under 2 seconds.
-- With a CDN, origin request count per shape per interval is ~1 regardless of client count.
-- No cache layer ever serves a stale body at an immutable offset, verified by a chaos test that mutates during a cached read.
+- Both transports deliver the same sequence of messages for the same shape.
+- Without a CDN, 100,000 concurrent live clients see flat memory use and 99th-percentile propagation under 2 seconds.
+- With a CDN, roughly one request per shape per interval reaches Restdis, whatever the number of clients.
+- No cache layer ever serves stale data for a settled offset. We prove this with a test that writes to the database during a cached read.
 
 **Risks:**
 
-- Cache-header semantics are easy to get subtly wrong and catastrophic when wrong — a mis-marked live response cached as immutable pins clients on stale state permanently. Every header combination gets an explicit test.
+- Cache headers are easy to get subtly wrong, and a wrong header is severe. If we mark a live response as permanent, a cache can serve it forever and the client never advances. Every combination of headers needs its own test.
 
 ---
 
-## Phase 5: Direct-Postgres Snapshots and `changes_only`
+## Phase 5: Direct Postgres snapshots and `changes_only`
 
-Delivers exact snapshot dedup and the remaining `log` mode where a direct pool is available.
+This phase removes the duplicate operations at the snapshot boundary for tenants that have a direct Postgres connection, and adds the remaining `log` mode.
 
-1. Add an optional per-tenant direct Postgres pool for snapshotting, separate from the replication connection.
-2. Implement the exact snapshot path: read-only transaction, record `pg_current_snapshot()`, and skip buffered transactions with `xmin < xid < xmax and xid not in xip_list`.
-3. Once the first transaction with `xid >= xmax` is logged, stop comparing xids for that shape, avoiding 32-bit wraparound concerns.
-4. Implement `log=changes_only` with the `snapshot-end` control message carrying the snapshot descriptor; return 400 when no direct pool is configured.
-5. Document per-tenant which snapshot path is in use, and expose it as a metric.
+1. Add an optional direct Postgres pool for each tenant, used only for snapshots and separate from the replication connection.
+2. Implement the exact method: run the snapshot in a read-only transaction, record `pg_current_snapshot()`, and skip buffered transactions that the snapshot already contains.
+3. Once we have logged the first transaction that started after the snapshot, stop comparing transaction identifiers for that shape. This also avoids the problem of 32-bit identifiers wrapping around.
+4. Support `log=changes_only`, and send the snapshot descriptor in the `snapshot-end` message. Return `400` when the tenant has no direct pool.
+5. Record which method each tenant uses, and expose it as a metric.
 
-**Completion criteria:**
+**We are done when:**
 
 - On the direct path, no row appears both in the snapshot and as an early logged insert.
-- On the PostgREST path, duplicates are bounded, measured, and provably converge to the same materialized state.
-- `changes_only` clients reconstruct the same state as `full` clients for the same shape.
+- On the PostgREST path, we measure the duplicates, show they are bounded, and prove that clients reach the same final data.
+- Clients using `changes_only` build the same data as clients using `full` for the same shape.
 
 **Risks:**
 
-- Two snapshot paths is two code paths to keep semantically identical. They share the same log-append interface and the same property tests, run against both.
+- Two snapshot methods mean two code paths that must behave identically. They must share the same append interface and run against the same property tests.
 
 ---
 
-## Phase 6: Subquery Shapes and Production Hardening
+## Phase 6: Subqueries and production readiness
 
-1. Implement `field IN (subquery)` with cross-table dependency tracking, so rows move in and out when the subquery result changes without the row itself changing — incrementally, including under compound `AND`/`OR`/`NOT`.
-2. Implement periodic schema reconciliation (60s) catching changes that emit no relation message, invalidating affected shapes.
-3. Enforce per-tenant shape caps: max shapes, max log bytes, max live waiters, with 429 and actionable errors.
-4. Extend the Grafana dashboard: shapes per tenant, append latency, WAL-to-client propagation, 409 rate by cause, collapse ratio, log disk per tenant.
-5. Implement log truncation at the configured retained length, per shape with a tenant default, and serve a `409` to any resume below the retained window.
-6. Publish a client-migration guide and a compatibility matrix stating exactly which protocol features and where-clause constructs are supported, plus a documentation-only table mapping Electric operational settings to their Restdis equivalents.
-7. Run the conformance suite in CI against the published Electric client packages, pinned by version, as a merge gate.
+1. Support `field IN (subquery)`. Track the second table, so rows enter and leave the shape when the subquery result changes even though the row itself did not change. Do this incrementally, including inside `AND`, `OR`, and `NOT`.
+2. Compare cached table metadata against the real schema every 60 seconds, and invalidate affected shapes. This catches changes that produce no notification in the WAL.
+3. Enforce per-tenant limits on the number of shapes, the bytes each log may use, and the number of waiting clients. Return `429` with a message the operator can act on.
+4. Extend the Grafana dashboard: shapes per tenant, append latency, delay from write to client, `409` counts by cause, requests served per append, and log disk use per tenant.
+5. Truncate each log to its configured length, per shape with a tenant default. Return `409` to any client that resumes below the retained window.
+6. Publish a migration guide for client developers and a compatibility table that states exactly which protocol features and which `where` constructs we support. Include a documentation-only table that maps Electric's operational settings to their Restdis equivalents.
+7. Run the conformance suite in CI against pinned versions of the published Electric client libraries, and block merges when it fails.
 
-**Completion criteria:**
+**We are done when:**
 
-- Archiving a parent row moves its children out of a subquery-filtered shape incrementally, with no 409.
-- Truncation holds a shape's log at its configured length under sustained writes, and a client resuming inside the window is unaffected while one resuming below it gets a 409 and recovers to correct state.
-- The conformance suite is green in CI and fails the build on regression.
-- The compatibility matrix is published and every "unsupported" entry corresponds to a 400 at subscription time, never to silent divergence.
+- Archiving a parent row removes its children from a subquery-filtered shape incrementally, with no `409`.
+- Truncation holds each log at its configured length under sustained writes. A client resuming inside the window continues normally. A client resuming below it receives a `409` and recovers correctly.
+- The conformance suite passes in CI and fails the build when we break something.
+- We have published the compatibility table, and every entry marked unsupported corresponds to a `400` at subscription time rather than a silent difference.
 
 ---
 
-## Compatibility Matrix (target state at Phase 6)
+## Compatibility table (target state after Phase 6)
 
 | Capability | Electric | Restdis | Notes |
 | --- | --- | --- | --- |
-| `@electric-sql/client` `ShapeStream` / `Shape` | ✅ | ✅ | URL change only. |
-| `@electric-sql/react` `useShape` | ✅ | ✅ | Via the client. |
-| `@tanstack/electric-db-collection`, `useLiveQuery` | ✅ | ✅ | Via the client. |
-| `y-electric` | ✅ | ✅ | Client-side; correct log is sufficient. |
-| `electric_client` (Hex), `Phoenix.Sync`, Ecto-derived shapes | ✅ | ✅ | HTTP protocol only. Embedded-in-the-same-BEAM mode is not offered. |
-| Long-poll live mode | ✅ | ✅ | Phase 2. |
-| SSE live mode | ✅ | ✅ | Phase 4. |
-| Where clauses (documented subset) | ✅ | ✅ | Phase 3, differentially tested against Postgres. |
-| Subquery where clauses | ✅ | ✅ | Phase 6. |
-| `columns`, `replica`, `params` | ✅ | ✅ | Phases 2–3. |
-| `log=changes_only` + `snapshot-end` descriptor | ✅ | ⚠️ | Requires a direct Postgres pool; 400 otherwise. |
-| Include trees / multi-table shapes | ❌ | ❌ | Neither. |
-| Mutable shape definitions | ❌ | ❌ | Neither. |
-| Log retention | Unbounded + compaction | Configurable length + truncation | Protocol-compatible: a resume below the window is the existing 409 path. |
-| Write path / conflict resolution | ❌ | ❌ | Deliberate in both. |
-| Multi-tenant on one deployment | ❌ | ✅ | Restdis's tenant aggregate. |
-| Native auth / gatekeeper | ❌ | ✅ | No user-built proxy required. |
-| CDN required for fan-out scale | ✅ | ❌ | In-process collapsing; CDN optional. |
-| Horizontal read scaling | ⚠️ read replicas | ✅ | Consistent hash ring + global chunk replication. |
-| Replication slots consumed | 1 per Electric instance | 1 per cluster, shared with existing invalidation | Reuses the existing tailer. |
+| `ShapeStream` and `Shape` from `@electric-sql/client` | Yes | Yes | The client changes only its URL. |
+| `useShape` from `@electric-sql/react` | Yes | Yes | Works through the client library. |
+| `@tanstack/electric-db-collection` and `useLiveQuery` | Yes | Yes | Works through the client library. |
+| `y-electric` | Yes | Yes | Runs in the client. A correct log is enough. |
+| `electric_client` on Hex, `Phoenix.Sync`, shapes derived from Ecto queries | Yes | Yes | Over HTTP only. We do not offer Electric's embedded mode. |
+| Live updates by long-polling | Yes | Yes | Phase 2. |
+| Live updates by Server-Sent Events | Yes | Yes | Phase 4. |
+| `where` clauses in the documented subset | Yes | Yes | Phase 3, tested against a live Postgres. |
+| `where` clauses containing subqueries | Yes | Yes | Phase 6. |
+| `columns`, `replica`, and `params` | Yes | Yes | Phases 2 and 3. |
+| `log=changes_only` with the snapshot descriptor | Yes | Partly | Needs a direct Postgres pool. Returns `400` otherwise. |
+| Shapes spanning several tables | No | No | Neither system supports this. |
+| Changing a shape definition in place | No | No | Neither system supports this. |
+| Log retention | Unbounded, with compaction | Configurable length, with truncation | Compatible: resuming below the window uses the existing `409` path. |
+| Writes and conflict resolution | No | No | Both exclude this deliberately. |
+| Several tenants on one deployment | No | Yes | Restdis separates tenants already. |
+| Built-in authentication | No | Yes | The operator does not build a proxy. |
+| Needs a CDN to reach scale | Yes | No | Restdis collapses requests itself. A CDN remains optional. |
+| Scaling reads across machines | Read replicas only | Yes | Tenant routing plus copied chunks. |
+| Replication slots used | One for each Electric instance | One for the cluster, shared with cache invalidation | Reuses the existing WAL reader. |
 
 ---
 
-## Open Questions
+## Open questions
 
-| # | Question | Current lean |
+| # | Question | Answer |
 | --- | --- | --- |
-| ~~1~~ | ~~Do shape logs count against the existing per-tenant CubDB budget?~~ | **Resolved.** Separate budget: shape logs have different growth and eviction semantics than query cache entries, and one shared cap means a large shape silently evicts hot query results. CubDB is slated for replacement; it holds shape *metadata* only for the MVP, so shape log storage does not deepen the dependency. |
-| ~~2~~ | ~~Which SQL parser?~~ | **Resolved.** `datafusion-sqlparser-rs` via Rustler. |
-| ~~3~~ | ~~Should gatekeeper mode be the only mode on the managed platform?~~ | **Resolved.** Both modes ship; the tenant configures which one applies. Gatekeeper is the default. |
-| ~~4~~ | ~~How do shapes interact with the existing `restdis_replicator` always-live datasets?~~ | **Resolved.** They share the storage layer: the shape log is modeled as KV storage with a user-configurable retained log length. See "Storage" above. |
-| 5 | What is the migration story for a tenant already running Electric? | Hard cutoff. Point the clients at Restdis and let them resync from `offset=-1`. |
-| ~~6~~ | ~~Do we track Electric's protocol post-Databricks/Neon?~~ | **Resolved.** No. The 1.x protocol and the published client majors are a fixed target. |
+| ~~1~~ | ~~Do shape logs share the existing per-tenant CubDB limit?~~ | **Resolved.** They get their own limit. Shape logs grow and expire differently from cached responses, and one shared limit would let a large shape evict hot cache entries. CubDB holds shape metadata only, so this does not deepen our dependency on a store we plan to replace. |
+| ~~2~~ | ~~Which SQL parser do we use?~~ | **Resolved.** `datafusion-sqlparser-rs`, through Rustler. |
+| ~~3~~ | ~~Is gatekeeper mode the only mode on the managed platform?~~ | **Resolved.** Both modes ship, and each tenant configures which one applies. Gatekeeper is the default. |
+| ~~4~~ | ~~How do shapes relate to the always-live datasets in `restdis_replicator`?~~ | **Resolved.** They share one storage layer. We model the shape log as key-value storage with a configurable number of retained operations. See "How we store the shape log". |
+| 5 | How does a tenant already running Electric migrate? | In one step. Point the clients at Restdis and let them resynchronise from `offset=-1`. |
+| ~~6~~ | ~~Do we follow Electric's protocol after the Databricks acquisition?~~ | **Resolved.** No. Electric 1.x and the published client majors are a fixed target. |
