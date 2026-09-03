@@ -178,8 +178,7 @@ defmodule RestdisElectricTest do
           "handle" => first.handle
         })
 
-      # The settled response is exactly the snapshot, and it can never change:
-      # the messages before `0_inf` are already written and never rewritten.
+      # The settled response is exactly the snapshot: messages before `0_inf` are already written and never rewritten.
       assert second.settled == true
       assert second.up_to_date == false
       assert second.offset == RestdisElectric.Offset.snapshot_end()

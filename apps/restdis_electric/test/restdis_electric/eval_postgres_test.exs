@@ -130,8 +130,7 @@ defmodule RestdisElectric.EvalPostgresTest do
          member_of(["IS NULL", "IS NOT NULL"])},
         fn {t, test} -> "#{t} #{test}" end
       ),
-      # Postgres restricts the boolean tests to boolean arguments, so only
-      # boolean-valued terms are generated for them.
+      # Postgres restricts the boolean tests to boolean arguments, so only boolean-valued terms are generated for them.
       map(
         {boolean_term(),
          member_of([

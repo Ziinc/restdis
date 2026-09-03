@@ -134,10 +134,7 @@ defmodule RestdisElectric.Eval do
   end
 
   defp check({:binop, op, left, right}, params) when op in @array_ops do
-    # Postgres reads `@>`, `<@` and `&&` over ranges as well as arrays, and we
-    # cannot tell the two apart from the clause alone. Requiring one side to be
-    # an array literal keeps us to the array reading, which is the one we
-    # evaluate, rather than guessing at a range and getting it wrong.
+    # Postgres reads `@>`/`<@`/`&&` over ranges too; requiring an array literal operand keeps us to the array reading.
     if match?({:array, _}, left) or match?({:array, _}, right) do
       check_all([left, right], params)
     else
@@ -293,8 +290,7 @@ defmodule RestdisElectric.Eval do
     end
   end
 
-  # `schema.table.column` and `table.column` both address a column of the one
-  # table a shape reads, so the last segment is enough to find it.
+  # `schema.table.column` and `table.column` both address a column of the one table a shape reads, so the last segment is enough to find it.
   defp fetch_unqualified(row, name) do
     case String.split(name, ".") do
       [_single] -> :null
@@ -384,8 +380,7 @@ defmodule RestdisElectric.Eval do
   def compare(left, right) when is_binary(left) and is_binary(right), do: order(left, right)
   def compare(left, right) when is_boolean(left) and is_boolean(right), do: order(left, right)
 
-  # A `$1` placeholder and a query-string constant both arrive as text, so a
-  # comparison against a numeric column coerces the text, as Postgres does.
+  # A `$1` placeholder and a query-string constant arrive as text, so a numeric comparison coerces it, as Postgres does.
   def compare(left, right) when is_binary(left) and is_number(right),
     do: coerced(parse_number(left), right)
 
@@ -478,8 +473,7 @@ defmodule RestdisElectric.Eval do
   defp all_of(_op, :null, _items), do: :null
   defp all_of(op, value, items), do: quantify(op, value, items, false)
 
-  # `ANY` looks for one `true`, `ALL` for one `false`; either way an
-  # unresolved `NULL` among the rest makes the answer unknown.
+  # `ANY` looks for one `true`, `ALL` one `false`; an unresolved `NULL` among the rest makes it unknown.
   defp quantify(op, value, items, target) do
     results = Enum.map(items, &binop(op, value, &1))
 

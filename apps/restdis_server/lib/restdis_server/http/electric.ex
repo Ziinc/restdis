@@ -45,9 +45,7 @@ defmodule RestdisServer.HTTP.Electric do
   @keepalive_ms 21_000
   @sse_lifetime_ms 300_000
 
-  # A settled range never changes, so it may be held for a week and served
-  # stale for a month while it revalidates. Anything at the tip of the log may
-  # be extended by the next append, so it expires in seconds.
+  # A settled range never changes, so cache it for a week; the tip may grow, so it expires in seconds.
   @settled_cache "public, max-age=604800, stale-while-revalidate=2629746, immutable"
   @tip_cache "public, max-age=5, stale-while-revalidate=5"
   @live_cache "no-store, no-cache, must-revalidate, max-age=0"
@@ -158,8 +156,7 @@ defmodule RestdisServer.HTTP.Electric do
   defp cache_control(:tip), do: @tip_cache
   defp cache_control(:live), do: @live_cache
 
-  # The body is exactly the messages between the offset asked for and the
-  # offset reached, so those two, the handle and the cursor identify it.
+  # The body is the messages between the requested and reached offset, so those, the handle, and cursor identify it.
   defp etag(conn, handle, offset) do
     from = conn.params["offset"] || "-1"
     cursor = conn.params["cursor"] || ""
@@ -180,33 +177,32 @@ defmodule RestdisServer.HTTP.Electric do
     events = Enum.map(result.messages, &encode_message/1) ++ control_messages(result.up_to_date)
 
     case send_events(conn, events) do
-      {:ok, conn} -> sse_loop(conn, tenant_id, handle, offset, deadline())
+      {:ok, conn} -> sse_loop(conn, {tenant_id, handle}, offset, deadline())
       {:error, conn} -> conn
     end
   end
 
-  defp sse_loop(conn, tenant_id, handle, offset, deadline) do
+  defp sse_loop(conn, {tenant_id, handle} = shape, offset, deadline) do
     if System.monotonic_time(:millisecond) >= deadline do
       conn
     else
       case RestdisElectric.await(tenant_id, handle, offset, keepalive_ms()) do
         {:ok, messages, new_offset} ->
           events = Enum.map(messages, &encode_message/1) ++ control_messages(true)
-          continue(conn, send_events(conn, events), tenant_id, handle, new_offset, deadline)
+          continue(send_events(conn, events), shape, new_offset, deadline)
 
         :timeout ->
-          # A comment keeps the connection, and any proxy in front of it, alive
-          # without telling the client anything about the log.
-          continue(conn, chunk(conn, ": keepalive\n\n"), tenant_id, handle, offset, deadline)
+          # Keeps the connection, and any proxy in front, alive without telling the client anything new.
+          continue(chunk(conn, ": keepalive\n\n"), shape, offset, deadline)
       end
     end
   end
 
-  defp continue(_conn, {:ok, conn}, tenant_id, handle, offset, deadline),
-    do: sse_loop(conn, tenant_id, handle, offset, deadline)
+  defp continue({:ok, conn}, shape, offset, deadline),
+    do: sse_loop(conn, shape, offset, deadline)
 
   # The client has gone. Nothing to clean up: the wait is already over.
-  defp continue(conn, {:error, _reason}, _tenant_id, _handle, _offset, _deadline), do: conn
+  defp continue({:error, conn}, _shape, _offset, _deadline), do: conn
 
   defp send_events(conn, events) do
     Enum.reduce_while(events, {:ok, conn}, fn event, {:ok, conn} ->
@@ -236,17 +232,14 @@ defmodule RestdisServer.HTTP.Electric do
     |> put_old_value(message.old_value)
   end
 
-  # The offset travels inside the message as well as in the response header,
-  # because a Server-Sent Events client reads one event at a time and has no
-  # response header to advance from.
+  # The offset travels inside the message too: an SSE client reads one event at a time with no header to advance from.
   defp message_headers(%{offset: {lsn, op_position}} = message) do
     %{operation: Atom.to_string(message.operation), lsn: lsn, op_position: op_position}
   end
 
   defp message_headers(message), do: %{operation: Atom.to_string(message.operation)}
 
-  # `old_value` appears only under `replica=full`, where the context has
-  # already decided the message carries the complete previous row.
+  # `old_value` appears only under `replica=full`, once the context decided the message carries the full old row.
   defp put_old_value(encoded, nil), do: encoded
   defp put_old_value(encoded, old_value), do: Map.put(encoded, :old_value, old_value)
 

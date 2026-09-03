@@ -90,8 +90,7 @@ defmodule RestdisServer.HTTP.ElectricTransportTest do
     {header(conn, "electric-handle"), conn}
   end
 
-  # Pushes a change through the WAL path so the shape's log holds something
-  # after the snapshot, which is what makes an `offset=-1` read settled.
+  # Pushes a change through WAL so the log holds data past the snapshot, making an `offset=-1` read settled.
   defp append_change(lsn, row) do
     WAL.ingest(%{
       tenant_id: @tenant_id,
@@ -301,9 +300,7 @@ defmodule RestdisServer.HTTP.ElectricTransportTest do
 
       conn = request("/v1/shape?table=gadgets&offset=0_inf&handle=#{handle}&replica=full")
 
-      # The shape was created without `replica=full`, so its handle differs and
-      # the request is told to start again — which is the correct answer: a
-      # different definition is a different shape.
+      # Created without `replica=full`, so the handle differs and the request restarts, correctly.
       assert conn.status in [200, 409]
     end
 

@@ -139,8 +139,7 @@ defmodule RestdisElectric.WALFilterTest do
         end
       end)
 
-    # Row 1 left the shape, row 2 is in it: exactly what a fresh snapshot of
-    # `org_id = 1` would return.
+    # Row 1 left the shape, row 2 is in it: exactly what a fresh snapshot of `org_id = 1` would return.
     assert Map.keys(replayed) == ["2"]
   end
 

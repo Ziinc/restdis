@@ -246,9 +246,7 @@ defmodule RestdisElectric.Filter do
     end
   end
 
-  # `x IN (1, 2)` is a disjunction, so every value is its own index key. A
-  # value with no key form makes the whole clause unindexable, because
-  # dropping it would lose a branch and with it a row.
+  # `x IN (1, 2)` is a disjunction, each value its own key. One unindexable value makes the whole clause unindexable.
   defp scalar_keys(column, values), do: build_keys(:scalar, column, values)
 
   # `tags @> ARRAY[a, b]` is a conjunction, so any one value narrows correctly.

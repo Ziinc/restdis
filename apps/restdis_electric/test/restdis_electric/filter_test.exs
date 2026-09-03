@@ -179,9 +179,7 @@ defmodule RestdisElectric.FilterTest do
   end
 
   describe "throughput against shape count" do
-    # The point of the index: cost per change must not follow the number of
-    # shapes. This asserts the shape of the curve, not an absolute rate, so it
-    # stays meaningful on a loaded machine.
+    # The point of the index: cost per change must not follow shape count, not an absolute rate.
     @tag :benchmark
     test "indexed shapes: cost per change stays flat from 10 to 1,000 shapes" do
       small = measure_lookup(10)
@@ -191,9 +189,7 @@ defmodule RestdisElectric.FilterTest do
              "1,000 shapes cost #{large}us per change, 10 shapes cost #{small}us"
     end
 
-    # Documented for contrast: without an indexable clause every shape is a
-    # candidate, so the cost does follow the shape count. This is the price of
-    # a clause the index cannot narrow.
+    # Documented for contrast: without an indexable clause every shape is a candidate, so cost does follow shape count.
     @tag :benchmark
     test "non-indexed shapes: every shape is a candidate" do
       tenant_id = TestUtils.tenant_id()
@@ -225,9 +221,7 @@ defmodule RestdisElectric.FilterTest do
   end
 
   describe "soundness" do
-    # The index must never be the reason a change misses a shape: it is a
-    # necessary condition on a match, so anything it drops could not have
-    # matched anyway.
+    # The index must never cause a missed shape: it is necessary for a match, so what it drops could not have matched.
     property "the index never drops a shape whose filter matches the row" do
       check all(
               org_id <- integer(1..5),

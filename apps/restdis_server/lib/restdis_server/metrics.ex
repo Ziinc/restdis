@@ -30,8 +30,7 @@ defmodule RestdisServer.Metrics do
       counter("restdis.cache.ets_evict.count", tags: [:tenant_id]),
       counter("restdis.cache.cubdb_evict.count", tags: [:tenant_id]),
 
-      # Shape filters: how often the index answers, how many shapes each change
-      # has to be tested against, and how long a change takes to fan out.
+      # Shape filters: how often the index answers, how many shapes each change tests against, and fan-out latency.
       distribution("restdis_electric.filter.lookup.candidates",
         tags: [:tenant_id, :table],
         reporter_options: [buckets: [1, 2, 5, 10, 25, 50, 100, 500, 1_000]]

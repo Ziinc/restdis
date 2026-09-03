@@ -70,8 +70,8 @@ defmodule RestdisElectric.WAL do
         start = System.monotonic_time()
         offset = {lsn, :erlang.unique_integer([:monotonic, :positive])}
 
-        appended =
-          Enum.count(handles, &apply_to_shape(&1, tenant_id, offset, op, pk, new_row, old_row))
+        change = %{offset: offset, op: op, pk: pk, new_row: new_row, old_row: old_row}
+        appended = Enum.count(handles, &apply_to_shape(&1, tenant_id, change))
 
         :telemetry.execute(
           [:restdis_electric, :wal, :ingest],
@@ -89,7 +89,8 @@ defmodule RestdisElectric.WAL do
 
   def ingest(_change), do: :ok
 
-  defp apply_to_shape(handle, tenant_id, offset, op, pk, new_row, old_row) do
+  defp apply_to_shape(handle, tenant_id, change) do
+    %{op: op, new_row: new_row, old_row: old_row} = change
     definition = definition_for(tenant_id, handle)
     filter = definition.filter
 
@@ -101,15 +102,13 @@ defmodule RestdisElectric.WAL do
         false
 
       operation ->
-        message = message(definition, offset, operation, pk, new_row, old_row)
+        message = message(definition, operation, change)
         Log.append(tenant_id, handle, [message])
         true
     end
   end
 
-  # A shape registered before it had a definition — or one whose definition
-  # was lost with a node restart — has no filter, so every change to its table
-  # belongs in its log.
+  # A shape with no definition yet (or lost on restart) has no filter, so every change to its table logs.
   defp definition_for(tenant_id, handle) do
     case ShapeRegistry.fetch(tenant_id, handle) do
       {:ok, definition} -> definition
@@ -122,7 +121,12 @@ defmodule RestdisElectric.WAL do
   defp logged_operation(true, false), do: :delete
   defp logged_operation(false, false), do: nil
 
-  defp message(definition, offset, operation, pk, new_row, old_row) do
+  defp message(definition, operation, %{
+         offset: offset,
+         pk: pk,
+         new_row: new_row,
+         old_row: old_row
+       }) do
     value = project(definition, row_for(operation, new_row, old_row))
 
     %Message{
@@ -134,8 +138,7 @@ defmodule RestdisElectric.WAL do
     }
   end
 
-  # A row that left the shape is reported as a delete, and the only row we
-  # have for it is the pre-image.
+  # A row that left the shape is reported as a delete, and the only row we have for it is the pre-image.
   defp row_for(:delete, _new_row, old_row), do: old_row
   defp row_for(_operation, new_row, old_row), do: new_row || old_row
 

@@ -181,8 +181,7 @@ defmodule RestdisElectric.Definition do
     {:ok, Map.new(params, fn {key, value} -> {to_string(key), to_string(value)} end)}
   end
 
-  # `params` also arrives as a JSON object, which is how the Electric clients
-  # send it when they do not use the `params[1]=` bracket form.
+  # `params` also arrives as a JSON object, how Electric clients send it without the `params[1]=` bracket form.
   defp parse_params(json) when is_binary(json) do
     case Jason.decode(json) do
       {:ok, decoded} when is_map(decoded) -> parse_params(decoded)
@@ -224,8 +223,7 @@ defmodule RestdisElectric.Definition do
     end
   end
 
-  # A clause that names a column the table does not have would silently never
-  # match, so it is a definition error, not an empty shape.
+  # A clause naming a missing column would silently never match, so it is a definition error, not an empty shape.
   defp check_filter_columns(definition, filter, info) do
     case Enum.uniq(Eval.columns(filter)) -- known_names(definition, info) do
       [] -> :ok
@@ -233,8 +231,7 @@ defmodule RestdisElectric.Definition do
     end
   end
 
-  # A clause may address a column plainly, or qualified by table, or by schema
-  # and table. All three name the one table the shape reads.
+  # A clause may address a column plainly, by table, or by schema and table; all three name the shape's table.
   defp known_names(definition, info) do
     Enum.flat_map(info.columns, fn column ->
       [

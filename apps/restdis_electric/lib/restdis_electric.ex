@@ -148,11 +148,7 @@ defmodule RestdisElectric do
     end
   end
 
-  # A read from `-1` stops at the end of the snapshot whenever the log has
-  # already moved past it. That response is then final — the snapshot's
-  # messages never change — so it can be cached for a long time, and the
-  # client continues from `0_inf`, which is the path every Electric client
-  # already takes.
+  # A read from `-1` stops at the snapshot's end once the log has passed it, so it is final and cacheable.
   defp from_beginning(handle, messages, last_offset) do
     {snapshot, rest} = Enum.split_with(messages, &Offset.snapshot?(&1.offset))
 
@@ -219,9 +215,7 @@ defmodule RestdisElectric do
     end)
   end
 
-  # The filter is applied here rather than pushed into the origin query so the
-  # snapshot and the log agree by construction: both decide membership with
-  # `RestdisElectric.Eval` over the same compiled clause.
+  # Filtering here, not in the origin query, makes snapshot and log agree by construction: both use `Eval`.
   defp snapshot_message(row, definition, info, counter) do
     op_offset = :counters.get(counter, 1)
     :counters.add(counter, 1, 1)
