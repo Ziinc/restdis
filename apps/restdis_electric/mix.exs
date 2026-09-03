@@ -31,6 +31,7 @@ defmodule RestdisElectric.MixProject do
   defp deps do
     [
       {:restdis, in_umbrella: true},
+      {:rustler, "~> 0.38"},
       {:jason, "~> 1.4"},
       {:telemetry, "~> 1.0"},
       {:req, "~> 0.6"},
