@@ -40,6 +40,7 @@ defmodule RestdisServer.HTTP.Electric do
 
   alias RestdisElectric
   alias RestdisElectric.Offset
+  alias RestdisElectric.SnapshotDescriptor
 
   @live_timeout_ms 20_000
   @keepalive_ms 21_000
@@ -223,6 +224,10 @@ defmodule RestdisServer.HTTP.Electric do
   defp control_messages(true), do: [%{headers: %{control: "up-to-date"}}]
   defp control_messages(false), do: []
 
+  defp encode_message(%{control: :snapshot_end, snapshot: descriptor}) do
+    %{headers: %{control: "snapshot-end", snapshot: SnapshotDescriptor.to_string(descriptor)}}
+  end
+
   defp encode_message(%{control: control}) when not is_nil(control) do
     %{headers: %{control: control_wire(control)}}
   end
@@ -284,6 +289,9 @@ defmodule RestdisServer.HTTP.Electric do
   defp send_error(conn, {:unsupported_log_mode, value}),
     do: bad_request(conn, "unsupported 'log' value: #{value}")
 
+  defp send_error(conn, {:missing_direct_pool, _}),
+    do: bad_request(conn, "log=changes_only requires a direct Postgres pool for this tenant")
+
   defp send_error(conn, {:invalid_offset, raw}),
     do: bad_request(conn, "invalid 'offset' parameter: #{inspect(raw)}")
 
@@ -295,8 +303,6 @@ defmodule RestdisServer.HTTP.Electric do
     |> put_resp_header("cache-control", @error_cache)
     |> send_resp(502, Jason.encode!(%{error: "snapshot failed: #{inspect(reason)}"}))
   end
-
-  defp send_error(conn, reason), do: bad_request(conn, inspect(reason))
 
   defp bad_request(conn, message) do
     conn

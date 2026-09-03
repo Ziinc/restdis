@@ -13,6 +13,7 @@ defmodule RestdisRepo.Tenants do
     field(:pgrst_api_key, :string)
     field(:replica_url, :string)
     field(:allow_shape_deletion, :boolean, default: false)
+    field(:direct_pg_url, :string)
 
     timestamps()
   end
@@ -30,7 +31,8 @@ defmodule RestdisRepo.Tenants do
       :pgrst_base_url,
       :pgrst_api_key,
       :replica_url,
-      :allow_shape_deletion
+      :allow_shape_deletion,
+      :direct_pg_url
     ])
     |> validate_required([:tenant_id, :pgrst_base_url, :pgrst_api_key])
     |> validate_format(:tenant_id, ~r/\A[A-Za-z0-9_-]{1,64}\z/)

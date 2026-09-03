@@ -52,10 +52,10 @@ defmodule RestdisElectric.Definition do
   Builds and validates a definition for `tenant_id` from raw shape parameters.
 
   Accepts the string keys `"table"`, `"columns"`, `"where"`, `"params"`,
-  `"replica"` and `"log"`. `log=changes_only` needs the direct Postgres
-  snapshot path, which does not exist yet, and is rejected rather than
-  silently ignored so a client never receives a log that differs from the
-  shape it asked for.
+  `"replica"` and `"log"`. `log=changes_only` needs the tenant's direct
+  Postgres snapshot pool; whether one is configured is not known here, so
+  that check happens later, in `RestdisElectric.subscribe/3`, which returns
+  a domain error rather than silently falling back to `full`.
 
   The `where` clause is parsed and validated here, at subscription time, and
   never later: a construct outside the supported subset must fail the client's
@@ -165,6 +165,7 @@ defmodule RestdisElectric.Definition do
 
   defp parse_log_mode(nil), do: {:ok, :full}
   defp parse_log_mode("full"), do: {:ok, :full}
+  defp parse_log_mode("changes_only"), do: {:ok, :changes_only}
   defp parse_log_mode(other), do: {:error, {:unsupported_log_mode, to_string(other)}}
 
   defp parse_where(nil), do: {:ok, nil}

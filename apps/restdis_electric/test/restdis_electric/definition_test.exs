@@ -146,9 +146,14 @@ defmodule RestdisElectric.DefinitionTest do
              Definition.new("t1", %{"table" => "widgets", "replica" => "partial"})
   end
 
-  test "rejects log=changes_only (not yet supported)" do
-    assert {:error, {:unsupported_log_mode, "changes_only"}} =
+  test "accepts log=changes_only" do
+    assert {:ok, %{log_mode: :changes_only}} =
              Definition.new("t1", %{"table" => "widgets", "log" => "changes_only"})
+  end
+
+  test "rejects an unknown log value" do
+    assert {:error, {:unsupported_log_mode, "batched"}} =
+             Definition.new("t1", %{"table" => "widgets", "log" => "batched"})
   end
 
   test "canonical/1 is stable for equal definitions and differs for different ones" do

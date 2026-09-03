@@ -37,7 +37,7 @@ defmodule RestdisElectric.MixProject do
       {:req, "~> 0.6"},
       {:ecto_sql, "~> 3.13"},
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
-      {:postgrex, "~> 0.22", only: :test},
+      {:postgrex, "~> 0.22"},
       {:stream_data, "~> 1.1", only: :test}
     ]
   end

@@ -17,6 +17,7 @@ defmodule RestdisElectric do
   alias RestdisElectric.Offset
   alias RestdisElectric.ShapeRegistry
   alias RestdisElectric.Snapshotter
+  alias RestdisElectric.Snapshotter.DirectPostgres
   alias RestdisElectric.TableInfo
 
   @typedoc "Everything a single subscribe call needs, bundled to keep helper arities small."
@@ -43,6 +44,7 @@ defmodule RestdisElectric do
           Definition.error()
           | {:invalid_offset, String.t() | nil}
           | {:missing_handle, nil}
+          | {:missing_direct_pool, nil}
           | {:snapshot_failed, term()}
 
   @doc """
@@ -76,11 +78,23 @@ defmodule RestdisElectric do
           | {:error, :must_refetch, new_handle :: String.t()}
   def subscribe(tenant_id, tenant_config, raw_params) do
     with {:ok, offset} <- decode_offset(raw_params["offset"]),
-         {:ok, definition} <- Definition.new(tenant_id, raw_params) do
+         {:ok, definition} <- Definition.new(tenant_id, raw_params),
+         :ok <- check_direct_pool(definition, tenant_config) do
       ctx = %{tenant_id: tenant_id, tenant_config: tenant_config, definition: definition}
       do_subscribe(ctx, offset, raw_params["handle"])
     end
   end
+
+  # `log=changes_only` without a direct pool would silently fall back to `full`, so it is a subscribe error.
+  defp check_direct_pool(%Definition{log_mode: :changes_only}, tenant_config) do
+    if tenant_config[:direct_pg_url] do
+      :ok
+    else
+      {:error, {:missing_direct_pool, nil}}
+    end
+  end
+
+  defp check_direct_pool(%Definition{}, _tenant_config), do: :ok
 
   @doc """
   Blocks until the shape's log has a message after `since_offset`, or until
@@ -202,6 +216,30 @@ defmodule RestdisElectric do
   end
 
   defp run_snapshot(ctx, handle) do
+    method = snapshot_method(ctx.definition)
+    result = run_snapshot(method, ctx, handle)
+
+    :telemetry.execute(
+      [:restdis_electric, :snapshot, :method],
+      %{count: 1},
+      %{tenant_id: ctx.tenant_id, table: ctx.definition.table, method: method}
+    )
+
+    result
+  end
+
+  # `changes_only` sends the descriptor, not the rows: the client already has every row through its own replica.
+  defp run_snapshot(:direct_postgres, ctx, handle) do
+    case DirectPostgres.snapshot_descriptor(ctx.tenant_config, ctx.definition) do
+      {:ok, descriptor} ->
+        Log.append(ctx.tenant_id, handle, [Message.snapshot_end({0, 0}, descriptor)])
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  defp run_snapshot(:postgrest, ctx, handle) do
     {:ok, info} = TableInfo.fetch(ctx.definition.schema, ctx.definition.table)
     counter = :counters.new(1, [])
 
@@ -214,6 +252,10 @@ defmodule RestdisElectric do
       Log.append(ctx.tenant_id, handle, messages)
     end)
   end
+
+  # `changes_only` always reads through the tenant's direct Postgres pool; every other shape reads through PostgREST.
+  defp snapshot_method(%Definition{log_mode: :changes_only}), do: :direct_postgres
+  defp snapshot_method(%Definition{}), do: :postgrest
 
   # Filtering here, not in the origin query, makes snapshot and log agree by construction: both use `Eval`.
   defp snapshot_message(row, definition, info, counter) do

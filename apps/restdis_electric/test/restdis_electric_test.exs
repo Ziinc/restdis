@@ -3,6 +3,7 @@ defmodule RestdisElectricTest do
 
   alias RestdisElectric.Handle
   alias RestdisElectric.Message
+  alias RestdisElectric.Snapshotter.DirectPostgres
   alias RestdisElectric.TestUtils
   alias RestdisElectric.WAL
 
@@ -183,6 +184,119 @@ defmodule RestdisElectricTest do
       assert second.up_to_date == false
       assert second.offset == RestdisElectric.Offset.snapshot_end()
       assert Enum.map(second.messages, & &1.offset) == Enum.map(first.messages, & &1.offset)
+    end
+  end
+
+  test "a snapshot emits a telemetry event recording the snapshot method used" do
+    tenant_id = TestUtils.tenant_id()
+    TestUtils.put_stub_rows("widgets", [%{"id" => 1, "name" => "a"}])
+    test_pid = self()
+
+    :telemetry.attach(
+      "snapshot-method-test",
+      [:restdis_electric, :snapshot, :method],
+      fn _event, _measurements, metadata, _config -> send(test_pid, {:telemetry, metadata}) end,
+      nil
+    )
+
+    on_exit(fn -> :telemetry.detach("snapshot-method-test") end)
+
+    {:ok, _result} =
+      RestdisElectric.subscribe(tenant_id, @tenant_config, %{
+        "table" => "widgets",
+        "offset" => "-1"
+      })
+
+    assert_received {:telemetry, %{method: :postgrest}}
+  end
+
+  test "log=changes_only is rejected when the tenant has no direct Postgres pool" do
+    tenant_id = TestUtils.tenant_id()
+
+    assert {:error, {:missing_direct_pool, nil}} =
+             RestdisElectric.subscribe(tenant_id, @tenant_config, %{
+               "table" => "widgets",
+               "offset" => "-1",
+               "log" => "changes_only"
+             })
+  end
+
+  describe "log=changes_only" do
+    @direct_pg_url "postgres://postgres:postgres@#{System.get_env("POSTGRES_HOSTNAME", "localhost")}:5432/restdis_test"
+
+    setup do
+      {:ok, conn} =
+        Postgrex.start_link(DirectPostgres.connect_opts(@direct_pg_url))
+
+      Postgrex.query!(conn, "DROP TABLE IF EXISTS changes_only_widgets", [])
+
+      Postgrex.query!(
+        conn,
+        "CREATE TABLE changes_only_widgets (id integer PRIMARY KEY, name text)",
+        []
+      )
+
+      Postgrex.query!(
+        conn,
+        "INSERT INTO changes_only_widgets (id, name) VALUES (1, 'a'), (2, 'b')",
+        []
+      )
+
+      on_exit(fn ->
+        {:ok, conn} =
+          Postgrex.start_link(DirectPostgres.connect_opts(@direct_pg_url))
+
+        Postgrex.query!(conn, "DROP TABLE IF EXISTS changes_only_widgets", [])
+      end)
+
+      TestUtils.put_table("public.changes_only_widgets", %{
+        columns: ["id", "name"],
+        primary_key: ["id"],
+        replica_identity: :full
+      })
+
+      :ok
+    end
+
+    test "returns a snapshot-end control message carrying a usable descriptor, and no row inserts" do
+      tenant_id = TestUtils.tenant_id()
+
+      tenant_config =
+        Map.put(@tenant_config, :direct_pg_url, @direct_pg_url)
+
+      assert {:ok, result} =
+               RestdisElectric.subscribe(tenant_id, tenant_config, %{
+                 "table" => "changes_only_widgets",
+                 "offset" => "-1",
+                 "log" => "changes_only"
+               })
+
+      assert [message] = result.messages
+      assert Message.control?(message)
+      assert message.control == :snapshot_end
+      assert %{xmin: _, xmax: _, xip_list: _} = message.snapshot
+      assert result.up_to_date
+    end
+
+    test "log=full for the same shape still returns the full snapshot as row inserts" do
+      tenant_id = TestUtils.tenant_id()
+
+      tenant_config =
+        Map.put(@tenant_config, :direct_pg_url, @direct_pg_url)
+
+      TestUtils.put_stub_rows("changes_only_widgets", [
+        %{"id" => 1, "name" => "a"},
+        %{"id" => 2, "name" => "b"}
+      ])
+
+      assert {:ok, result} =
+               RestdisElectric.subscribe(tenant_id, tenant_config, %{
+                 "table" => "changes_only_widgets",
+                 "offset" => "-1"
+               })
+
+      assert length(result.messages) == 2
+      assert Enum.all?(result.messages, &(&1.operation == :insert))
     end
   end
 end

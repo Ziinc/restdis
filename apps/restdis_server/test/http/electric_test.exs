@@ -1,6 +1,7 @@
 defmodule RestdisServer.HTTP.ElectricTest do
   use ExUnit.Case
 
+  alias RestdisElectric.Snapshotter.DirectPostgres
   alias RestdisServer.TenantStore.InMemory
 
   @tenant_id "test-electric-tenant"
@@ -81,6 +82,101 @@ defmodule RestdisServer.HTTP.ElectricTest do
       Req.get(req(), url: "/v1/shape?table=nope&offset=-1", headers: auth(), retry: false)
 
     assert resp.status == 400
+  end
+
+  test "log=changes_only returns 400 when the tenant has no direct Postgres pool" do
+    {:ok, resp} =
+      Req.get(req(),
+        url: "/v1/shape?table=widgets&offset=-1&log=changes_only",
+        headers: auth(),
+        retry: false
+      )
+
+    assert resp.status == 400
+  end
+
+  describe "log=changes_only with a direct Postgres pool" do
+    @direct_tenant_id "test-electric-tenant-direct"
+    @direct_pg_url "postgres://postgres:postgres@#{System.get_env("POSTGRES_HOSTNAME", "localhost")}:5432/restdis_test"
+
+    setup do
+      {:ok, conn} =
+        Postgrex.start_link(DirectPostgres.connect_opts(@direct_pg_url))
+
+      Postgrex.query!(conn, "DROP TABLE IF EXISTS http_changes_only_widgets", [])
+
+      Postgrex.query!(
+        conn,
+        "CREATE TABLE http_changes_only_widgets (id integer PRIMARY KEY, name text)",
+        []
+      )
+
+      Postgrex.query!(
+        conn,
+        "INSERT INTO http_changes_only_widgets (id, name) VALUES (1, 'a')",
+        []
+      )
+
+      on_exit(fn ->
+        {:ok, conn} =
+          Postgrex.start_link(DirectPostgres.connect_opts(@direct_pg_url))
+
+        Postgrex.query!(conn, "DROP TABLE IF EXISTS http_changes_only_widgets", [])
+      end)
+
+      Application.put_env(
+        :restdis_electric,
+        :tables,
+        Map.put(
+          Application.get_env(:restdis_electric, :tables, %{}),
+          "public.http_changes_only_widgets",
+          %{
+            columns: ["id", "name"],
+            primary_key: ["id"],
+            replica_identity: :full
+          }
+        )
+      )
+
+      InMemory.seed([
+        %{
+          api_key: "sk_electric_direct",
+          tenant_id: @direct_tenant_id,
+          default_ttl_s: 60,
+          persist_cap: 50_000,
+          pgrst_base_url: "http://localhost:3003",
+          pgrst_api_key: "svc_key",
+          replica_url: nil,
+          allow_shape_deletion: true,
+          direct_pg_url: @direct_pg_url
+        }
+      ])
+
+      Restdis.Cache.flush_tenant(@direct_tenant_id)
+
+      :ok
+    end
+
+    test "returns a snapshot-end message with the descriptor, and no row inserts" do
+      {:ok, resp} =
+        Req.get(req(),
+          url: "/v1/shape?table=http_changes_only_widgets&offset=-1&log=changes_only",
+          headers: [{"authorization", "Bearer sk_electric_direct"}],
+          retry: false
+        )
+
+      assert resp.status == 200
+
+      assert [
+               %{"headers" => %{"control" => "snapshot-end", "snapshot" => snapshot_text}},
+               %{"headers" => %{"control" => "up-to-date"}}
+             ] = resp.body
+
+      assert is_binary(snapshot_text)
+
+      assert {:ok, %{xmin: _, xmax: _, xip_list: _}} =
+               RestdisElectric.SnapshotDescriptor.parse(snapshot_text)
+    end
   end
 
   test "resuming with an unknown handle returns 409 with a location header" do
