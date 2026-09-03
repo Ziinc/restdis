@@ -82,6 +82,18 @@ defmodule RestdisElectric.ShapeRegistry do
   end
 
   @doc """
+  Returns the number of shapes currently registered for `tenant_id`.
+  """
+  @spec count(String.t()) :: non_neg_integer()
+  def count(tenant_id) do
+    if :ets.whereis(@shapes) == :undefined do
+      0
+    else
+      :ets.select_count(@shapes, [{{{tenant_id, :_}, :_}, [], [true]}])
+    end
+  end
+
+  @doc """
   Returns every handle registered for `tenant_id`'s `schema`.`table`.
   """
   @spec handles_for(String.t(), String.t(), String.t()) :: [String.t()]

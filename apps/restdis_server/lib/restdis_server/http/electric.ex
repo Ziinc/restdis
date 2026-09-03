@@ -115,6 +115,9 @@ defmodule RestdisServer.HTTP.Electric do
 
       :timeout ->
         send_shape(conn, live_result(handle, [], offset))
+
+      {:error, reason} ->
+        send_error(conn, reason)
     end
   end
 
@@ -195,6 +198,10 @@ defmodule RestdisServer.HTTP.Electric do
         :timeout ->
           # Keeps the connection, and any proxy in front, alive without telling the client anything new.
           continue(chunk(conn, ": keepalive\n\n"), shape, offset, deadline)
+
+        # The 200 status and SSE headers are already sent, so a limit hit here can only end the stream.
+        {:error, _reason} ->
+          conn
       end
     end
   end
@@ -298,10 +305,36 @@ defmodule RestdisServer.HTTP.Electric do
   defp send_error(conn, {:missing_handle, _}),
     do: bad_request(conn, "missing 'handle' query parameter")
 
+  defp send_error(conn, {:snapshot_failed, {:limit_exceeded, _kind, _limit} = reason}),
+    do: send_error(conn, reason)
+
+  defp send_error(conn, {:limit_exceeded, :shapes, limit}),
+    do: too_many_requests(conn, "tenant has reached its limit of #{limit} active shapes")
+
+  defp send_error(conn, {:limit_exceeded, :log_bytes, limit}),
+    do:
+      too_many_requests(
+        conn,
+        "tenant has reached its limit of #{limit} bytes for a shape's log"
+      )
+
+  defp send_error(conn, {:limit_exceeded, :waiting_clients, limit}),
+    do:
+      too_many_requests(
+        conn,
+        "tenant has reached its limit of #{limit} clients waiting for a live update"
+      )
+
   defp send_error(conn, {:snapshot_failed, reason}) do
     conn
     |> put_resp_header("cache-control", @error_cache)
     |> send_resp(502, Jason.encode!(%{error: "snapshot failed: #{inspect(reason)}"}))
+  end
+
+  defp too_many_requests(conn, message) do
+    conn
+    |> put_resp_header("cache-control", @error_cache)
+    |> send_resp(429, Jason.encode!(%{error: message}))
   end
 
   defp bad_request(conn, message) do

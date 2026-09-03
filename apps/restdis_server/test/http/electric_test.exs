@@ -77,6 +77,111 @@ defmodule RestdisServer.HTTP.ElectricTest do
     assert is_binary(handle)
   end
 
+  test "exceeding the tenant's max_shapes returns 429 with an actionable message" do
+    limits_tenant_id = "test-electric-tenant-shape-limit"
+
+    InMemory.seed([
+      %{
+        api_key: "sk_electric_shape_limit",
+        tenant_id: limits_tenant_id,
+        default_ttl_s: 60,
+        persist_cap: 50_000,
+        pgrst_base_url: "http://localhost:3003",
+        pgrst_api_key: "svc_key",
+        replica_url: nil,
+        allow_shape_deletion: true,
+        max_shapes: 1
+      },
+      %{
+        api_key: "sk_electric",
+        tenant_id: @tenant_id,
+        default_ttl_s: 60,
+        persist_cap: 50_000,
+        pgrst_base_url: "http://localhost:3003",
+        pgrst_api_key: "svc_key",
+        replica_url: nil,
+        allow_shape_deletion: true
+      }
+    ])
+
+    Application.put_env(
+      :restdis_electric,
+      :tables,
+      Map.put(Application.get_env(:restdis_electric, :tables, %{}), "public.gadgets", %{
+        columns: ["id"],
+        primary_key: ["id"],
+        replica_identity: :full
+      })
+    )
+
+    limits_auth = [{"authorization", "Bearer sk_electric_shape_limit"}]
+
+    {:ok, first} =
+      Req.get(req(),
+        url: "/v1/shape?table=widgets&offset=-1",
+        headers: limits_auth,
+        retry: false
+      )
+
+    assert first.status == 200
+
+    {:ok, resp} =
+      Req.get(req(), url: "/v1/shape?table=gadgets&offset=-1", headers: limits_auth, retry: false)
+
+    assert resp.status == 429
+    assert Jason.decode!(resp.body)["error"] =~ "limit of 1 active shape"
+  end
+
+  test "exceeding the tenant's max_waiting_clients on a live long-poll returns 429" do
+    limits_tenant_id = "test-electric-tenant-wait-limit"
+
+    InMemory.seed([
+      %{
+        api_key: "sk_electric_wait_limit",
+        tenant_id: limits_tenant_id,
+        default_ttl_s: 60,
+        persist_cap: 50_000,
+        pgrst_base_url: "http://localhost:3003",
+        pgrst_api_key: "svc_key",
+        replica_url: nil,
+        allow_shape_deletion: true,
+        max_waiting_clients: 0
+      },
+      %{
+        api_key: "sk_electric",
+        tenant_id: @tenant_id,
+        default_ttl_s: 60,
+        persist_cap: 50_000,
+        pgrst_base_url: "http://localhost:3003",
+        pgrst_api_key: "svc_key",
+        replica_url: nil,
+        allow_shape_deletion: true
+      }
+    ])
+
+    limits_auth = [{"authorization", "Bearer sk_electric_wait_limit"}]
+
+    {:ok, snap} =
+      Req.get(req(),
+        url: "/v1/shape?table=widgets&offset=-1",
+        headers: limits_auth,
+        retry: false
+      )
+
+    [handle] = Req.Response.get_header(snap, "electric-handle")
+    [offset] = Req.Response.get_header(snap, "electric-offset")
+
+    {:ok, resp} =
+      Req.get(req(),
+        url: "/v1/shape?table=widgets&offset=#{offset}&handle=#{handle}&live=true",
+        headers: limits_auth,
+        retry: false
+      )
+
+    assert resp.status == 429
+    assert Jason.decode!(resp.body)["error"] =~ "limit of 0 clients waiting"
+  end
+
   test "an unknown table returns 400" do
     {:ok, resp} =
       Req.get(req(), url: "/v1/shape?table=nope&offset=-1", headers: auth(), retry: false)

@@ -20,6 +20,7 @@ defmodule RestdisElectric.Log do
 
   alias Restdis.Cache
   alias Restdis.Cache.Key
+  alias RestdisElectric.Limits
   alias RestdisElectric.Message
   alias RestdisElectric.Offset
 
@@ -70,13 +71,16 @@ defmodule RestdisElectric.Log do
   @doc """
   Appends `messages` to the log, in the order given. Callers must pass
   messages in increasing offset order; the log does not reorder them.
+
+  Rejects the whole batch, leaving the log unchanged, if it would push the
+  log past the tenant's configured `max_log_bytes` (`RestdisElectric.Limits`).
   """
-  @spec append(String.t(), String.t(), [Message.t()]) :: :ok
+  @spec append(String.t(), String.t(), [Message.t()]) :: :ok | {:error, Limits.limit_error()}
   def append(_tenant_id, _handle, []), do: :ok
 
   def append(tenant_id, handle, messages) when is_list(messages) do
     {:ok, pid} = ensure_started(tenant_id, handle)
-    GenServer.call(pid, {:append, messages})
+    GenServer.call(pid, {:append, tenant_id, messages})
   end
 
   @doc """
@@ -166,19 +170,14 @@ defmodule RestdisElectric.Log do
   end
 
   @impl GenServer
-  def handle_call({:append, new_messages}, _from, state) do
-    messages = state.messages ++ new_messages
-    last_offset = Enum.reduce(new_messages, state.last_offset, &Offset.max(&1.offset, &2))
-    persist(state.tenant_id, state.handle, messages, last_offset)
+  def handle_call({:append, tenant_id, new_messages}, _from, state) do
+    current_bytes = :erlang.external_size(state.messages)
+    additional_bytes = :erlang.external_size(new_messages)
 
-    {ready, pending} =
-      Enum.split_with(state.waiters, fn {since, _from} -> Offset.before?(since, last_offset) end)
-
-    Enum.each(ready, fn {since, from} ->
-      GenServer.reply(from, {:ok, messages_after(messages, since), last_offset})
-    end)
-
-    {:reply, :ok, %{state | messages: messages, last_offset: last_offset, waiters: pending}}
+    case Limits.check_log_bytes(tenant_id, current_bytes, additional_bytes) do
+      :ok -> do_append(new_messages, state)
+      {:error, _reason} = error -> {:reply, error, state}
+    end
   end
 
   @impl GenServer
@@ -206,6 +205,21 @@ defmodule RestdisElectric.Log do
         GenServer.reply(from, :timeout)
         {:noreply, %{state | waiters: pending}}
     end
+  end
+
+  defp do_append(new_messages, state) do
+    messages = state.messages ++ new_messages
+    last_offset = Enum.reduce(new_messages, state.last_offset, &Offset.max(&1.offset, &2))
+    persist(state.tenant_id, state.handle, messages, last_offset)
+
+    {ready, pending} =
+      Enum.split_with(state.waiters, fn {since, _from} -> Offset.before?(since, last_offset) end)
+
+    Enum.each(ready, fn {since, from} ->
+      GenServer.reply(from, {:ok, messages_after(messages, since), last_offset})
+    end)
+
+    {:reply, :ok, %{state | messages: messages, last_offset: last_offset, waiters: pending}}
   end
 
   defp messages_after(messages, from_offset) do

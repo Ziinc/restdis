@@ -26,6 +26,18 @@ defmodule RestdisElectric.LogTest do
     assert {:ok, ^messages, {0, 1}} = Log.read(tenant_id, handle, Offset.beginning())
   end
 
+  test "append/3 rejects a write that would push the log past the tenant's max_log_bytes" do
+    tenant_id = TestUtils.tenant_id()
+    handle = "h-limit"
+    RestdisElectric.Limits.put_config(tenant_id, %{max_log_bytes: 10})
+
+    message =
+      Message.change({0, 0}, :insert, "1", %{"id" => 1, "name" => String.duplicate("a", 50)})
+
+    assert {:error, {:limit_exceeded, :log_bytes, 10}} = Log.append(tenant_id, handle, [message])
+    assert {:ok, [], :beginning} = Log.read(tenant_id, handle, Offset.beginning())
+  end
+
   test "read/3 resumes strictly after the given offset, dropping none and reordering none" do
     tenant_id = TestUtils.tenant_id()
     handle = "h2"
