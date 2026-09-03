@@ -101,6 +101,33 @@ defmodule RestdisElectric.LogTest do
     assert Log.waiting?(tenant_id, handle) == false
   end
 
+  test "waiting?/2 is false for a handle with no log process and no waiters" do
+    tenant_id = TestUtils.tenant_id()
+    assert Log.waiting?(tenant_id, "unknown-handle") == false
+  end
+
+  test "waiting?/2 is true while a client is blocked in await/4 and false again once it wakes" do
+    tenant_id = TestUtils.tenant_id()
+    handle = "h-waiting"
+    :ok = Log.append(tenant_id, handle, [Message.change({0, 0}, :insert, "1", %{"id" => 1})])
+
+    parent = self()
+
+    spawn(fn ->
+      result = Log.await(tenant_id, handle, {0, 0}, 5_000)
+      send(parent, {:awaited, result})
+    end)
+
+    Process.sleep(50)
+    assert Log.waiting?(tenant_id, handle) == true
+
+    new_message = Message.change({0, 1}, :insert, "2", %{"id" => 2})
+    :ok = Log.append(tenant_id, handle, [new_message])
+
+    assert_receive {:awaited, {:ok, [^new_message], {0, 1}}}, 1_000
+    assert Log.waiting?(tenant_id, handle) == false
+  end
+
   test "delete/2 removes the log" do
     tenant_id = TestUtils.tenant_id()
     handle = "h4"
