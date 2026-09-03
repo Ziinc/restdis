@@ -41,6 +41,7 @@ defmodule RestdisServer.HTTP.Electric do
   alias RestdisElectric
   alias RestdisElectric.Offset
   alias RestdisElectric.SnapshotDescriptor
+  alias RestdisElectric.TableInfo
 
   @live_timeout_ms 20_000
   @keepalive_ms 21_000
@@ -108,38 +109,56 @@ defmodule RestdisServer.HTTP.Electric do
     end
   end
 
-  defp await_live(conn, tenant_id, %{handle: handle, offset: offset}) do
+  defp await_live(conn, tenant_id, %{handle: handle, offset: offset} = result) do
     case RestdisElectric.await(tenant_id, handle, offset, @live_timeout_ms) do
       {:ok, messages, new_offset} ->
-        send_shape(conn, live_result(handle, messages, new_offset))
+        send_shape(conn, live_result(result, messages, new_offset))
 
       :timeout ->
-        send_shape(conn, live_result(handle, [], offset))
+        send_shape(conn, live_result(result, [], offset))
 
       {:error, reason} ->
         send_error(conn, reason)
     end
   end
 
-  defp live_result(handle, messages, offset) do
-    %{handle: handle, messages: messages, offset: offset, up_to_date: true, settled: false}
+  defp live_result(result, messages, offset) do
+    %{result | messages: messages, offset: offset, up_to_date: true, settled: false}
   end
 
   defp send_shape(conn, %{handle: handle, messages: messages, offset: offset} = result) do
     body = Enum.map(messages, &encode_message/1) ++ control_messages(result.up_to_date)
 
     conn
-    |> shape_headers(handle, offset, result.up_to_date)
+    |> shape_headers(handle, offset, result)
     |> cache_headers(cache_mode(conn.params, result), handle, offset)
     |> put_resp_content_type("application/json")
     |> send_resp(200, Jason.encode!(body))
   end
 
-  defp shape_headers(conn, handle, offset, up_to_date) do
+  defp shape_headers(conn, handle, offset, result) do
     conn
     |> put_resp_header("electric-handle", handle)
     |> put_resp_header("electric-offset", Offset.encode(offset))
-    |> put_resp_header("electric-up-to-date", to_string(up_to_date))
+    |> put_resp_header("electric-up-to-date", to_string(result.up_to_date))
+    |> put_resp_header("electric-schema", schema_header(result))
+  end
+
+  # The real client only needs the header present, one object per column with at least a `type`.
+  defp schema_header(%{schema: schema, table: table, columns: columns}) do
+    info =
+      case TableInfo.fetch(schema, table) do
+        {:ok, info} -> info
+        :error -> %{columns: columns || [], types: %{}}
+      end
+
+    selected = columns || info.columns
+
+    selected
+    |> Map.new(fn column ->
+      {column, %{type: Map.get(info.types, column, "text"), not_null: false}}
+    end)
+    |> Jason.encode!()
   end
 
   defp cache_mode(params, result) do
@@ -172,7 +191,7 @@ defmodule RestdisServer.HTTP.Electric do
   defp stream_sse(conn, tenant_id, %{handle: handle, offset: offset} = result) do
     conn =
       conn
-      |> shape_headers(handle, offset, result.up_to_date)
+      |> shape_headers(handle, offset, result)
       |> cache_headers(:live, handle, offset)
       |> put_resp_header("x-accel-buffering", "no")
       |> put_resp_content_type("text/event-stream")

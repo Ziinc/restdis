@@ -70,6 +70,13 @@ defmodule RestdisServer.HTTP.ElectricTest do
     assert Req.Response.get_header(resp, "electric-up-to-date") == ["true"]
     assert [_offset] = Req.Response.get_header(resp, "electric-offset")
 
+    assert [schema_header] = Req.Response.get_header(resp, "electric-schema")
+    assert {:ok, schema} = Jason.decode(schema_header)
+    assert is_map(schema)
+    assert Map.has_key?(schema, "id")
+    assert Map.has_key?(schema, "name")
+    assert %{"type" => _} = schema["id"]
+
     [insert_message, control_message] = resp.body
     assert insert_message["value"] == %{"id" => 1, "name" => "a"}
     assert insert_message["headers"]["operation"] == "insert"

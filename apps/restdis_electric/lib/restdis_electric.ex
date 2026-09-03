@@ -38,7 +38,10 @@ defmodule RestdisElectric do
           messages: [Message.t()],
           offset: Offset.t(),
           up_to_date: boolean(),
-          settled: boolean()
+          settled: boolean(),
+          schema: String.t(),
+          table: String.t(),
+          columns: [String.t()] | nil
         }
 
   @type subscribe_error ::
@@ -85,8 +88,20 @@ defmodule RestdisElectric do
          {:ok, definition} <- Definition.new(tenant_id, raw_params),
          :ok <- check_direct_pool(definition, tenant_config) do
       ctx = %{tenant_id: tenant_id, tenant_config: tenant_config, definition: definition}
-      do_subscribe(ctx, offset, raw_params["handle"])
+
+      case do_subscribe(ctx, offset, raw_params["handle"]) do
+        {:ok, result} -> {:ok, with_table_identity(result, definition)}
+        other -> other
+      end
     end
+  end
+
+  defp with_table_identity(result, definition) do
+    Map.merge(result, %{
+      schema: definition.schema,
+      table: definition.table,
+      columns: definition.columns
+    })
   end
 
   # `log=changes_only` without a direct pool would silently fall back to `full`, so it is a subscribe error.

@@ -82,6 +82,24 @@ defmodule RestdisElectric.ShapeRegistry do
   end
 
   @doc """
+  Returns every distinct `{tenant_id, schema, table}` with at least one
+  registered shape, across all tenants.
+
+  Used by periodic schema-drift detection to know which tables need their
+  cached metadata compared against the real schema.
+  """
+  @spec tables() :: [{String.t(), String.t(), String.t()}]
+  def tables do
+    if :ets.whereis(@table) == :undefined do
+      []
+    else
+      @table
+      |> :ets.select([{{{:"$1", :"$2", :"$3"}, :_}, [], [{{:"$1", :"$2", :"$3"}}]}])
+      |> Enum.uniq()
+    end
+  end
+
+  @doc """
   Returns the number of shapes currently registered for `tenant_id`.
   """
   @spec count(String.t()) :: non_neg_integer()
