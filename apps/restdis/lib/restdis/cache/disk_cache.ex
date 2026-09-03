@@ -54,10 +54,18 @@ defmodule Restdis.Cache.DiskCache do
 
   @doc """
   Removes `key` from the disk cache.
+
+  Synchronous (a `call`, not a `cast`) so a caller that deletes a key and
+  then immediately reads or recreates it elsewhere — e.g.
+  `RestdisElectric.Log.delete/2` stopping a shape's log process and then
+  letting a later `ensure_started/2` re-hydrate from disk — cannot observe
+  the pre-delete value. A `cast` here previously let the delete's message
+  race a subsequent `get` call from a different process, since Erlang only
+  orders messages between the same sender and receiver.
   """
   @spec delete(String.t(), Key.t()) :: :ok
   def delete(tenant_id, key) do
-    GenServer.cast(TenantRegistry.via(tenant_id, :disk_cache), {:delete, key})
+    GenServer.call(TenantRegistry.via(tenant_id, :disk_cache), {:delete, key})
   end
 
   @doc """
@@ -179,10 +187,10 @@ defmodule Restdis.Cache.DiskCache do
   end
 
   @impl GenServer
-  def handle_cast({:delete, key}, %{cubdb: cubdb} = state) do
+  def handle_call({:delete, key}, _from, %{cubdb: cubdb} = state) do
     old_size = entry_size(cubdb, key)
     CubDB.delete(cubdb, key)
-    {:noreply, %{state | bytes: max(state.bytes - old_size, 0)}}
+    {:reply, :ok, %{state | bytes: max(state.bytes - old_size, 0)}}
   end
 
   defp evict_over_cap(%{bytes: bytes} = state) do

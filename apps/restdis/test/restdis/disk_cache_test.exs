@@ -29,8 +29,6 @@ defmodule Restdis.Cache.DiskCacheTest do
     key = Key.build(:table, "products", %{})
     DiskCache.put(tenant_id, key, "val")
     DiskCache.delete(tenant_id, key)
-    # delete is async (cast); flush pending messages via a synchronous call
-    DiskCache.get(tenant_id, Key.build(:table, "_sync", %{}))
     assert :miss = DiskCache.get(tenant_id, key)
   end
 
