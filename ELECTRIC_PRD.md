@@ -248,7 +248,7 @@ Our approach, ordered by how much risk each step removes:
 1. **Parse with [`datafusion-sqlparser-rs`](https://github.com/apache/datafusion-sqlparser-rs) through Rustler.** We do not write our own parser. Its `PostgreSqlDialect` covers the whole grammar we accept. It is fast enough that parsing cost does not matter, because we parse only when a client subscribes. It is written in safe Rust, so a malformed expression returns an error rather than corrupting memory inside the virtual machine. It parses more than we evaluate, which is the safe direction: our own check over the parse tree decides what we accept, so the parser cannot widen our supported set by accident.
 2. **Evaluate exactly the subset Electric documents.** That is: comparison, logical, arithmetic, and bitwise operators; `LIKE` and `ILIKE`; the array operators `@>`, `<@`, and `&&`; null and boolean tests; `IN` and `NOT IN`; `BETWEEN`; `ANY` and `ALL`; and the functions `lower`, `upper`, `coalesce`, `greatest`, and `least`. We do not support, and neither does Electric: JSONB operators, full-text search, geometric types, network address types, range operators, and functions whose result changes between calls, such as `now()` and `count()`.
 3. **Reject early.** Anything outside the subset returns `400` when the client subscribes, and the message names the part we cannot handle. We must never accept a shape and then filter it incorrectly. An incorrect filter sends one tenant's rows to another tenant.
-4. **Subqueries come in Phase 6.** A clause such as `field IN (subquery)` requires us to track a second table, because rows can enter and leave the shape when the subquery result changes even though the row itself did not change. Until we build that, these clauses return `400`.
+4. **Subqueries come in Phase 6.** A clause such as `field IN (subquery)` requires us to track a second table, because rows can enter and leave the shape when the subquery result changes even though the row itself did not change. Phase 6 implements this for the bare form — the shape's *entire* filter is exactly one `field IN (subquery)` (or `NOT IN`) clause. A subquery combined with `AND`, `OR`, or `NOT` alongside other predicates still returns `400`: deciding the rest of such a clause against a row whose subquery membership just changed, without the row itself changing, is a separate, larger piece of work we have not built.
 
 **Rows that enter and leave a shape.** We must handle this from Phase 3. It is not an optimisation; without it the client's data is wrong. When an update causes a row to start matching the filter, we write an `insert`, because the client has never seen that row. When an update causes a row to stop matching, we write a `delete`, because the client must remove it, even though the row still exists in Postgres.
 
@@ -485,7 +485,7 @@ This phase removes the duplicate operations at the snapshot boundary for tenants
 
 ## Phase 6: Subqueries and production readiness
 
-1. Support `field IN (subquery)`. Track the second table, so rows enter and leave the shape when the subquery result changes even though the row itself did not change. Do this incrementally, including inside `AND`, `OR`, and `NOT`.
+1. Support `field IN (subquery)`. Track the second table, so rows enter and leave the shape when the subquery result changes even though the row itself did not change. Do this incrementally for the bare form — a shape's entire filter is exactly one `field IN (subquery)` (or `NOT IN`) clause. Combining it with `AND`, `OR`, or `NOT` alongside other predicates remains a `400`: it needs the evaluator to decide the rest of the clause against a row whose subquery membership just changed without the row itself changing, which is out of scope here.
 2. Compare cached table metadata against the real schema every 60 seconds, and invalidate affected shapes. This catches changes that produce no notification in the WAL.
 3. Enforce per-tenant limits on the number of shapes, the bytes each log may use, and the number of waiting clients. Return `429` with a message the operator can act on.
 4. Extend the Grafana dashboard: shapes per tenant, append latency, delay from write to client, `409` counts by cause, requests served per append, and log disk use per tenant.
@@ -499,6 +499,7 @@ This phase removes the duplicate operations at the snapshot boundary for tenants
 - Truncation holds each log at its configured length under sustained writes. A client resuming inside the window continues normally. A client resuming below it receives a `409` and recovers correctly.
 - The conformance suite passes in CI and fails the build when we break something.
 - We have published the compatibility table, and every entry marked unsupported corresponds to a `400` at subscription time rather than a silent difference.
+- `field IN (subquery)` and `field NOT IN (subquery)`, as a shape's entire filter, incrementally track the subquery's table: a change to that table that flips a value's membership produces an `insert` or `delete` for every outer row currently matching that value, on every shape tracking it. A subquery combined with `AND`/`OR`/`NOT` alongside another predicate still returns `400` at subscription time.
 
 ---
 
@@ -514,7 +515,7 @@ This phase removes the duplicate operations at the snapshot boundary for tenants
 | Live updates by long-polling | Yes | Yes | Phase 2. |
 | Live updates by Server-Sent Events | Yes | Yes | Phase 4. |
 | `where` clauses in the documented subset | Yes | Yes | Phase 3, tested against a live Postgres. |
-| `where` clauses containing subqueries | Yes | Yes | Phase 6. |
+| `where` clauses containing subqueries | Yes | Partly | Phase 6. The bare form (`field IN (subquery)` as the shape's entire filter) is incrementally tracked. Combined with `AND`/`OR`/`NOT` alongside another predicate, returns `400`. |
 | `columns`, `replica`, and `params` | Yes | Yes | Phases 2 and 3. |
 | `log=changes_only` with the snapshot descriptor | Yes | Partly | Needs a direct Postgres pool. Returns `400` otherwise. |
 | Shapes spanning several tables | No | No | Neither system supports this. |

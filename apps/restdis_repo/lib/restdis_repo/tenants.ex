@@ -17,6 +17,9 @@ defmodule RestdisRepo.Tenants do
     field(:max_shapes, :integer)
     field(:max_log_bytes, :integer)
     field(:max_waiting_clients, :integer)
+    field(:shape_secret, :string)
+    field(:auth_mode, :string, default: "gatekeeper")
+    field(:max_log_operations, :integer)
 
     timestamps()
   end
@@ -38,7 +41,10 @@ defmodule RestdisRepo.Tenants do
       :direct_pg_url,
       :max_shapes,
       :max_log_bytes,
-      :max_waiting_clients
+      :max_waiting_clients,
+      :shape_secret,
+      :auth_mode,
+      :max_log_operations
     ])
     |> validate_required([:tenant_id, :pgrst_base_url, :pgrst_api_key])
     |> validate_format(:tenant_id, ~r/\A[A-Za-z0-9_-]{1,64}\z/)
@@ -47,5 +53,7 @@ defmodule RestdisRepo.Tenants do
     |> validate_number(:max_shapes, greater_than: 0)
     |> validate_number(:max_log_bytes, greater_than: 0)
     |> validate_number(:max_waiting_clients, greater_than: 0)
+    |> validate_number(:max_log_operations, greater_than: 0)
+    |> validate_inclusion(:auth_mode, ["gatekeeper", "open"])
   end
 end

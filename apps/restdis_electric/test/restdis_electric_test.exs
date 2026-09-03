@@ -295,6 +295,168 @@ defmodule RestdisElectricTest do
              })
   end
 
+  test "resuming below the tenant's retention window returns must_refetch" do
+    tenant_id = TestUtils.tenant_id()
+    TestUtils.put_stub_rows("widgets", [%{"id" => 1, "name" => "a"}])
+
+    tenant_config = Map.put(@tenant_config, :max_log_operations, 1)
+
+    {:ok, first} =
+      RestdisElectric.subscribe(tenant_id, tenant_config, %{
+        "table" => "widgets",
+        "offset" => "-1"
+      })
+
+    :ok =
+      WAL.ingest(%{
+        tenant_id: tenant_id,
+        schema: "public",
+        table: "widgets",
+        op: :insert,
+        pk: 1,
+        new_row: %{"id" => 1, "name" => "a"},
+        old_row: nil,
+        lsn: 100
+      })
+
+    :ok =
+      WAL.ingest(%{
+        tenant_id: tenant_id,
+        schema: "public",
+        table: "widgets",
+        op: :insert,
+        pk: 2,
+        new_row: %{"id" => 2, "name" => "b"},
+        old_row: nil,
+        lsn: 101
+      })
+
+    assert {:error, :must_refetch, _new_handle} =
+             RestdisElectric.subscribe(tenant_id, tenant_config, %{
+               "table" => "widgets",
+               "handle" => first.handle,
+               "offset" => RestdisElectric.Offset.encode(first.offset)
+             })
+  end
+
+  describe "the secret query parameter" do
+    test "a request without the configured secret is rejected" do
+      tenant_id = TestUtils.tenant_id()
+      tenant_config = Map.put(@tenant_config, :shape_secret, "sekrit")
+
+      assert {:error, {:invalid_secret, nil}} =
+               RestdisElectric.subscribe(tenant_id, tenant_config, %{
+                 "table" => "widgets",
+                 "offset" => "-1"
+               })
+    end
+
+    test "a request with the wrong secret is rejected" do
+      tenant_id = TestUtils.tenant_id()
+      tenant_config = Map.put(@tenant_config, :shape_secret, "sekrit")
+
+      assert {:error, {:invalid_secret, nil}} =
+               RestdisElectric.subscribe(tenant_id, tenant_config, %{
+                 "table" => "widgets",
+                 "offset" => "-1",
+                 "secret" => "wrong"
+               })
+    end
+
+    test "a request with the matching secret succeeds" do
+      tenant_id = TestUtils.tenant_id()
+      TestUtils.put_stub_rows("widgets", [])
+      tenant_config = Map.put(@tenant_config, :shape_secret, "sekrit")
+
+      assert {:ok, _result} =
+               RestdisElectric.subscribe(tenant_id, tenant_config, %{
+                 "table" => "widgets",
+                 "offset" => "-1",
+                 "secret" => "sekrit"
+               })
+    end
+
+    test "a secret is ignored when the tenant has none configured" do
+      tenant_id = TestUtils.tenant_id()
+      TestUtils.put_stub_rows("widgets", [])
+
+      assert {:ok, _result} =
+               RestdisElectric.subscribe(tenant_id, @tenant_config, %{
+                 "table" => "widgets",
+                 "offset" => "-1",
+                 "secret" => "anything"
+               })
+    end
+  end
+
+  describe "gatekeeper mode" do
+    @gatekeeper_config Map.merge(@tenant_config, %{
+                         auth_mode: "gatekeeper",
+                         shapes: %{
+                           "widget-feed" => %{table: "widgets"}
+                         }
+                       })
+
+    test "the client can subscribe by shape name alone" do
+      tenant_id = TestUtils.tenant_id()
+      TestUtils.put_stub_rows("widgets", [%{"id" => 1, "name" => "a"}])
+
+      assert {:ok, result} =
+               RestdisElectric.subscribe(tenant_id, @gatekeeper_config, %{
+                 "shape" => "widget-feed",
+                 "offset" => "-1"
+               })
+
+      assert result.table == "widgets"
+    end
+
+    test "the client sending 'table' is rejected" do
+      tenant_id = TestUtils.tenant_id()
+
+      assert {:error, {:forbidden_param, "table"}} =
+               RestdisElectric.subscribe(tenant_id, @gatekeeper_config, %{
+                 "shape" => "widget-feed",
+                 "table" => "widgets",
+                 "offset" => "-1"
+               })
+    end
+
+    test "the client sending 'where' or 'columns' is rejected" do
+      tenant_id = TestUtils.tenant_id()
+
+      assert {:error, {:forbidden_param, "where"}} =
+               RestdisElectric.subscribe(tenant_id, @gatekeeper_config, %{
+                 "shape" => "widget-feed",
+                 "where" => "id = 1",
+                 "offset" => "-1"
+               })
+
+      assert {:error, {:forbidden_param, "columns"}} =
+               RestdisElectric.subscribe(tenant_id, @gatekeeper_config, %{
+                 "shape" => "widget-feed",
+                 "columns" => "id",
+                 "offset" => "-1"
+               })
+    end
+
+    test "a missing shape name is rejected" do
+      tenant_id = TestUtils.tenant_id()
+
+      assert {:error, {:missing_shape_name, nil}} =
+               RestdisElectric.subscribe(tenant_id, @gatekeeper_config, %{"offset" => "-1"})
+    end
+
+    test "an unknown shape name is rejected" do
+      tenant_id = TestUtils.tenant_id()
+
+      assert {:error, {:unknown_shape, "nope"}} =
+               RestdisElectric.subscribe(tenant_id, @gatekeeper_config, %{
+                 "shape" => "nope",
+                 "offset" => "-1"
+               })
+    end
+  end
+
   describe "log=changes_only" do
     @direct_pg_url "postgres://postgres:postgres@#{System.get_env("POSTGRES_HOSTNAME", "localhost")}:5432/restdis_test"
 

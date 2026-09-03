@@ -297,7 +297,7 @@ defmodule RestdisElectric.Definition do
   defp check_bare_subquery(filter) do
     case Eval.bare_subquery(filter) do
       {:ok, _pieces} -> :ok
-      :error -> not_yet_implemented()
+      :error -> unsupported_subquery_combination()
     end
   end
 
@@ -333,10 +333,12 @@ defmodule RestdisElectric.Definition do
     end
   end
 
-  defp not_yet_implemented do
+  defp unsupported_subquery_combination do
     {:error,
      {:unsupported_where,
-      "field IN (subquery) is not supported yet: Electric does not incrementally track " <>
-        "the subquery's live result set"}}
+      "field IN (subquery) is only supported as the shape's entire where clause: " <>
+        "combining it with AND/OR/NOT alongside other predicates is not supported yet, " <>
+        "since deciding the rest of such a clause against a row whose subquery membership " <>
+        "just changed, without the row itself changing, is not implemented"}}
   end
 end

@@ -51,6 +51,10 @@ defmodule RestdisElectric do
           | {:missing_handle, nil}
           | {:missing_direct_pool, nil}
           | {:snapshot_failed, term()}
+          | {:invalid_secret, nil}
+          | {:forbidden_param, String.t()}
+          | {:missing_shape_name, nil}
+          | {:unknown_shape, String.t()}
           | Limits.limit_error()
 
   @doc """
@@ -85,8 +89,10 @@ defmodule RestdisElectric do
   def subscribe(tenant_id, tenant_config, raw_params) do
     Limits.put_config(tenant_id, tenant_config)
 
-    with {:ok, offset} <- decode_offset(raw_params["offset"]),
-         {:ok, definition} <- Definition.new(tenant_id, raw_params),
+    with :ok <- check_secret(tenant_config, raw_params),
+         {:ok, offset} <- decode_offset(raw_params["offset"]),
+         {:ok, resolved_params} <- resolve_params(tenant_config, raw_params),
+         {:ok, definition} <- Definition.new(tenant_id, resolved_params),
          :ok <- check_direct_pool(definition, tenant_config) do
       ctx = %{tenant_id: tenant_id, tenant_config: tenant_config, definition: definition}
 
@@ -125,6 +131,71 @@ defmodule RestdisElectric do
       {:error, {:missing_direct_pool, nil}}
     end
   end
+
+  # An unset or empty `shape_secret` means open access; a configured secret fails closed on any mismatch.
+  defp check_secret(tenant_config, raw_params) do
+    case tenant_config[:shape_secret] do
+      nil ->
+        :ok
+
+      "" ->
+        :ok
+
+      secret ->
+        if raw_params["secret"] == secret, do: :ok, else: {:error, {:invalid_secret, nil}}
+    end
+  end
+
+  # Gatekeeper mode names each shape and forbids the client from sending its own `table`/`where`/`columns`.
+  defp resolve_params(tenant_config, raw_params) do
+    if gatekeeper?(tenant_config) do
+      with :ok <- reject_client_shape_params(raw_params),
+           {:ok, name} <- shape_name(raw_params),
+           {:ok, shape} <- lookup_shape(tenant_config, name) do
+        {:ok, Map.merge(raw_params, shape_wire_params(shape))}
+      end
+    else
+      {:ok, raw_params}
+    end
+  end
+
+  defp gatekeeper?(tenant_config), do: tenant_config[:auth_mode] == "gatekeeper"
+
+  defp reject_client_shape_params(raw_params) do
+    case Enum.find(["table", "where", "columns"], &present?(raw_params[&1])) do
+      nil -> :ok
+      key -> {:error, {:forbidden_param, key}}
+    end
+  end
+
+  defp present?(nil), do: false
+  defp present?(""), do: false
+  defp present?(_value), do: true
+
+  defp shape_name(raw_params) do
+    case raw_params["shape"] do
+      name when is_binary(name) and name != "" -> {:ok, name}
+      _ -> {:error, {:missing_shape_name, nil}}
+    end
+  end
+
+  defp lookup_shape(tenant_config, name) do
+    case (tenant_config[:shapes] || %{})[name] do
+      nil -> {:error, {:unknown_shape, name}}
+      shape -> {:ok, shape}
+    end
+  end
+
+  defp shape_wire_params(shape) do
+    %{
+      "table" => shape_field(shape, :table),
+      "where" => shape_field(shape, :where),
+      "columns" => shape_field(shape, :columns),
+      "replica" => shape_field(shape, :replica)
+    }
+  end
+
+  defp shape_field(shape, key), do: shape[key] || shape[Atom.to_string(key)]
 
   @doc """
   Blocks until the shape's log has a message after `since_offset`, or until
