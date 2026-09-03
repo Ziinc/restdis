@@ -60,15 +60,15 @@ defmodule RestdisServer.TenantStore.Repo do
     }
   end
 
-  # `restdis_electric` depends on `restdis` only, so gatekeeper mode's named shapes cross the boundary as plain
-  # data on `tenant_config`, not as a call from `restdis_electric` back into `restdis_repo`.
+  # `restdis_electric` depends on `restdis` only, so named shapes cross the boundary as plain data on `tenant_config`.
   defp shapes_by_name(tenant_id) do
     query = from(s in ShapeDefinitions, where: s.tenant_id == ^tenant_id)
 
     query
     |> RestdisRepo.all()
     |> Map.new(fn shape ->
-      {shape.name, %{table: shape.table, where: shape.where, columns: shape.columns, replica: shape.replica}}
+      {shape.name,
+       %{table: shape.table, where: shape.where, columns: shape.columns, replica: shape.replica}}
     end)
   end
 end

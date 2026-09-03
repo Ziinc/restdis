@@ -391,11 +391,11 @@ defmodule RestdisElectricTest do
 
   describe "gatekeeper mode" do
     @gatekeeper_config Map.merge(@tenant_config, %{
-                          auth_mode: "gatekeeper",
-                          shapes: %{
-                            "widget-feed" => %{table: "widgets"}
-                          }
-                        })
+                         auth_mode: "gatekeeper",
+                         shapes: %{
+                           "widget-feed" => %{table: "widgets"}
+                         }
+                       })
 
     test "the client can subscribe by shape name alone" do
       tenant_id = TestUtils.tenant_id()

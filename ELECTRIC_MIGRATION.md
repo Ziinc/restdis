@@ -73,14 +73,18 @@ created.
 **Not yet implemented on this branch** (see "Every entry below is verified
 against the code," further down, for how this was checked):
 
-- **`where` clauses over a subquery** (`field IN (subquery)`,
-  `ELECTRIC_PRD.md` Phase 6 item 1). Not supported; see the compatibility
-  table.
+- **`where` clauses combining a subquery with `AND`/`OR`/`NOT` alongside
+  another predicate** (`ELECTRIC_PRD.md` Phase 6 item 1). The bare form —
+  `field IN (subquery)` or `field NOT IN (subquery)` as the shape's *entire*
+  filter — is supported and incrementally tracked (see
+  `RestdisElectric.SubqueryTracker`); combined with anything else, it is
+  still rejected; see the compatibility table.
+
 As of this branch, gatekeeper mode, the `secret` query parameter, log
 truncation (with a per-shape `retention` override on top of the tenant-level
-`max_log_operations` default), and the `electric-schema` response header are
-all implemented; see "Authentication" and the compatibility table below for
-how each behaves.
+`max_log_operations` default), the `electric-schema` response header, and
+bare-form `field IN (subquery)` tracking are all implemented; see
+"Authentication" and the compatibility table below for how each behaves.
 
 ---
 
@@ -133,7 +137,8 @@ Verified directly against `RestdisElectric.Eval.compile/2` and its `@comparison`
 | `ANY` / `ALL` with a comparison operator | Supported |
 | `lower`, `upper`, `coalesce`, `greatest`, `least` | Supported |
 | `$1`-style placeholders bound from `params` | Supported |
-| **`IN (subquery)`** (`ELECTRIC_PRD.md` Phase 6 item 1) | **Not supported** — rejected as an unsupported construct at `400`. Not implemented on this branch as of this writing. |
+| **`field IN (subquery)`, `field NOT IN (subquery)`** as the shape's entire filter (`ELECTRIC_PRD.md` Phase 6 item 1) | **Supported** — `RestdisElectric.SubqueryTracker` incrementally tracks the subquery's table and emits `insert`/`delete` when a value's membership flips, even though the outer row itself did not change. Requires the tenant's `direct_pg_url`, like `log=changes_only`. |
+| A subquery combined with `AND`/`OR`/`NOT` alongside another predicate | **Not supported** — rejected as an unsupported construct at `400`. Deciding the rest of such a clause against a row whose subquery membership just changed, without the row itself changing, is not implemented. |
 | JSONB operators, full-text search, geometric/network types, range operators, casts, volatile functions (`now()`, etc.) | Not supported, and never will be: `ELECTRIC_PRD.md` scopes Restdis to exactly Electric's documented subset on purpose, so a shape that works on Restdis and fails on Electric would make the migration one-way. |
 
 ### Client libraries
@@ -207,7 +212,10 @@ reaches the client. `.github/workflows/conformance.yml` runs it in CI on
 every push and pull request and fails the build if it fails — see that
 workflow and `test/conformance/run.mjs` for the exact steps.
 
-As of this writing, that suite fails, for the real reason described above
-(`electric-schema` header). That is the suite doing its job: it is supposed
-to fail when the client and the server disagree about the protocol, and
-right now they do.
+As of this writing, that suite passes: the client subscribes, sees the
+seeded row, and receives the live write. It caught a real regression once
+before — gatekeeper mode's `auth_mode` default (`ELECTRIC_PRD.md` Phase 7)
+started rejecting the fixture's client-supplied `table` parameter, since the
+fixture's tenant never set `auth_mode='open'`. That is the suite doing its
+job: it is supposed to fail when the client and the server disagree about
+the protocol.

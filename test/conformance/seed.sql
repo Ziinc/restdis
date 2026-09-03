@@ -20,16 +20,18 @@ INSERT INTO conformance_widgets (id, name) VALUES (1, 'first widget');
 -- defaults to the hostname the `app` container resolves inside docker compose.
 \set direct_pg_url `test -n "$DIRECT_PG_URL_OVERRIDE" && echo "$DIRECT_PG_URL_OVERRIDE" || echo 'postgres://postgres:postgres@db:5432/restdis_dev'`
 
+-- `auth_mode` defaults to 'gatekeeper' (ELECTRIC_PRD.md Phase 7), which rejects a client-supplied
+-- `table` parameter. This fixture's client sends `table` directly, so it needs 'open' explicitly.
 INSERT INTO tenants (
   tenant_id, default_ttl_s, persist_cap, pgrst_base_url, pgrst_api_key,
-  direct_pg_url, allow_shape_deletion, inserted_at, updated_at
+  direct_pg_url, allow_shape_deletion, auth_mode, inserted_at, updated_at
 ) VALUES (
   'conformance-tenant', 60, 50000,
   'http://unused.invalid', 'unused',
   :'direct_pg_url',
-  true, now(), now()
+  true, 'open', now(), now()
 )
-ON CONFLICT (tenant_id) DO UPDATE SET direct_pg_url = EXCLUDED.direct_pg_url;
+ON CONFLICT (tenant_id) DO UPDATE SET direct_pg_url = EXCLUDED.direct_pg_url, auth_mode = EXCLUDED.auth_mode;
 
 INSERT INTO api_keys (api_key, tenant_id, status, inserted_at, updated_at)
 VALUES ('sk_conformance', 'conformance-tenant', 'active', now(), now())

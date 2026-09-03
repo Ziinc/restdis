@@ -132,8 +132,7 @@ defmodule RestdisElectric do
     end
   end
 
-  # An unset or empty `shape_secret` means open access: `secret` is then harmless and simply ignored, per the PRD's
-  # "Authentication" section. A configured secret fails closed on any mismatch, including a missing parameter.
+  # An unset or empty `shape_secret` means open access; a configured secret fails closed on any mismatch.
   defp check_secret(tenant_config, raw_params) do
     case tenant_config[:shape_secret] do
       nil ->
@@ -147,8 +146,7 @@ defmodule RestdisElectric do
     end
   end
 
-  # Gatekeeper mode names each shape on the tenant and forbids the client from sending its own `table`/`where`/
-  # `columns`; open mode is today's behaviour, where the client supplies the shape definition directly.
+  # Gatekeeper mode names each shape and forbids the client from sending its own `table`/`where`/`columns`.
   defp resolve_params(tenant_config, raw_params) do
     if gatekeeper?(tenant_config) do
       with :ok <- reject_client_shape_params(raw_params),
