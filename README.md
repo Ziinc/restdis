@@ -1,20 +1,52 @@
 # Restdis
 
-See `PRD.md` for scope and architecture, and `AGENT.md` for the development workflow.
+Restdis is a caching proxy that sits in front of [PostgREST](https://postgrest.org) and
+speaks the Redis wire protocol. It stores PostgREST responses in memory and on disk, so an
+application that reads the same data repeatedly gets a sub-millisecond answer from Restdis
+instead of a fresh round-trip to the database every time.
 
-## Docker build
+Caches normally go stale the moment the underlying data changes. Restdis avoids that by
+reading Postgres's write-ahead log (WAL) — the internal record of every row Postgres writes —
+and using it to invalidate or refresh only the cache entries a given change actually affects.
+Applications never have to clear or manage the cache themselves.
 
-The image is a two-stage build: a `hexpm/elixir` builder that assembles the `restdis`
-`mix release`, and a slim Debian runner that carries only the release.
+Because Restdis speaks the Redis wire protocol, any existing Redis client library can connect
+to it and use it exactly as it would use Redis, with no code changes.
+
+## Features
+
+- **Redis protocol server (RESP)** — connect with any standard Redis client. Supports `GET`,
+  `SET`, `MGET`, `DEL`, `TTL`, `EXISTS`, `PING`, and `AUTH`.
+- **HTTP proxy for PostgREST** — the same caching behavior over plain HTTP, with cache
+  directives passed as headers.
+- **Two-layer cache** — an in-memory ETS cache backed by a per-tenant CubDB store on disk, so
+  warm data survives restarts.
+- **Automatic WAL-driven invalidation** — a single WAL tailer per cluster watches for
+  Postgres writes and busts or refreshes only the cache entries a write actually affects.
+- **Two invalidation modes** — TTL mode expires and rewarms entries on demand; replication
+  mode keeps entries continuously refreshed instead of expiring them.
+- **Custom `PGRST.QUERY` / `PGRST.POLICY` commands** — fetch and cache a PostgREST query
+  directly from Redis, then tune its TTL, rewarm interval, or persistence after the fact.
+- **Always-live table replication** — mirror an entire PostgREST table as key/value pairs
+  that stay current via WAL refresh, for latency-critical reads.
+- **Multi-node clustering** — a consistent hash ring places each tenant on one owning node,
+  with automatic forwarding and PostgREST fallback if that node is unreachable.
+- **Electric-compatible shape API [WIP]** — serve ElectricSQL's `GET /v1/shape` protocol
+  directly from Restdis, so apps using an Electric client library work unchanged. See
+  [`ELECTRIC_PRD.md`](ELECTRIC_PRD.md).
+- **Caching across the rest of the Supabase stack [WIP]** — extend the same cache-and-invalidate
+  mechanism to Realtime, Storage, Auth, and Edge Functions. See
+  [`SUPABASE_INTEGRATION_PRD.md`](SUPABASE_INTEGRATION_PRD.md).
+
+## Quickstart
+
+Run Restdis alongside a logical-replication-enabled Postgres with Docker Compose:
 
 ```sh
-docker build -t restdis:latest .
+docker compose up --build
 ```
 
-Toolchain versions are build args (`ELIXIR_VERSION`, `ERLANG_VERSION`, `DEBIAN_VERSION`) and
-default to the versions pinned in `.mise.toml`.
-
-## Running
+Or run the prebuilt image directly against your own Postgres:
 
 ```sh
 docker run --rm \
@@ -24,13 +56,46 @@ docker run --rm \
   restdis:latest
 ```
 
-Or bring up the app plus a logical-replication-enabled Postgres:
+This exposes the HTTP proxy on port `4040` and the Redis (RESP) port on `6380`. Point a Redis
+client at `6380` and start caching PostgREST queries:
 
 ```sh
-docker compose up --build
+redis-cli -p 6380 PGRST.QUERY /products?select=id,name TTL 60
 ```
 
-### Environment
+The response includes the canonical cache key. A second call for the same query is served
+from cache without hitting PostgREST.
+
+## Usage
+
+### RESP commands
+
+| Command | Purpose |
+| --- | --- |
+| `PING` | Health check. |
+| `AUTH <key>` | Authenticate using a Supabase API key (wired but not enforced yet). |
+| `GET <key>` / `MGET <key>...` | Read one or more cached values. |
+| `SET <key> <value>` | Write a value directly to the cache. |
+| `DEL <key>` | Remove a cached value. |
+| `TTL <key>` | Time remaining before a cached value expires. |
+| `EXISTS <key>` | Check whether a key is cached. |
+| `PGRST.QUERY <path> [TTL <seconds>] [REWARM <seconds>]` | Fetch `<path>` from PostgREST, cache the result, and return its canonical cache key. |
+| `PGRST.POLICY <cache_key> [TTL <seconds>] [REWARM <seconds>] [PERSIST]` | Update an existing entry's TTL, rewarm interval, or persistence without re-fetching. |
+
+### HTTP proxy
+
+The same PostgREST caching behavior is available over HTTP. Send a normal PostgREST request
+to Restdis and control caching with headers:
+
+| Header | Purpose |
+| --- | --- |
+| `SC-Cache` | Enable caching for the request. |
+| `SC-Cache-TTL` | TTL, in seconds, for the cached response. |
+| `SC-Cache-Rewarm` | Rewarm interval, in seconds. |
+
+### Configuration
+
+Restdis is configured entirely through environment variables:
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
@@ -52,18 +117,9 @@ docker compose up --build
 | `CLUSTER_NODE_BASENAME` | `restdis` | Node basename used to build peer node names |
 | `CLUSTER_POLL_INTERVAL_MS` | `5000` | DNS poll interval |
 
-### Cluster distribution
+## Learn more
 
-Tenants are placed on a consistent hash ring with 128 virtual nodes per node. The owning
-node serves a tenant's cache; other nodes forward the operation over Erlang distribution
-with a one second budget and, if the owner is unreachable, fetch from PostgREST directly.
-Ring changes hand a tenant's `persist` entries to its new owner and drop the local copy.
-
-### Release commands
-
-`bin/server` migrates (unless `MIGRATE_ON_BOOT=false`) and starts the release. Migrations can
-also be run on their own:
-
-```sh
-docker run --rm -e DATABASE_URL=... restdis:latest /app/bin/migrate
-```
+- [`PRD.md`](PRD.md) — scope, architecture, and design decisions.
+- [`DEVELOPMENT.md`](DEVELOPMENT.md) — building the Docker image, running the release, and
+  local development setup.
+- [`AGENT.md`](AGENT.md) — workflow and coding standards for contributors.
