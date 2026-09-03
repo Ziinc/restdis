@@ -19,6 +19,7 @@ defmodule RestdisElectric do
   alias RestdisElectric.ShapeRegistry
   alias RestdisElectric.Snapshotter
   alias RestdisElectric.Snapshotter.DirectPostgres
+  alias RestdisElectric.SubqueryTracker
   alias RestdisElectric.TableInfo
 
   @typedoc "Everything a single subscribe call needs, bundled to keep helper arities small."
@@ -105,15 +106,25 @@ defmodule RestdisElectric do
   end
 
   # `log=changes_only` without a direct pool would silently fall back to `full`, so it is a subscribe error.
-  defp check_direct_pool(%Definition{log_mode: :changes_only}, tenant_config) do
+  defp check_direct_pool(%Definition{log_mode: :changes_only}, tenant_config),
+    do: ensure_direct_pool(tenant_config)
+
+  # `RestdisElectric.SubqueryTracker` needs a direct pool to read the subquery's own table.
+  defp check_direct_pool(%Definition{filter: filter}, tenant_config) do
+    if Eval.subqueries(filter) == [] do
+      :ok
+    else
+      ensure_direct_pool(tenant_config)
+    end
+  end
+
+  defp ensure_direct_pool(tenant_config) do
     if tenant_config[:direct_pg_url] do
       :ok
     else
       {:error, {:missing_direct_pool, nil}}
     end
   end
-
-  defp check_direct_pool(%Definition{}, _tenant_config), do: :ok
 
   @doc """
   Blocks until the shape's log has a message after `since_offset`, or until
@@ -137,6 +148,7 @@ defmodule RestdisElectric do
   @spec delete_shape(String.t(), String.t()) :: :ok
   def delete_shape(tenant_id, handle) do
     ShapeRegistry.unregister(tenant_id, handle)
+    SubqueryTracker.unregister_shape(tenant_id, handle)
     Log.delete(tenant_id, handle)
   end
 
@@ -163,7 +175,7 @@ defmodule RestdisElectric do
         {:error, {:missing_handle, nil}}
 
       not Handle.matches?(given_handle, ctx.definition) ->
-        {:error, :must_refetch, expected_handle}
+        must_refetch(ctx, :handle_mismatch)
 
       true ->
         resume(ctx, offset, given_handle)
@@ -214,22 +226,46 @@ defmodule RestdisElectric do
   end
 
   defp resume(ctx, offset, handle) do
-    ShapeRegistry.register(ctx.tenant_id, ctx.definition, handle)
+    register(ctx, handle)
 
-    case Log.read(ctx.tenant_id, handle, offset) do
-      {:ok, messages, last_offset} ->
-        {:ok,
-         %{
-           handle: handle,
-           messages: messages,
-           offset: Offset.max(offset, last_offset),
-           up_to_date: true,
-           settled: false
-         }}
+    if stale_offset?(ctx.tenant_id, handle, offset) do
+      must_refetch(ctx, :retention)
+    else
+      case Log.read(ctx.tenant_id, handle, offset) do
+        {:ok, messages, last_offset} ->
+          {:ok,
+           %{
+             handle: handle,
+             messages: messages,
+             offset: Offset.max(offset, last_offset),
+             up_to_date: true,
+             settled: false
+           }}
 
-      :error ->
-        {:error, :must_refetch, Handle.new(ctx.definition)}
+        :error ->
+          must_refetch(ctx, :log_missing)
+      end
     end
+  end
+
+  # A resume offset at or before the log's retention boundary asks for evicted operations.
+  defp stale_offset?(tenant_id, handle, offset) do
+    case Log.truncated_before(tenant_id, handle) do
+      nil -> false
+      truncated_before -> Offset.before?(offset, truncated_before)
+    end
+  end
+
+  defp must_refetch(ctx, cause) do
+    new_handle = Handle.new(ctx.definition)
+
+    :telemetry.execute(
+      [:restdis_electric, :shape, :must_refetch],
+      %{count: 1},
+      %{tenant_id: ctx.tenant_id, cause: cause}
+    )
+
+    {:error, :must_refetch, new_handle}
   end
 
   # An empty log looks the same as a never-snapshotted one; re-snapshotting is wasted work, not a bug.
@@ -243,13 +279,48 @@ defmodule RestdisElectric do
 
   # A shape not yet in this log is new: it counts against the tenant's max_shapes.
   defp new_shape(ctx, handle) do
-    with :ok <- Limits.check_shapes(ctx.tenant_id) do
-      register(ctx, handle)
-      run_snapshot(ctx, handle)
+    case Limits.check_shapes(ctx.tenant_id) do
+      :ok ->
+        finish_new_shape(ctx, handle)
+
+      {:error, {:limit_exceeded, :shapes, _limit}} = error ->
+        case evict_lru(ctx.tenant_id) do
+          :ok -> finish_new_shape(ctx, handle)
+          :none -> error
+        end
     end
   end
 
-  defp register(ctx, handle), do: ShapeRegistry.register(ctx.tenant_id, ctx.definition, handle)
+  defp finish_new_shape(ctx, handle) do
+    register(ctx, handle)
+    run_snapshot(ctx, handle)
+  end
+
+  # Electric's LRU shape cache at capacity; reuses delete_shape/2 so the victim must-refetches.
+  defp evict_lru(tenant_id) do
+    tenant_id
+    |> ShapeRegistry.least_recently_used()
+    |> Enum.find(&(not Log.waiting?(tenant_id, &1)))
+    |> case do
+      nil ->
+        :none
+
+      victim ->
+        :telemetry.execute(
+          [:restdis_electric, :shape, :must_refetch],
+          %{count: 1},
+          %{tenant_id: tenant_id, cause: :shape_limit_exceeded}
+        )
+
+        delete_shape(tenant_id, victim)
+        :ok
+    end
+  end
+
+  defp register(ctx, handle) do
+    ShapeRegistry.register(ctx.tenant_id, ctx.definition, handle)
+    SubqueryTracker.register_shape(ctx.tenant_id, ctx.tenant_config, ctx.definition, handle)
+  end
 
   defp run_snapshot(ctx, handle) do
     method = snapshot_method(ctx.definition)
@@ -302,10 +373,11 @@ defmodule RestdisElectric do
 
   defp append_page(rows, page_ctx) do
     %{ctx: ctx, handle: handle, info: info, counter: counter, error_box: error_box} = page_ctx
+    resolver = SubqueryTracker.resolver(ctx.tenant_id, handle)
 
     messages =
       rows
-      |> Enum.filter(&Eval.matches?(ctx.definition.filter, &1))
+      |> Enum.filter(&Eval.matches?(ctx.definition.filter, &1, resolver))
       |> Enum.map(&snapshot_message(&1, ctx.definition, info, counter))
 
     case Log.append(ctx.tenant_id, handle, messages) do

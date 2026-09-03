@@ -18,15 +18,15 @@ defmodule RestdisElectric.Definition do
   `{:error, {:correlated_subquery, column}}`; any other name not found on
   the subquery's table produces `{:error, {:unknown_columns, [column]}}`.
 
-  A subquery that passes all of that is still rejected, with
-  `{:error, {:unsupported_where, _}}`, because nothing yet incrementally
-  tracks the subquery's live result set: accepting it would either force a
-  full scan of this shape's table on every write to the subquery's table, or
-  worse, silently miss the rows that enter or leave the shape when the
-  subquery's result changes but the row itself does not (ELECTRIC_PRD Phase 6
-  item 1). A future implementation only needs to replace that final
-  rejection with real tracking; the parsing and validation above already do
-  the rest.
+  A subquery that passes all of that is accepted only when it is the shape's
+  *entire* filter — `Eval.bare_subquery/1` — because that is what
+  `RestdisElectric.SubqueryTracker` incrementally tracks (ELECTRIC_PRD Phase
+  6 item 1): it maintains the subquery's live result set and keeps the
+  shape's log in sync as the subquery's own table changes. A subquery
+  combined with `AND`/`OR` is still rejected with
+  `{:error, {:unsupported_where, _}}`, because nothing yet decides the rest
+  of such a clause against a row whose subquery membership just changed
+  without the row itself changing.
   """
 
   alias RestdisElectric.Eval
@@ -41,7 +41,8 @@ defmodule RestdisElectric.Definition do
           params: %{String.t() => String.t()},
           filter: Eval.t() | nil,
           replica: :default | :full,
-          log_mode: :full | :changes_only
+          log_mode: :full | :changes_only,
+          retention: pos_integer() | nil
         }
 
   @type error ::
@@ -55,6 +56,7 @@ defmodule RestdisElectric.Definition do
           | {:unsupported_replica, String.t()}
           | {:missing_replica_identity, String.t()}
           | {:correlated_subquery, String.t()}
+          | {:invalid_retention, String.t()}
 
   defstruct [
     :tenant_id,
@@ -63,6 +65,7 @@ defmodule RestdisElectric.Definition do
     :columns,
     :where,
     :filter,
+    :retention,
     params: %{},
     replica: :default,
     log_mode: :full
@@ -90,7 +93,8 @@ defmodule RestdisElectric.Definition do
          {:ok, replica} <- parse_replica(params["replica"]),
          {:ok, log_mode} <- parse_log_mode(params["log"]),
          {:ok, where} <- parse_where(params["where"]),
-         {:ok, where_params} <- parse_params(params["params"]) do
+         {:ok, where_params} <- parse_params(params["params"]),
+         {:ok, retention} <- parse_retention(params["retention"]) do
       validate(%__MODULE__{
         tenant_id: tenant_id,
         schema: schema,
@@ -99,7 +103,8 @@ defmodule RestdisElectric.Definition do
         where: where,
         params: where_params,
         replica: replica,
-        log_mode: log_mode
+        log_mode: log_mode,
+        retention: retention
       })
     end
   end
@@ -197,6 +202,18 @@ defmodule RestdisElectric.Definition do
   defp parse_where(other),
     do: {:error, {:invalid_where, "'where' must be text: #{inspect(other)}"}}
 
+  defp parse_retention(nil), do: {:ok, nil}
+  defp parse_retention(""), do: {:ok, nil}
+
+  defp parse_retention(raw) when is_binary(raw) do
+    case Integer.parse(raw) do
+      {value, ""} when value > 0 -> {:ok, value}
+      _ -> {:error, {:invalid_retention, raw}}
+    end
+  end
+
+  defp parse_retention(other), do: {:error, {:invalid_retention, to_string(other)}}
+
   defp parse_params(nil), do: {:ok, %{}}
   defp parse_params(""), do: {:ok, %{}}
 
@@ -266,14 +283,21 @@ defmodule RestdisElectric.Definition do
     end)
   end
 
-  # Validated in full, including correlation, then rejected until Phase 6 item 1's tracker exists; see the moduledoc.
+  # Validated in full, then accepted only in the bare form RestdisElectric.SubqueryTracker tracks.
   defp check_subqueries(definition, filter, outer_info) do
     subqueries = Eval.subqueries(filter)
 
     case Enum.find_value(subqueries, &subquery_error(definition, &1, outer_info)) do
       nil when subqueries == [] -> :ok
-      nil -> not_yet_implemented()
+      nil -> check_bare_subquery(filter)
       error -> error
+    end
+  end
+
+  defp check_bare_subquery(filter) do
+    case Eval.bare_subquery(filter) do
+      {:ok, _pieces} -> :ok
+      :error -> not_yet_implemented()
     end
   end
 

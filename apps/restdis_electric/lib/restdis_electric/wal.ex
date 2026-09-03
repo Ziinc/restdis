@@ -37,6 +37,7 @@ defmodule RestdisElectric.WAL do
   alias RestdisElectric.Log
   alias RestdisElectric.Message
   alias RestdisElectric.ShapeRegistry
+  alias RestdisElectric.SubqueryTracker
 
   @type change :: %{
           required(:tenant_id) => String.t() | nil,
@@ -62,6 +63,12 @@ defmodule RestdisElectric.WAL do
     new_row = Map.get(c, :new_row)
     old_row = Map.get(c, :old_row)
 
+    SubqueryTracker.route_inner_change(tenant_id, schema, table, %{
+      new_row: new_row,
+      old_row: old_row,
+      lsn: lsn
+    })
+
     case Filter.candidates(tenant_id, schema, table, [new_row, old_row]) do
       [] ->
         :ok
@@ -71,7 +78,7 @@ defmodule RestdisElectric.WAL do
         offset = {lsn, :erlang.unique_integer([:monotonic, :positive])}
 
         change = %{offset: offset, op: op, pk: pk, new_row: new_row, old_row: old_row}
-        appended = Enum.count(handles, &apply_to_shape(&1, tenant_id, change))
+        appended = Enum.count(handles, &apply_to_shape(&1, tenant_id, change, start))
 
         :telemetry.execute(
           [:restdis_electric, :wal, :ingest],
@@ -89,13 +96,14 @@ defmodule RestdisElectric.WAL do
 
   def ingest(_change), do: :ok
 
-  defp apply_to_shape(handle, tenant_id, change) do
+  defp apply_to_shape(handle, tenant_id, change, ingest_started_at) do
     %{op: op, new_row: new_row, old_row: old_row} = change
     definition = definition_for(tenant_id, handle)
     filter = definition.filter
+    resolver = SubqueryTracker.resolver(tenant_id, handle)
 
-    matched_before = op != :insert and Eval.matches?(filter, old_row)
-    matched_after = op != :delete and Eval.matches?(filter, new_row)
+    matched_before = op != :insert and Eval.matches?(filter, old_row, resolver)
+    matched_after = op != :delete and Eval.matches?(filter, new_row, resolver)
 
     case logged_operation(matched_before, matched_after) do
       nil ->
@@ -105,10 +113,26 @@ defmodule RestdisElectric.WAL do
         message = message(definition, operation, change)
 
         case Log.append(tenant_id, handle, [message]) do
-          :ok -> true
-          {:error, _reason} -> false
+          :ok ->
+            emit_propagation_latency(tenant_id, ingest_started_at)
+            true
+
+          {:error, _reason} ->
+            false
         end
     end
+  end
+
+  # A waiting long-poll/SSE loop wakes the instant this append returns, so this doubles as delivery delay.
+  defp emit_propagation_latency(tenant_id, ingest_started_at) do
+    duration_us =
+      System.convert_time_unit(System.monotonic_time() - ingest_started_at, :native, :microsecond)
+
+    :telemetry.execute(
+      [:restdis_electric, :propagation, :latency],
+      %{duration_us: duration_us},
+      %{tenant_id: tenant_id}
+    )
   end
 
   # A shape with no definition yet (or lost on restart) has no filter, so every change to its table logs.

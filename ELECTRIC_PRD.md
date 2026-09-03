@@ -304,7 +304,7 @@ A `409` tells the client to discard everything and start again. It is the only s
 | --- | --- |
 | The replication slot was recreated or invalidated | The slot configuration in `RestdisBuster`. Losing the slot invalidates every shape. |
 | The table's schema changed | The existing DDL event trigger for `DROP TABLE`, plus a periodic check that compares cached table metadata against the real schema. Electric runs the same check every 60 seconds, because some changes produce no notification in the WAL. |
-| The shape was evicted because the tenant hit a limit | The existing LRU eviction. **We must connect this to a `409`.** If we evict a shape silently, its client keeps stale data forever and never learns. |
+| The shape was evicted because the tenant hit a limit | `RestdisElectric`'s LRU eviction: when a tenant at `max_shapes` subscribes to a new shape, the least-recently-accessed idle shape is evicted (`RestdisElectric.ShapeRegistry.least_recently_used/1`, `RestdisElectric.Log.waiting?/2`) to make room, reusing `delete_shape/2` so the evicted shape's next resume finds no log and `must_refetch`es with cause `shape_limit_exceeded`. If every shape is currently busy (a client is blocked in a live long-poll on it), there is nothing safe to evict and the subscribe is rejected with `429` instead. |
 | The client resumed below the retained window | Log truncation, described in "How we store the shape log". |
 | Someone called `DELETE /v1/shape` | New, and only when `allow_shape_deletion` is on. |
 | The Postgres timeline or system identifier changed | The slot configuration check that runs when we connect. |

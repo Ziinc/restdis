@@ -17,7 +17,7 @@ defmodule RestdisElectric.SqlParser do
   ## The parse tree
 
       {:ident, "name"}
-      {:lit, {:number, "1"}} | {:lit, {:string, "a"}} | {:lit, {:bool, true}} | {:lit, :null}
+      {:lit, {:number, "1"}} | {:lit, {:string, "a"}} | {:lit, {:bool_, true}} | {:lit, :null}
       {:param, 1}
       {:binop, "=", left, right}
       {:unop, "NOT", expr}

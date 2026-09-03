@@ -147,14 +147,25 @@ defmodule RestdisElectric.DefinitionTest do
       :ok
     end
 
-    test "parses and validates a plain, non-correlated subquery, but rejects it as not yet implemented" do
-      assert {:error, {:unsupported_where, message}} =
+    test "accepts a plain, non-correlated, bare subquery" do
+      assert {:ok, %{filter: filter}} =
                Definition.new("t1", %{
                  "table" => "widgets",
                  "where" => "id IN (SELECT id FROM parents WHERE archived = false)"
                })
 
-      assert message =~ "not supported yet"
+      assert {:ok, _pieces} = RestdisElectric.Eval.bare_subquery(filter)
+    end
+
+    test "rejects a NOT IN subquery combined with another table's real primary key check" do
+      # A bare `NOT IN` is still accepted (`negated` lives on the in_subquery node itself).
+      assert {:ok, %{filter: filter}} =
+               Definition.new("t1", %{
+                 "table" => "widgets",
+                 "where" => "id NOT IN (SELECT id FROM parents WHERE archived = false)"
+               })
+
+      assert {:ok, %{negated: true}} = RestdisElectric.Eval.bare_subquery(filter)
     end
 
     test "rejects a subquery with more than one projected column" do
@@ -252,6 +263,25 @@ defmodule RestdisElectric.DefinitionTest do
   test "rejects an unknown log value" do
     assert {:error, {:unsupported_log_mode, "batched"}} =
              Definition.new("t1", %{"table" => "widgets", "log" => "batched"})
+  end
+
+  test "accepts a retention parameter as a positive integer" do
+    assert {:ok, %{retention: 500}} =
+             Definition.new("t1", %{"table" => "widgets", "retention" => "500"})
+  end
+
+  test "defaults retention to nil when not given" do
+    assert {:ok, %{retention: nil}} = Definition.new("t1", %{"table" => "widgets"})
+  end
+
+  test "rejects a non-integer retention value" do
+    assert {:error, {:invalid_retention, "abc"}} =
+             Definition.new("t1", %{"table" => "widgets", "retention" => "abc"})
+  end
+
+  test "rejects a zero or negative retention value" do
+    assert {:error, {:invalid_retention, "0"}} =
+             Definition.new("t1", %{"table" => "widgets", "retention" => "0"})
   end
 
   test "canonical/1 is stable for equal definitions and differs for different ones" do

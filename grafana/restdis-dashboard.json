@@ -575,7 +575,7 @@
     {
       "id": 23,
       "type": "timeseries",
-      "title": "Active shapes per tenant (metric not yet emitted)",
+      "title": "Active shapes per tenant",
       "gridPos": {
         "h": 8,
         "w": 12,
@@ -592,12 +592,12 @@
           "legendFormat": "{{tenant_id}}"
         }
       ],
-      "description": "PENDING: no `:telemetry.execute/3` call currently reports the live shape count. Placeholder assumes a future `last_value(\"restdis_electric.shape_registry.active.count\", tags: [:tenant_id])` gauge is added to RestdisServer.Metrics alongside RestdisElectric.ShapeRegistry. Will show 'No data' until that lands."
+      "description": "Polled every 10s from RestdisElectric.ShapeRegistry.active_counts/0 via RestdisServer.Metrics.dispatch_shape_metrics/0, which emits a [:restdis_electric, :shape_registry, :active] telemetry event (count measurement) tagged by tenant_id, exported as the last_value gauge restdis_electric.shape_registry.active.count."
     },
     {
       "id": 24,
       "type": "timeseries",
-      "title": "Delay from write to client (propagation latency, \u00b5s) (metric not yet emitted)",
+      "title": "Delay from write to client (propagation latency, \u00b5s)",
       "gridPos": {
         "h": 8,
         "w": 12,
@@ -624,7 +624,7 @@
         },
         "overrides": []
       },
-      "description": "PENDING: no telemetry event currently measures elapsed time between a committed write's LSN and the moment a live-mode HTTP response (or SSE frame) delivers that change to a subscribed client. Placeholder assumes a future `restdis_electric.shape.deliver.latency_us` (or similar) distribution tagged by tenant_id, emitted from the live-request/SSE send path."
+      "description": "Measured in RestdisElectric.WAL.ingest/1: elapsed time from the WAL change arriving to the moment every matching shape has durably appended it (RestdisElectric.Log.append/3). A live long-poll or SSE loop wakes via Log.await/4's GenServer reply the instant that append returns, so for a client already waiting on the shape this interval is also its end-to-end delivery delay. Emitted as [:restdis_electric, :propagation, :latency] (duration_us), tagged by tenant_id, exported as the distribution restdis_electric.propagation.latency.duration_us."
     },
     {
       "id": 25,
@@ -642,16 +642,16 @@
       },
       "targets": [
         {
-          "expr": "sum(rate(restdis_electric_log_append_rejected_count_total[5m])) by (tenant_id, cause)",
+          "expr": "sum(rate(restdis_electric_shape_must_refetch_count_total[5m])) by (tenant_id, cause)",
           "legendFormat": "{{tenant_id}}/{{cause}}"
         }
       ],
-      "description": "PENDING: `RestdisServer.Http.Electric` returns 409 today only for an invalid/expired shape `handle` (see electric.ex), and that response path does not currently call `:telemetry.execute/3` with a `cause` tag. Placeholder assumes a future counter (e.g. `restdis_electric.subscribe.rejected.count` tagged by `:tenant_id` and `:cause`, with cause values such as `handle_mismatch`, `schema_drift`, `shape_limit_exceeded`) is added at each 409 call site. Left unimplemented here because electric.ex is being actively edited by another in-progress task."
+      "description": "Every must_refetch/409 now goes through RestdisElectric's must_refetch/2 helper, which emits [:restdis_electric, :shape, :must_refetch] (count measurement) tagged by tenant_id and cause, exported as the counter restdis_electric.shape.must_refetch.count. Causes: handle_mismatch (resumed with a handle for a different shape definition), retention (resumed at or below the shape's configured retention window, see ELECTRIC_PRD Phase 6 item 5), shape_limit_exceeded (emitted when a tenant at max_shapes evicts its least-recently-accessed idle shape to admit a new one, see ELECTRIC_PRD Phase 2 item 10), and log_missing (the shape's log no longer exists at resume time, e.g. schema-drift invalidation, DELETE /v1/shape, or the shape_limit_exceeded eviction above)."
     },
     {
       "id": 26,
       "type": "timeseries",
-      "title": "Log disk use per tenant (metric not yet emitted)",
+      "title": "Log disk use per tenant",
       "gridPos": {
         "h": 8,
         "w": 12,
@@ -674,7 +674,7 @@
         },
         "overrides": []
       },
-      "description": "PENDING: no telemetry event currently reports CubDB on-disk size for RestdisElectric.Log per tenant. Placeholder assumes a future `last_value(\"restdis_electric.log.disk.bytes\", tags: [:tenant_id])` gauge, polled similarly to `restdis.persist.count.count`."
+      "description": "Polled every 10s from RestdisElectric.Log.disk_bytes_by_tenant/0, which sums the approximate in-memory/CubDB-persisted byte size (:erlang.external_size/1) of every currently active shape log on this node, per tenant, via RestdisServer.Metrics.dispatch_shape_metrics/0. Emitted as [:restdis_electric, :log, :disk] (bytes measurement) tagged by tenant_id, exported as the last_value gauge restdis_electric.log.disk.bytes."
     }
   ]
 }

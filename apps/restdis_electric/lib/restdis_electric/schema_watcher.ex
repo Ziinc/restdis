@@ -103,6 +103,7 @@ defmodule RestdisElectric.SchemaWatcher do
   defp invalidate({tenant_id, schema, table}) do
     for handle <- ShapeRegistry.handles_for(tenant_id, schema, table) do
       ShapeRegistry.unregister(tenant_id, handle)
+      RestdisElectric.SubqueryTracker.unregister_shape(tenant_id, handle)
       Log.delete(tenant_id, handle)
     end
 

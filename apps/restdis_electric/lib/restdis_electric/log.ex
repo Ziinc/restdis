@@ -29,6 +29,7 @@ defmodule RestdisElectric.Log do
           handle: String.t(),
           messages: [Message.t()],
           last_offset: Offset.t(),
+          truncated_before: Offset.t() | nil,
           waiters: [{Offset.t(), GenServer.from()}]
         }
 
@@ -94,7 +95,7 @@ defmodule RestdisElectric.Log do
 
       [] ->
         case load(tenant_id, handle) do
-          {:ok, _messages, _last_offset} ->
+          {:ok, _messages, _last_offset, _truncated_before} ->
             {:ok, pid} = ensure_started(tenant_id, handle)
             call(pid, {tenant_id, handle}, {:read, from_offset})
 
@@ -139,6 +140,65 @@ defmodule RestdisElectric.Log do
   end
 
   @doc """
+  Returns the offset of the last message this log has evicted through
+  retention truncation, or `nil` if it has never truncated. A caller
+  resuming from an offset at or before this boundary is missing data that no
+  longer exists and must be told to refetch (see `RestdisElectric.Limits.
+  effective_retention/2`).
+  """
+  @spec truncated_before(String.t(), String.t()) :: Offset.t() | nil
+  def truncated_before(tenant_id, handle) do
+    case Registry.lookup(@registry, {tenant_id, handle}) do
+      [{pid, _}] ->
+        call(pid, {tenant_id, handle}, :truncated_before)
+
+      [] ->
+        case load(tenant_id, handle) do
+          {:ok, _messages, _last_offset, truncated_before} -> truncated_before
+          :error -> nil
+        end
+    end
+  end
+
+  @doc """
+  Returns whether `tenant_id`/`handle`'s log currently has a client blocked
+  in `await/4`, waiting on new data.
+
+  Used to decide whether a shape is safe to evict when the tenant is at its
+  `max_shapes` limit: a shape with no live process is trivially idle, and a
+  shape whose process has no waiters is idle even though it exists.
+  """
+  @spec waiting?(String.t(), String.t()) :: boolean()
+  def waiting?(tenant_id, handle) do
+    case Registry.lookup(@registry, {tenant_id, handle}) do
+      [{pid, _}] -> safe_call(pid, :waiting?, false)
+      [] -> false
+    end
+  end
+
+  @doc """
+  Returns the approximate bytes held by every currently active shape log on
+  this node, summed per tenant, as `{tenant_id, bytes}` pairs. Used for the
+  "log disk use per tenant" gauge polled by the host application.
+  """
+  @spec disk_bytes_by_tenant() :: [{String.t(), non_neg_integer()}]
+  def disk_bytes_by_tenant do
+    @registry
+    |> Registry.select([{{{:"$1", :"$2"}, :"$3", :_}, [], [{{:"$1", :"$3"}}]}])
+    |> Enum.reduce(%{}, fn {tenant_id, pid}, acc ->
+      bytes = safe_call(pid, :bytes, 0)
+      Map.update(acc, tenant_id, bytes, &(&1 + bytes))
+    end)
+    |> Map.to_list()
+  end
+
+  defp safe_call(pid, message, default) do
+    GenServer.call(pid, message)
+  catch
+    :exit, _ -> default
+  end
+
+  @doc """
   Deletes the shape's log, in memory and on disk.
   """
   @spec delete(String.t(), String.t()) :: :ok
@@ -153,10 +213,13 @@ defmodule RestdisElectric.Log do
 
   @impl GenServer
   def init({tenant_id, handle}) do
-    {messages, last_offset} =
+    {messages, last_offset, truncated_before} =
       case load(tenant_id, handle) do
-        {:ok, messages, last_offset} -> {messages, last_offset}
-        :error -> {[], Offset.beginning()}
+        {:ok, messages, last_offset, truncated_before} ->
+          {messages, last_offset, truncated_before}
+
+        :error ->
+          {[], Offset.beginning(), nil}
       end
 
     {:ok,
@@ -165,6 +228,7 @@ defmodule RestdisElectric.Log do
        handle: handle,
        messages: messages,
        last_offset: last_offset,
+       truncated_before: truncated_before,
        waiters: []
      }}
   end
@@ -183,6 +247,21 @@ defmodule RestdisElectric.Log do
   @impl GenServer
   def handle_call({:read, from_offset}, _from, state) do
     {:reply, {:ok, messages_after(state.messages, from_offset), state.last_offset}, state}
+  end
+
+  @impl GenServer
+  def handle_call(:truncated_before, _from, state) do
+    {:reply, state.truncated_before, state}
+  end
+
+  @impl GenServer
+  def handle_call(:waiting?, _from, state) do
+    {:reply, state.waiters != [], state}
+  end
+
+  @impl GenServer
+  def handle_call(:bytes, _from, state) do
+    {:reply, :erlang.external_size(state.messages), state}
   end
 
   @impl GenServer
@@ -210,7 +289,15 @@ defmodule RestdisElectric.Log do
   defp do_append(new_messages, state) do
     messages = state.messages ++ new_messages
     last_offset = Enum.reduce(new_messages, state.last_offset, &Offset.max(&1.offset, &2))
-    persist(state.tenant_id, state.handle, messages, last_offset)
+
+    {messages, truncated_before} =
+      truncate(state.tenant_id, state.handle, messages, state.truncated_before)
+
+    persist(state.tenant_id, state.handle, %{
+      messages: messages,
+      last_offset: last_offset,
+      truncated_before: truncated_before
+    })
 
     {ready, pending} =
       Enum.split_with(state.waiters, fn {since, _from} -> Offset.before?(since, last_offset) end)
@@ -219,7 +306,33 @@ defmodule RestdisElectric.Log do
       GenServer.reply(from, {:ok, messages_after(messages, since), last_offset})
     end)
 
-    {:reply, :ok, %{state | messages: messages, last_offset: last_offset, waiters: pending}}
+    {:reply, :ok,
+     %{
+       state
+       | messages: messages,
+         last_offset: last_offset,
+         truncated_before: truncated_before,
+         waiters: pending
+     }}
+  end
+
+  # Drops the front of the log once it exceeds the shape's effective retention, moving `truncated_before` forward.
+  defp truncate(tenant_id, handle, messages, truncated_before) do
+    case Limits.effective_retention(tenant_id, handle) do
+      retention when is_integer(retention) and retention > 0 ->
+        count = length(messages)
+
+        if count > retention do
+          {dropped, kept} = Enum.split(messages, count - retention)
+          new_boundary = dropped |> List.last() |> Map.fetch!(:offset)
+          {kept, Offset.max(truncated_before || Offset.beginning(), new_boundary)}
+        else
+          {messages, truncated_before}
+        end
+
+      _ ->
+        {messages, truncated_before}
+    end
   end
 
   defp messages_after(messages, from_offset) do
@@ -228,16 +341,17 @@ defmodule RestdisElectric.Log do
 
   defp cache_key(handle), do: Key.build(:shape, handle, %{})
 
-  defp persist(tenant_id, handle, messages, last_offset) do
-    Cache.put(tenant_id, cache_key(handle), %{messages: messages, last_offset: last_offset},
-      persist: true
-    )
+  defp persist(tenant_id, handle, log) do
+    Cache.put(tenant_id, cache_key(handle), log, persist: true)
   end
 
   defp load(tenant_id, handle) do
     case Cache.get(tenant_id, cache_key(handle)) do
-      {:ok, %{messages: messages, last_offset: last_offset}} -> {:ok, messages, last_offset}
-      :miss -> :error
+      {:ok, %{messages: messages, last_offset: last_offset} = cached} ->
+        {:ok, messages, last_offset, Map.get(cached, :truncated_before)}
+
+      :miss ->
+        :error
     end
   end
 

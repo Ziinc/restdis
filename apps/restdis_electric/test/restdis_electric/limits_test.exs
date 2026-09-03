@@ -29,6 +29,37 @@ defmodule RestdisElectric.LimitsTest do
              {:error, {:limit_exceeded, :log_bytes, 100}}
   end
 
+  test "effective_retention/2 uses the shape's own retention when it was registered with one" do
+    tenant_id = TestUtils.tenant_id()
+    Limits.put_config(tenant_id, %{max_log_operations: 100})
+
+    definition = %RestdisElectric.Definition{
+      tenant_id: tenant_id,
+      schema: "public",
+      table: "widgets",
+      retention: 10
+    }
+
+    ShapeRegistry.register(tenant_id, definition, "h-retention")
+
+    assert Limits.effective_retention(tenant_id, "h-retention") == 10
+  end
+
+  test "effective_retention/2 falls back to the tenant default when the shape has none" do
+    tenant_id = TestUtils.tenant_id()
+    Limits.put_config(tenant_id, %{max_log_operations: 100})
+    :ok = ShapeRegistry.register(tenant_id, "public", "widgets", "h-default")
+
+    assert Limits.effective_retention(tenant_id, "h-default") == 100
+  end
+
+  test "effective_retention/2 is nil when neither the shape nor the tenant configures one" do
+    tenant_id = TestUtils.tenant_id()
+    :ok = ShapeRegistry.register(tenant_id, "public", "widgets", "h-unlimited")
+
+    assert Limits.effective_retention(tenant_id, "h-unlimited") == nil
+  end
+
   test "enter_wait/1 and exit_wait/1 enforce the waiting-clients limit" do
     tenant_id = TestUtils.tenant_id()
     Limits.put_config(tenant_id, %{max_waiting_clients: 1})

@@ -26,10 +26,16 @@ defmodule RestdisElectric.Limits do
   @type config :: %{
           max_shapes: pos_integer() | nil,
           max_log_bytes: pos_integer() | nil,
-          max_waiting_clients: pos_integer() | nil
+          max_waiting_clients: pos_integer() | nil,
+          max_log_operations: pos_integer() | nil
         }
 
-  @default_config %{max_shapes: nil, max_log_bytes: nil, max_waiting_clients: nil}
+  @default_config %{
+    max_shapes: nil,
+    max_log_bytes: nil,
+    max_waiting_clients: nil,
+    max_log_operations: nil
+  }
 
   @doc """
   Starts the limits registry's ETS tables.
@@ -47,7 +53,8 @@ defmodule RestdisElectric.Limits do
     config = %{
       max_shapes: tenant_config[:max_shapes],
       max_log_bytes: tenant_config[:max_log_bytes],
-      max_waiting_clients: tenant_config[:max_waiting_clients]
+      max_waiting_clients: tenant_config[:max_waiting_clients],
+      max_log_operations: tenant_config[:max_log_operations]
     }
 
     :ets.insert(@table, {tenant_id, config})
@@ -91,6 +98,20 @@ defmodule RestdisElectric.Limits do
     case config(tenant_id).max_log_bytes do
       nil -> :ok
       limit -> bounded(current_bytes + additional_bytes > limit, :log_bytes, limit)
+    end
+  end
+
+  @doc """
+  Returns how many recent operations `handle`'s log should retain: the
+  shape's own `retention` (set at subscribe time via its `Definition`) if it
+  has one, otherwise `tenant_id`'s configured `max_log_operations` default,
+  otherwise `nil` for unlimited.
+  """
+  @spec effective_retention(String.t(), String.t()) :: pos_integer() | nil
+  def effective_retention(tenant_id, handle) do
+    case ShapeRegistry.fetch(tenant_id, handle) do
+      {:ok, %{retention: retention}} when is_integer(retention) -> retention
+      _ -> config(tenant_id).max_log_operations
     end
   end
 

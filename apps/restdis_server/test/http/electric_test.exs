@@ -52,6 +52,19 @@ defmodule RestdisServer.HTTP.ElectricTest do
 
   defp auth, do: [{"authorization", "Bearer sk_electric"}]
 
+  defp wait_until(check_fun, attempts \\ 50) do
+    if check_fun.() do
+      :ok
+    else
+      if attempts > 0 do
+        Process.sleep(20)
+        wait_until(check_fun, attempts - 1)
+      else
+        flunk("condition not met in time")
+      end
+    end
+  end
+
   test "missing auth returns 401" do
     {:ok, resp} = Req.get(req(), url: "/v1/shape?table=widgets&offset=-1", retry: false)
     assert resp.status == 401
@@ -114,7 +127,66 @@ defmodule RestdisServer.HTTP.ElectricTest do
     assert [_cursor] = Req.Response.get_header(resp, "electric-cursor")
   end
 
-  test "exceeding the tenant's max_shapes returns 429 with an actionable message" do
+  test "subscribing at the tenant's max_shapes evicts the idle LRU shape, which then 409s on resume" do
+    limits_tenant_id = "test-electric-tenant-shape-evict"
+
+    InMemory.seed([
+      %{
+        api_key: "sk_electric_shape_evict",
+        tenant_id: limits_tenant_id,
+        default_ttl_s: 60,
+        persist_cap: 50_000,
+        pgrst_base_url: "http://localhost:3003",
+        pgrst_api_key: "svc_key",
+        replica_url: nil,
+        allow_shape_deletion: true,
+        max_shapes: 1
+      }
+    ])
+
+    Application.put_env(
+      :restdis_electric,
+      :tables,
+      Map.put(Application.get_env(:restdis_electric, :tables, %{}), "public.gadgets", %{
+        columns: ["id"],
+        primary_key: ["id"],
+        replica_identity: :full
+      })
+    )
+
+    Application.put_env(
+      :restdis_electric,
+      :stub_rows,
+      Map.put(Application.get_env(:restdis_electric, :stub_rows, %{}), "gadgets", [%{"id" => 1}])
+    )
+
+    evict_auth = [{"authorization", "Bearer sk_electric_shape_evict"}]
+
+    {:ok, first} =
+      Req.get(req(), url: "/v1/shape?table=widgets&offset=-1", headers: evict_auth, retry: false)
+
+    assert first.status == 200
+    [first_handle] = Req.Response.get_header(first, "electric-handle")
+    [first_offset] = Req.Response.get_header(first, "electric-offset")
+
+    {:ok, second} =
+      Req.get(req(), url: "/v1/shape?table=gadgets&offset=-1", headers: evict_auth, retry: false)
+
+    assert second.status == 200
+
+    {:ok, resumed} =
+      Req.get(req(),
+        url: "/v1/shape?table=widgets&offset=#{first_offset}&handle=#{first_handle}",
+        headers: evict_auth,
+        retry: false
+      )
+
+    assert resumed.status == 409
+    assert [location] = Req.Response.get_header(resumed, "location")
+    assert location =~ "offset=-1"
+  end
+
+  test "exceeding the tenant's max_shapes returns 429 when every existing shape is busy" do
     limits_tenant_id = "test-electric-tenant-shape-limit"
 
     InMemory.seed([
@@ -161,12 +233,43 @@ defmodule RestdisServer.HTTP.ElectricTest do
       )
 
     assert first.status == 200
+    [handle] = Req.Response.get_header(first, "electric-handle")
+    [offset] = Req.Response.get_header(first, "electric-offset")
+
+    parent = self()
+
+    spawn(fn ->
+      result =
+        Req.get(req(),
+          url: "/v1/shape?table=widgets&offset=#{offset}&handle=#{handle}&live=true",
+          headers: limits_auth,
+          retry: false
+        )
+
+      send(parent, {:live_poll, result})
+    end)
+
+    wait_until(fn -> RestdisElectric.Log.waiting?(limits_tenant_id, handle) end)
 
     {:ok, resp} =
       Req.get(req(), url: "/v1/shape?table=gadgets&offset=-1", headers: limits_auth, retry: false)
 
     assert resp.status == 429
     assert Jason.decode!(resp.body)["error"] =~ "limit of 1 active shape"
+
+    :ok =
+      RestdisElectric.WAL.ingest(%{
+        tenant_id: limits_tenant_id,
+        schema: "public",
+        table: "widgets",
+        op: :insert,
+        pk: 2,
+        new_row: %{"id" => 2, "name" => "b"},
+        old_row: nil,
+        lsn: 1
+      })
+
+    assert_receive {:live_poll, {:ok, %{status: 200}}}, 5_000
   end
 
   test "exceeding the tenant's max_waiting_clients on a live long-poll returns 429" do

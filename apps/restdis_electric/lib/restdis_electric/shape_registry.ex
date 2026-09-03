@@ -20,6 +20,7 @@ defmodule RestdisElectric.ShapeRegistry do
 
   @table __MODULE__
   @shapes __MODULE__.Shapes
+  @access __MODULE__.Access
 
   @doc """
   Starts the registry's ETS table.
@@ -51,6 +52,7 @@ defmodule RestdisElectric.ShapeRegistry do
   def register(tenant_id, %Definition{} = definition, handle) do
     :ets.insert(@table, {{tenant_id, definition.schema, definition.table}, handle})
     :ets.insert(@shapes, {{tenant_id, handle}, definition})
+    :ets.insert(@access, {{tenant_id, handle}, System.unique_integer([:monotonic])})
     Filter.add(tenant_id, definition, handle)
     :ok
   end
@@ -77,6 +79,7 @@ defmodule RestdisElectric.ShapeRegistry do
   def unregister(tenant_id, handle) do
     :ets.match_delete(@table, {{tenant_id, :_, :_}, handle})
     :ets.delete(@shapes, {tenant_id, handle})
+    :ets.delete(@access, {tenant_id, handle})
     Filter.remove(tenant_id, handle)
     :ok
   end
@@ -112,6 +115,23 @@ defmodule RestdisElectric.ShapeRegistry do
   end
 
   @doc """
+  Returns the number of currently registered shapes for every tenant that has
+  at least one, as `{tenant_id, count}` pairs. Used for the "active shapes
+  per tenant" gauge polled by the host application.
+  """
+  @spec active_counts() :: [{String.t(), non_neg_integer()}]
+  def active_counts do
+    if :ets.whereis(@shapes) == :undefined do
+      []
+    else
+      @shapes
+      |> :ets.select([{{{:"$1", :_}, :_}, [], [:"$1"]}])
+      |> Enum.frequencies()
+      |> Map.to_list()
+    end
+  end
+
+  @doc """
   Returns every handle registered for `tenant_id`'s `schema`.`table`.
   """
   @spec handles_for(String.t(), String.t(), String.t()) :: [String.t()]
@@ -125,10 +145,32 @@ defmodule RestdisElectric.ShapeRegistry do
     end
   end
 
+  @doc """
+  Returns `tenant_id`'s registered shape handles ordered from least- to
+  most-recently accessed, where "access" means registration through
+  `register/3` — called at every subscribe, resume, and snapshot.
+
+  Used to pick an eviction candidate when the tenant is at `max_shapes`: the
+  caller walks this list and evicts the first handle that is not currently
+  busy (see `RestdisElectric.Log.waiting?/2`).
+  """
+  @spec least_recently_used(String.t()) :: [String.t()]
+  def least_recently_used(tenant_id) do
+    if :ets.whereis(@access) == :undefined do
+      []
+    else
+      @access
+      |> :ets.select([{{{tenant_id, :"$1"}, :"$2"}, [], [{{:"$1", :"$2"}}]}])
+      |> Enum.sort_by(fn {_handle, accessed_at} -> accessed_at end)
+      |> Enum.map(fn {handle, _accessed_at} -> handle end)
+    end
+  end
+
   @impl GenServer
   def init(_opts) do
     :ets.new(@table, [:bag, :public, :named_table, read_concurrency: true])
     :ets.new(@shapes, [:set, :public, :named_table, read_concurrency: true])
+    :ets.new(@access, [:set, :public, :named_table, write_concurrency: true])
     {:ok, %{}}
   end
 end
