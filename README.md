@@ -31,6 +31,12 @@ to it and use it exactly as it would use Redis, with no code changes.
   that stay current via WAL refresh, for latency-critical reads.
 - **Multi-node clustering** — a consistent hash ring places each tenant on one owning node,
   with automatic forwarding and PostgREST fallback if that node is unreachable.
+- **Electric-compatible shape API [WIP]** — serve ElectricSQL's `GET /v1/shape` protocol
+  directly from Restdis, so apps using an Electric client library work unchanged. See
+  [`ELECTRIC_PRD.md`](ELECTRIC_PRD.md).
+- **Caching across the rest of the Supabase stack [WIP]** — extend the same cache-and-invalidate
+  mechanism to Realtime, Storage, Auth, and Edge Functions. See
+  [`SUPABASE_INTEGRATION_PRD.md`](SUPABASE_INTEGRATION_PRD.md).
 
 ## Quickstart
 
@@ -110,22 +116,6 @@ Restdis is configured entirely through environment variables:
 | `CLUSTER_DNS_QUERY` | unset | DNS name polled by `libcluster` to form the cluster; unset runs a single node |
 | `CLUSTER_NODE_BASENAME` | `restdis` | Node basename used to build peer node names |
 | `CLUSTER_POLL_INTERVAL_MS` | `5000` | DNS poll interval |
-
-## Roadmap
-
-Two RFCs describe planned work beyond the core caching proxy above. Neither is built yet;
-both extend the same WAL-reading and caching foundation described in this README.
-
-- **[`ELECTRIC_PRD.md`](ELECTRIC_PRD.md) — an Electric-compatible shape API.** Proposes
-  serving [ElectricSQL](https://electric-sql.com)'s `GET /v1/shape` protocol directly from
-  Restdis, so an application already using an Electric client library (`@electric-sql/client`,
-  `@electric-sql/react`, and others) keeps working after changing only its base URL — giving
-  clients live, partial, resumable copies of Postgres tables without running Electric as a
-  separate service.
-- **[`SUPABASE_INTEGRATION_PRD.md`](SUPABASE_INTEGRATION_PRD.md) — caching across the rest
-  of the Supabase stack.** Proposes extending the same cache-and-invalidate mechanism to
-  Realtime, Storage, Auth, and Edge Functions (not just PostgREST), plus a "prefer read
-  replica" setting that applies to every Postgres-backed origin fetch.
 
 ## Learn more
 
