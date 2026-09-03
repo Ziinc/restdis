@@ -46,3 +46,30 @@ INSERT INTO tenant_table_config (
   'conformance-tenant', 'public', 'conformance_widgets', 'replication', 'id', now(), now()
 )
 ON CONFLICT (tenant_id, schema, table_name) DO UPDATE SET mode = EXCLUDED.mode;
+
+-- A richer table for the rest of the conformance suite: update/delete
+-- operation semantics, `where`-clause enter/exit transitions, `columns`
+-- projection, and `replica=full` old_value. `status` drives the where-clause
+-- shape ('status = 'active'); `price` is the column exercised by the
+-- replica=full old_value check.
+DROP TABLE IF EXISTS conformance_items;
+
+CREATE TABLE conformance_items (
+  id integer PRIMARY KEY,
+  name text NOT NULL,
+  status text NOT NULL,
+  price integer NOT NULL
+);
+
+ALTER TABLE conformance_items REPLICA IDENTITY FULL;
+
+INSERT INTO conformance_items (id, name, status, price) VALUES
+  (1, 'first item', 'active', 100),
+  (2, 'second item', 'inactive', 200);
+
+INSERT INTO tenant_table_config (
+  tenant_id, schema, table_name, mode, pk_column, inserted_at, updated_at
+) VALUES (
+  'conformance-tenant', 'public', 'conformance_items', 'replication', 'id', now(), now()
+)
+ON CONFLICT (tenant_id, schema, table_name) DO UPDATE SET mode = EXCLUDED.mode;
