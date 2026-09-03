@@ -279,9 +279,41 @@ defmodule RestdisElectric do
 
   # A shape not yet in this log is new: it counts against the tenant's max_shapes.
   defp new_shape(ctx, handle) do
-    with :ok <- Limits.check_shapes(ctx.tenant_id) do
-      register(ctx, handle)
-      run_snapshot(ctx, handle)
+    case Limits.check_shapes(ctx.tenant_id) do
+      :ok ->
+        finish_new_shape(ctx, handle)
+
+      {:error, {:limit_exceeded, :shapes, _limit}} = error ->
+        case evict_lru(ctx.tenant_id) do
+          :ok -> finish_new_shape(ctx, handle)
+          :none -> error
+        end
+    end
+  end
+
+  defp finish_new_shape(ctx, handle) do
+    register(ctx, handle)
+    run_snapshot(ctx, handle)
+  end
+
+  # Electric's LRU shape cache at capacity; reuses delete_shape/2 so the victim must-refetches.
+  defp evict_lru(tenant_id) do
+    tenant_id
+    |> ShapeRegistry.least_recently_used()
+    |> Enum.find(&(not Log.waiting?(tenant_id, &1)))
+    |> case do
+      nil ->
+        :none
+
+      victim ->
+        :telemetry.execute(
+          [:restdis_electric, :shape, :must_refetch],
+          %{count: 1},
+          %{tenant_id: tenant_id, cause: :shape_limit_exceeded}
+        )
+
+        delete_shape(tenant_id, victim)
+        :ok
     end
   end
 

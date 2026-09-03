@@ -161,6 +161,22 @@ defmodule RestdisElectric.Log do
   end
 
   @doc """
+  Returns whether `tenant_id`/`handle`'s log currently has a client blocked
+  in `await/4`, waiting on new data.
+
+  Used to decide whether a shape is safe to evict when the tenant is at its
+  `max_shapes` limit: a shape with no live process is trivially idle, and a
+  shape whose process has no waiters is idle even though it exists.
+  """
+  @spec waiting?(String.t(), String.t()) :: boolean()
+  def waiting?(tenant_id, handle) do
+    case Registry.lookup(@registry, {tenant_id, handle}) do
+      [{pid, _}] -> safe_call(pid, :waiting?, false)
+      [] -> false
+    end
+  end
+
+  @doc """
   Returns the approximate bytes held by every currently active shape log on
   this node, summed per tenant, as `{tenant_id, bytes}` pairs. Used for the
   "log disk use per tenant" gauge polled by the host application.
@@ -236,6 +252,11 @@ defmodule RestdisElectric.Log do
   @impl GenServer
   def handle_call(:truncated_before, _from, state) do
     {:reply, state.truncated_before, state}
+  end
+
+  @impl GenServer
+  def handle_call(:waiting?, _from, state) do
+    {:reply, state.waiters != [], state}
   end
 
   @impl GenServer

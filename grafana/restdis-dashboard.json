@@ -646,7 +646,7 @@
           "legendFormat": "{{tenant_id}}/{{cause}}"
         }
       ],
-      "description": "Every must_refetch/409 now goes through RestdisElectric's must_refetch/2 helper, which emits [:restdis_electric, :shape, :must_refetch] (count measurement) tagged by tenant_id and cause, exported as the counter restdis_electric.shape.must_refetch.count. Causes: handle_mismatch (resumed with a handle for a different shape definition), retention (resumed at or below the shape's configured retention window, see ELECTRIC_PRD Phase 6 item 5), and log_missing (the shape's log no longer exists, e.g. schema-drift invalidation or eviction)."
+      "description": "Every must_refetch/409 now goes through RestdisElectric's must_refetch/2 helper, which emits [:restdis_electric, :shape, :must_refetch] (count measurement) tagged by tenant_id and cause, exported as the counter restdis_electric.shape.must_refetch.count. Causes: handle_mismatch (resumed with a handle for a different shape definition), retention (resumed at or below the shape's configured retention window, see ELECTRIC_PRD Phase 6 item 5), shape_limit_exceeded (emitted when a tenant at max_shapes evicts its least-recently-accessed idle shape to admit a new one, see ELECTRIC_PRD Phase 2 item 10), and log_missing (the shape's log no longer exists at resume time, e.g. schema-drift invalidation, DELETE /v1/shape, or the shape_limit_exceeded eviction above)."
     },
     {
       "id": 26,
