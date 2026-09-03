@@ -73,36 +73,14 @@ created.
 **Not yet implemented on this branch** (see "Every entry below is verified
 against the code," further down, for how this was checked):
 
-- **Gatekeeper mode.** `ELECTRIC_PRD.md`'s "Authentication" section describes
-  a per-tenant choice between "gatekeeper" (server names the shape, client
-  sends only `offset`/`handle`/`live`/`cursor`) and "open" (client supplies
-  `table`/`where`/`columns` itself, checked against a `queryable_columns`
-  allow-list). As implemented today, every tenant runs in open mode: the
-  client always supplies `table`, `where`, and `columns` directly
-  (`RestdisElectric.Definition.new/2`), and there is no
-  `queryable_columns` allow-list or gatekeeper shape registry anywhere in
-  `restdis_repo` or `restdis_server`. If your migration plan assumed
-  gatekeeper mode would stop clients from sending arbitrary filters, it is
-  not there yet — every API key can currently define any shape over any
-  table its tenant can read.
-- **The `electric-schema` response header.** `ELECTRIC_PRD.md` documents this
-  header as part of the response contract. `RestdisServer.HTTP.Electric`
-  does not send it. The real, published `@electric-sql/client` (pinned
-  version in `test/conformance/package.json`) refuses a response without it
-  and raises `MissingHeadersError`, so **a client built on that library
-  cannot complete a snapshot against this branch today.** This is the exact
-  kind of regression the conformance suite (see below) exists to catch, and
-  it is currently red because of this gap. Fixing it means changing
-  `apps/restdis_server/lib/restdis_server/http/electric.ex`, which was left
-  alone here because another change was in flight against that file at the
-  time this guide was written.
-- **Log truncation.** `ELECTRIC_PRD.md` Phase 6 item 5 (truncating each log to
-  a configured length and returning `409` on resume below the retained
-  window) has no implementation yet: no code path in `restdis_electric`
-  truncates a log or checks a retention window.
 - **`where` clauses over a subquery** (`field IN (subquery)`,
   `ELECTRIC_PRD.md` Phase 6 item 1). Not supported; see the compatibility
   table.
+As of this branch, gatekeeper mode, the `secret` query parameter, log
+truncation (with a per-shape `retention` override on top of the tenant-level
+`max_log_operations` default), and the `electric-schema` response header are
+all implemented; see "Authentication" and the compatibility table below for
+how each behaves.
 
 ---
 
@@ -134,7 +112,8 @@ ever written for the shape.
 | `replica` | Supported | `default` or `full`; any other value is a `400`. |
 | `live_sse` | Supported | Selects the Server-Sent Events transport instead of long-polling. |
 | `log` | Supported | `full` or `changes_only`; `changes_only` without a tenant `direct_pg_url` is a `400`. |
-| `secret` | **Not implemented — and not rejected** | Electric's documented open-mode auth parameter. Restdis reads no `secret` parameter at all: `RestdisServer.HTTP.Plug.Auth` only checks the `authorization` header. A request that includes `secret` is accepted and the parameter is silently ignored, which does **not** meet the "every unsupported entry is a `400`" bar. Tracked as a gap; see the note at the end of this table. |
+| `secret` | Supported | Checked against the tenant's configured `shape_secret` (`RestdisElectric.subscribe/3`). A tenant with no `shape_secret` configured ignores the parameter, matching Electric's own open mode. A tenant with one configured requires `secret` to match exactly, or the request is a `401`. |
+| `shape` | Supported | Names a server-configured shape when the tenant's `auth_mode` is `gatekeeper` (see "Authentication" below). Required in that mode; a `400` if missing or unknown. Meaningless, and never read, in open mode. |
 
 ### `where` clause constructs
 
@@ -161,8 +140,8 @@ Verified directly against `RestdisElectric.Eval.compile/2` and its `@comparison`
 
 | Library | Status |
 | --- | --- |
-| `@electric-sql/client`'s `ShapeStream`/`Shape` | **Currently fails a full snapshot** against this branch: the client (pinned version 1.5.27 in `test/conformance/package.json`) requires an `electric-schema` response header that Restdis does not send. See "Not yet implemented on this branch" above. This is not a documentation gap — it is a real, reproducible failure, caught by `test/conformance/run.mjs`. |
-| `@electric-sql/react`'s `useShape`, `@tanstack/electric-db-collection` | Not independently tested; both are built on `ShapeStream` and inherit the gap above. |
+| `@electric-sql/client`'s `ShapeStream`/`Shape` | `RestdisServer.HTTP.Electric` sends the `electric-schema` response header the client requires. |
+| `@electric-sql/react`'s `useShape`, `@tanstack/electric-db-collection` | Not independently tested; both are built on `ShapeStream`. |
 
 ---
 
@@ -176,12 +155,19 @@ pattern. Restdis authenticates directly:
   `RestdisServer.TenantConfig.lookup_by_api_key/1`; a missing or unknown key
   is a `401`.
 - There is one API key per tenant relationship, managed through
-  `restdis_repo`'s `api_keys` table (`RestdisRepo.ApiKeys`), not through a
-  `secret` query parameter.
-- As covered above, the "gatekeeper mode" that `ELECTRIC_PRD.md` describes
-  (where the server, not the client, chooses the shape definition) is not
-  implemented yet. Every authenticated request can define any shape over any
-  table the tenant's Postgres connection can read.
+  `restdis_repo`'s `api_keys` table (`RestdisRepo.ApiKeys`).
+- Each tenant also has an `auth_mode`, `"gatekeeper"` (the default,
+  `RestdisRepo.Tenants`) or `"open"`:
+  - **Gatekeeper mode.** The client sends a `shape` name plus protocol
+    parameters only. `table`, `where`, and `columns` are rejected with `400`
+    if the client sends them. The server resolves the shape name against the
+    tenant's `shape_definitions` rows (`RestdisRepo.ShapeDefinitions`,
+    managed independently of the API key), which is where the table,
+    `where`, `columns`, and `replica` live.
+  - **Open mode.** The client supplies `table`/`where`/`columns` itself, as
+    described throughout this document. A tenant may additionally set a
+    `shape_secret`; when set, every request must also send a matching
+    `secret` query parameter or the request is a `401`.
 
 ---
 
@@ -199,23 +185,15 @@ are its documented environment variables.
 | --- | --- | --- |
 | `ELECTRIC_DATABASE_URL` | Postgres connection Electric replicates from | `DATABASE_URL` (the control-plane/replication connection, `config/runtime.exs`) plus, per tenant, `pgrst_base_url`/`pgrst_api_key` (snapshot reads) and optionally `direct_pg_url` (`log=changes_only` snapshots and direct-Postgres reads) on the `tenants` table |
 | `ELECTRIC_STORAGE_DIR` | Where Electric persists shape logs on disk | No single directory: shape logs share Restdis's existing cache storage layer (CubDB today, per `ELECTRIC_PRD.md`'s "How we store the shape log"), rooted at `CACHE_DATA_DIR` |
-| `ELECTRIC_MAX_SHAPES` (or an equivalent flat limit) | Caps shape count for the one Electric instance | Per tenant `max_shapes` column on `tenants` (added by the `AddShapeLimitsToTenants` migration; see the note below — this is in progress on this branch and enforcement was out of this document's scope) |
-| A per-instance limit on total log storage | Caps disk use for the one Electric instance | Per tenant `max_log_bytes` column on `tenants` (same migration/caveat as above) |
-| A per-instance limit on concurrent long-polling clients | Caps waiting connections for the one Electric instance | Per tenant `max_waiting_clients` column on `tenants` (same migration/caveat as above) |
+| `ELECTRIC_MAX_SHAPES` (or an equivalent flat limit) | Caps shape count for the one Electric instance | Per tenant `max_shapes` column on `tenants`, enforced by `RestdisElectric.Limits.check_shapes/1` and returned as a `429` |
+| A per-instance limit on total log storage | Caps disk use for the one Electric instance | Per tenant `max_log_bytes` column on `tenants`, enforced by `RestdisElectric.Limits.check_log_bytes/3` and returned as a `429` |
+| A per-instance limit on concurrent long-polling clients | Caps waiting connections for the one Electric instance | Per tenant `max_waiting_clients` column on `tenants`, enforced by `RestdisElectric.Limits.enter_wait/1` and returned as a `429` |
+| Electric's unbounded log with compaction | Bounds how far back a client can resume | Per tenant `max_log_operations` column on `tenants` as the default, overridable per shape via a `retention` query parameter: `RestdisElectric.Log` truncates a shape's log to its effective retention (`RestdisElectric.Limits.effective_retention/2`), and a client that resumes at or below the truncated boundary gets a `409` (see "How we store the shape log" in `ELECTRIC_PRD.md`) |
 | `ELECTRIC_PORT` / listen address | HTTP port Electric serves on | `HTTP_PORT` (`config/runtime.exs`), shared with every other Restdis HTTP endpoint |
 | `ELECTRIC_LOG_LEVEL` / log format | Electric's own logging | Restdis's own logger config; `RESTDIS_JSON_LOGGER=true` switches to JSON output (`config/runtime.exs`) |
 | A replication slot name/publication, one per Electric instance | Electric's logical replication bookmark | `WAL_SLOT_NAME` / `WAL_PUBLICATION_NAME` (`config/runtime.exs`), shared with cache invalidation across the whole cluster, not one slot per shape server |
 | No tenant concept | Electric runs one instance per customer | Restdis's `tenants` table (`apps/restdis_repo`): one deployment, many tenants, one API key and one configuration row each |
 | Metrics endpoint (Electric exposes its own) | Operational visibility | `GET /metrics` (Prometheus exposition, `RestdisServer.Metrics`); see the Grafana dashboard at `grafana/restdis-dashboard.json` |
-
-**Caveat on the three `max_*` tenant columns:** at the time this document was
-written, another change on this branch was adding the migration that creates
-`max_shapes`, `max_log_bytes`, and `max_waiting_clients` on `tenants`, plus
-the `429` enforcement `ELECTRIC_PRD.md` Phase 6 item 3 describes. The columns
-may exist without enforcement wired up yet, depending on exactly when you
-read this against the branch. Check
-`apps/restdis_electric/lib/restdis_electric/limits.ex` (if present) before
-relying on this row.
 
 ---
 

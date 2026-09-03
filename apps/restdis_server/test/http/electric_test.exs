@@ -448,6 +448,130 @@ defmodule RestdisServer.HTTP.ElectricTest do
     assert resp.status == 400
   end
 
+  describe "the secret query parameter" do
+    setup do
+      InMemory.seed([
+        %{
+          api_key: "sk_secret",
+          tenant_id: "secret-tenant",
+          default_ttl_s: 60,
+          persist_cap: 50_000,
+          pgrst_base_url: "http://localhost:3003",
+          pgrst_api_key: "svc_key",
+          replica_url: nil,
+          allow_shape_deletion: false,
+          shape_secret: "sekrit"
+        }
+      ])
+
+      Restdis.Cache.flush_tenant("secret-tenant")
+      :ok
+    end
+
+    defp secret_auth, do: [{"authorization", "Bearer sk_secret"}]
+
+    test "a missing secret returns 401" do
+      {:ok, resp} =
+        Req.get(req(),
+          url: "/v1/shape?table=widgets&offset=-1",
+          headers: secret_auth(),
+          retry: false
+        )
+
+      assert resp.status == 401
+    end
+
+    test "a wrong secret returns 401" do
+      {:ok, resp} =
+        Req.get(req(),
+          url: "/v1/shape?table=widgets&offset=-1&secret=wrong",
+          headers: secret_auth(),
+          retry: false
+        )
+
+      assert resp.status == 401
+    end
+
+    test "the matching secret succeeds" do
+      {:ok, resp} =
+        Req.get(req(),
+          url: "/v1/shape?table=widgets&offset=-1&secret=sekrit",
+          headers: secret_auth(),
+          retry: false
+        )
+
+      assert resp.status == 200
+    end
+  end
+
+  describe "gatekeeper mode" do
+    setup do
+      InMemory.seed([
+        %{
+          api_key: "sk_gatekeeper",
+          tenant_id: "gatekeeper-tenant",
+          default_ttl_s: 60,
+          persist_cap: 50_000,
+          pgrst_base_url: "http://localhost:3003",
+          pgrst_api_key: "svc_key",
+          replica_url: nil,
+          allow_shape_deletion: false,
+          auth_mode: "gatekeeper",
+          shapes: %{"widget-feed" => %{table: "widgets"}}
+        }
+      ])
+
+      Restdis.Cache.flush_tenant("gatekeeper-tenant")
+      :ok
+    end
+
+    defp gatekeeper_auth, do: [{"authorization", "Bearer sk_gatekeeper"}]
+
+    test "subscribing by shape name succeeds" do
+      {:ok, resp} =
+        Req.get(req(),
+          url: "/v1/shape?shape=widget-feed&offset=-1",
+          headers: gatekeeper_auth(),
+          retry: false
+        )
+
+      assert resp.status == 200
+    end
+
+    test "sending 'table' returns 400" do
+      {:ok, resp} =
+        Req.get(req(),
+          url: "/v1/shape?shape=widget-feed&table=widgets&offset=-1",
+          headers: gatekeeper_auth(),
+          retry: false
+        )
+
+      assert resp.status == 400
+    end
+
+    test "an unknown shape name returns 400" do
+      {:ok, resp} =
+        Req.get(req(),
+          url: "/v1/shape?shape=nope&offset=-1",
+          headers: gatekeeper_auth(),
+          retry: false
+        )
+
+      assert resp.status == 400
+    end
+
+    test "a missing shape name returns 400" do
+      {:ok, resp} =
+        Req.get(req(),
+          url: "/v1/shape?offset=-1",
+          headers: gatekeeper_auth(),
+          retry: false
+        )
+
+      assert resp.status == 400
+    end
+  end
+
   test "DELETE /v1/shape removes the shape when allow_shape_deletion is set" do
     {:ok, snapshot} =
       Req.get(req(),

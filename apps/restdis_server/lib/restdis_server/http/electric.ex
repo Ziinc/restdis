@@ -333,6 +333,18 @@ defmodule RestdisServer.HTTP.Electric do
   defp send_error(conn, {:missing_direct_pool, _}),
     do: bad_request(conn, "log=changes_only requires a direct Postgres pool for this tenant")
 
+  defp send_error(conn, {:invalid_secret, _}),
+    do: unauthorized(conn, "missing or incorrect 'secret' query parameter")
+
+  defp send_error(conn, {:forbidden_param, param}),
+    do: bad_request(conn, "'#{param}' is not accepted in gatekeeper mode; use 'shape' instead")
+
+  defp send_error(conn, {:missing_shape_name, _}),
+    do: bad_request(conn, "missing 'shape' query parameter")
+
+  defp send_error(conn, {:unknown_shape, name}),
+    do: bad_request(conn, "unknown shape '#{name}'")
+
   defp send_error(conn, {:invalid_offset, raw}),
     do: bad_request(conn, "invalid 'offset' parameter: #{inspect(raw)}")
 
@@ -363,6 +375,12 @@ defmodule RestdisServer.HTTP.Electric do
     conn
     |> put_resp_header("cache-control", @error_cache)
     |> send_resp(502, Jason.encode!(%{error: "snapshot failed: #{inspect(reason)}"}))
+  end
+
+  defp unauthorized(conn, message) do
+    conn
+    |> put_resp_header("cache-control", @error_cache)
+    |> send_resp(401, Jason.encode!(%{error: message}))
   end
 
   defp too_many_requests(conn, message) do
