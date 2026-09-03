@@ -161,6 +161,28 @@ defmodule RestdisElectric.Log do
   end
 
   @doc """
+  Returns the approximate bytes held by every currently active shape log on
+  this node, summed per tenant, as `{tenant_id, bytes}` pairs. Used for the
+  "log disk use per tenant" gauge polled by the host application.
+  """
+  @spec disk_bytes_by_tenant() :: [{String.t(), non_neg_integer()}]
+  def disk_bytes_by_tenant do
+    @registry
+    |> Registry.select([{{{:"$1", :"$2"}, :"$3", :_}, [], [{{:"$1", :"$3"}}]}])
+    |> Enum.reduce(%{}, fn {tenant_id, pid}, acc ->
+      bytes = safe_call(pid, :bytes, 0)
+      Map.update(acc, tenant_id, bytes, &(&1 + bytes))
+    end)
+    |> Map.to_list()
+  end
+
+  defp safe_call(pid, message, default) do
+    GenServer.call(pid, message)
+  catch
+    :exit, _ -> default
+  end
+
+  @doc """
   Deletes the shape's log, in memory and on disk.
   """
   @spec delete(String.t(), String.t()) :: :ok
@@ -214,6 +236,11 @@ defmodule RestdisElectric.Log do
   @impl GenServer
   def handle_call(:truncated_before, _from, state) do
     {:reply, state.truncated_before, state}
+  end
+
+  @impl GenServer
+  def handle_call(:bytes, _from, state) do
+    {:reply, :erlang.external_size(state.messages), state}
   end
 
   @impl GenServer

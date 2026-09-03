@@ -71,7 +71,7 @@ defmodule RestdisElectric.WAL do
         offset = {lsn, :erlang.unique_integer([:monotonic, :positive])}
 
         change = %{offset: offset, op: op, pk: pk, new_row: new_row, old_row: old_row}
-        appended = Enum.count(handles, &apply_to_shape(&1, tenant_id, change))
+        appended = Enum.count(handles, &apply_to_shape(&1, tenant_id, change, start))
 
         :telemetry.execute(
           [:restdis_electric, :wal, :ingest],
@@ -89,7 +89,7 @@ defmodule RestdisElectric.WAL do
 
   def ingest(_change), do: :ok
 
-  defp apply_to_shape(handle, tenant_id, change) do
+  defp apply_to_shape(handle, tenant_id, change, ingest_started_at) do
     %{op: op, new_row: new_row, old_row: old_row} = change
     definition = definition_for(tenant_id, handle)
     filter = definition.filter
@@ -105,10 +105,26 @@ defmodule RestdisElectric.WAL do
         message = message(definition, operation, change)
 
         case Log.append(tenant_id, handle, [message]) do
-          :ok -> true
-          {:error, _reason} -> false
+          :ok ->
+            emit_propagation_latency(tenant_id, ingest_started_at)
+            true
+
+          {:error, _reason} ->
+            false
         end
     end
+  end
+
+  # A waiting long-poll/SSE loop wakes the instant this append returns, so this doubles as delivery delay.
+  defp emit_propagation_latency(tenant_id, ingest_started_at) do
+    duration_us =
+      System.convert_time_unit(System.monotonic_time() - ingest_started_at, :native, :microsecond)
+
+    :telemetry.execute(
+      [:restdis_electric, :propagation, :latency],
+      %{duration_us: duration_us},
+      %{tenant_id: tenant_id}
+    )
   end
 
   # A shape with no definition yet (or lost on restart) has no filter, so every change to its table logs.

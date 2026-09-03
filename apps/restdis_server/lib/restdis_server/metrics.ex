@@ -45,6 +45,14 @@ defmodule RestdisServer.Metrics do
       ),
       counter("restdis_electric.wal.ingest.appended", tags: [:tenant_id, :table, :operation]),
       counter("restdis_electric.snapshot.method.count", tags: [:tenant_id, :table, :method]),
+      last_value("restdis_electric.shape_registry.active.count", tags: [:tenant_id]),
+      last_value("restdis_electric.log.disk.bytes", tags: [:tenant_id]),
+      distribution("restdis_electric.propagation.latency.duration_us",
+        tags: [:tenant_id],
+        unit: :microsecond,
+        reporter_options: [buckets: [100, 500, 1_000, 5_000, 10_000, 50_000, 100_000, 500_000]]
+      ),
+      counter("restdis_electric.shape.must_refetch.count", tags: [:tenant_id, :cause]),
       distribution("restdis_electric.wal.ingest.tested",
         tags: [:tenant_id, :table],
         reporter_options: [buckets: [1, 2, 5, 10, 25, 50, 100, 500, 1_000]]
@@ -118,7 +126,8 @@ defmodule RestdisServer.Metrics do
   @spec periodic_measurements() :: [:telemetry_poller.measurement()]
   def periodic_measurements do
     [
-      {RestdisServer.Metrics, :dispatch_vm_metrics, []}
+      {RestdisServer.Metrics, :dispatch_vm_metrics, []},
+      {RestdisServer.Metrics, :dispatch_shape_metrics, []}
     ]
   end
 
@@ -132,5 +141,30 @@ defmodule RestdisServer.Metrics do
       %{total: :erlang.statistics(:total_run_queue_lengths_all)},
       %{}
     )
+  end
+
+  @doc """
+  Polls `RestdisElectric.ShapeRegistry` and `RestdisElectric.Log` for the
+  "active shapes per tenant" and "log disk use per tenant" gauges.
+  """
+  @spec dispatch_shape_metrics() :: :ok
+  def dispatch_shape_metrics do
+    for {tenant_id, count} <- RestdisElectric.ShapeRegistry.active_counts() do
+      :telemetry.execute(
+        [:restdis_electric, :shape_registry, :active],
+        %{count: count},
+        %{tenant_id: tenant_id}
+      )
+    end
+
+    for {tenant_id, bytes} <- RestdisElectric.Log.disk_bytes_by_tenant() do
+      :telemetry.execute(
+        [:restdis_electric, :log, :disk],
+        %{bytes: bytes},
+        %{tenant_id: tenant_id}
+      )
+    end
+
+    :ok
   end
 end

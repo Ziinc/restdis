@@ -112,6 +112,23 @@ defmodule RestdisElectric.ShapeRegistry do
   end
 
   @doc """
+  Returns the number of currently registered shapes for every tenant that has
+  at least one, as `{tenant_id, count}` pairs. Used for the "active shapes
+  per tenant" gauge polled by the host application.
+  """
+  @spec active_counts() :: [{String.t(), non_neg_integer()}]
+  def active_counts do
+    if :ets.whereis(@shapes) == :undefined do
+      []
+    else
+      @shapes
+      |> :ets.select([{{{:"$1", :_}, :_}, [], [:"$1"]}])
+      |> Enum.frequencies()
+      |> Map.to_list()
+    end
+  end
+
+  @doc """
   Returns every handle registered for `tenant_id`'s `schema`.`table`.
   """
   @spec handles_for(String.t(), String.t(), String.t()) :: [String.t()]
