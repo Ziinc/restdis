@@ -28,7 +28,16 @@ defmodule RestdisElectric.SqlParser do
       {:any, "=", left, right} | {:all, "=", left, right}
       {:func, "lower", [arg]}
       {:array, [item]}
+      {:in_subquery, expr, negated?, table, column, selection | :none}
       {:unsupported, description}
+
+  `{:in_subquery, ...}` represents `expr IN (SELECT column FROM table [WHERE
+  selection])`. The Rust side only accepts a plain, non-nested, single-table
+  subquery with exactly one projected column; `selection` is that subquery's
+  own `WHERE` clause, encoded the same way as everything else here (or `:none`
+  if it has no `WHERE`). Whether the subquery is *correlated* to the outer
+  query is not decided here, since this parser has no notion of the outer
+  table's schema — `RestdisElectric.Definition` checks that separately.
   """
 
   use Rustler, otp_app: :restdis_electric, crate: "restdis_electric_sql"

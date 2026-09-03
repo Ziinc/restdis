@@ -6,6 +6,27 @@ defmodule RestdisElectric.Definition do
   A definition is validated against the table's real schema before it becomes
   a shape. Validation failures are domain values (`{:error, {:unknown_table,
   table}}` and friends); this module never speaks HTTP.
+
+  ## `field IN (subquery)`
+
+  `RestdisElectric.Eval` parses and structurally validates a plain,
+  non-correlated `field IN (SELECT column FROM table [WHERE ...])` clause
+  (see its moduledoc). This module goes one step further and validates that
+  the subquery is not, in fact, correlated: every column its `WHERE` clause
+  references must belong to the subquery's own table, not to this shape's
+  table. A name shared with this shape's table produces
+  `{:error, {:correlated_subquery, column}}`; any other name not found on
+  the subquery's table produces `{:error, {:unknown_columns, [column]}}`.
+
+  A subquery that passes all of that is still rejected, with
+  `{:error, {:unsupported_where, _}}`, because nothing yet incrementally
+  tracks the subquery's live result set: accepting it would either force a
+  full scan of this shape's table on every write to the subquery's table, or
+  worse, silently miss the rows that enter or leave the shape when the
+  subquery's result changes but the row itself does not (ELECTRIC_PRD Phase 6
+  item 1). A future implementation only needs to replace that final
+  rejection with real tracking; the parsing and validation above already do
+  the rest.
   """
 
   alias RestdisElectric.Eval
@@ -33,6 +54,7 @@ defmodule RestdisElectric.Definition do
           | {:unsupported_log_mode, String.t()}
           | {:unsupported_replica, String.t()}
           | {:missing_replica_identity, String.t()}
+          | {:correlated_subquery, String.t()}
 
   defstruct [
     :tenant_id,
@@ -219,7 +241,8 @@ defmodule RestdisElectric.Definition do
 
   defp compile_filter(%__MODULE__{where: where} = definition, info) do
     with {:ok, filter} <- Eval.compile(where, definition.params),
-         :ok <- check_filter_columns(definition, filter, info) do
+         :ok <- check_filter_columns(definition, filter, info),
+         :ok <- check_subqueries(definition, filter, info) do
       {:ok, %{definition | filter: filter}}
     end
   end
@@ -234,12 +257,62 @@ defmodule RestdisElectric.Definition do
 
   # A clause may address a column plainly, by table, or by schema and table; all three name the shape's table.
   defp known_names(definition, info) do
-    Enum.flat_map(info.columns, fn column ->
-      [
-        column,
-        "#{definition.table}.#{column}",
-        "#{definition.schema}.#{definition.table}.#{column}"
-      ]
+    qualified_names(definition.schema, definition.table, info.columns)
+  end
+
+  defp qualified_names(schema, table, columns) do
+    Enum.flat_map(columns, fn column ->
+      [column, "#{table}.#{column}", "#{schema}.#{table}.#{column}"]
     end)
+  end
+
+  # Validated in full, including correlation, then rejected until Phase 6 item 1's tracker exists; see the moduledoc.
+  defp check_subqueries(definition, filter, outer_info) do
+    subqueries = Eval.subqueries(filter)
+
+    case Enum.find_value(subqueries, &subquery_error(definition, &1, outer_info)) do
+      nil when subqueries == [] -> :ok
+      nil -> not_yet_implemented()
+      error -> error
+    end
+  end
+
+  defp subquery_error(definition, subquery, outer_info) do
+    case check_subquery(definition, subquery, outer_info) do
+      :ok -> nil
+      {:error, _} = error -> error
+    end
+  end
+
+  defp check_subquery(definition, {table, _column, selection}, outer_info) do
+    {:ok, {schema, name}} = parse_table(table)
+
+    case TableInfo.fetch(schema, name) do
+      {:ok, inner_info} ->
+        check_subquery_selection(definition, selection, {schema, name, inner_info}, outer_info)
+
+      :error ->
+        {:error, {:unknown_table, "#{schema}.#{name}"}}
+    end
+  end
+
+  defp check_subquery_selection(definition, selection, {schema, name, inner_info}, outer_info) do
+    referenced = Eval.tree_columns(selection)
+    inner_names = qualified_names(schema, name, inner_info.columns)
+    unknown = referenced -- inner_names
+    outer_names = known_names(definition, outer_info)
+
+    cond do
+      unknown == [] -> :ok
+      Enum.any?(unknown, &(&1 in outer_names)) -> {:error, {:correlated_subquery, hd(unknown)}}
+      true -> {:error, {:unknown_columns, unknown}}
+    end
+  end
+
+  defp not_yet_implemented do
+    {:error,
+     {:unsupported_where,
+      "field IN (subquery) is not supported yet: Electric does not incrementally track " <>
+        "the subquery's live result set"}}
   end
 end

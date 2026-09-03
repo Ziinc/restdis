@@ -7,7 +7,7 @@ defmodule RestdisElectric.SchemaWatcher do
   This catches the schema changes that produce no WAL notification today —
   `ALTER TABLE ... ALTER COLUMN ... TYPE`, adding or dropping a column, and
   so on. `DROP TABLE` already gets its own signal from a DDL event trigger
-  (see `RestdisBuster`); this module exists for everything that trigger
+  upstream of this context; this module exists for everything that trigger
   does not cover.
 
   Invalidation reuses the exact mechanism a shape's own eviction or `DELETE
