@@ -56,11 +56,11 @@ defmodule Restdis.Cache.DiskCache do
   Removes `key` from the disk cache.
 
   Synchronous (a `call`, not a `cast`) so a caller that deletes a key and
-  then immediately reads or recreates it elsewhere — e.g.
-  `RestdisElectric.Log.delete/2` stopping a shape's log process and then
-  letting a later `ensure_started/2` re-hydrate from disk — cannot observe
-  the pre-delete value. A `cast` here previously let the delete's message
-  race a subsequent `get` call from a different process, since Erlang only
+  then immediately reads or recreates it elsewhere — e.g. a supervising
+  process that stops some other stateful process depending on this key and
+  then lets a later re-hydration step read from disk — cannot observe the
+  pre-delete value. A `cast` here previously let the delete's message race
+  a subsequent `get` call from a different process, since Erlang only
   orders messages between the same sender and receiver.
   """
   @spec delete(String.t(), Key.t()) :: :ok
