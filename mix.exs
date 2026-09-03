@@ -23,6 +23,7 @@ defmodule RestdisUmbrella.MixProject do
         applications: [
           restdis_repo: :permanent,
           restdis: :permanent,
+          restdis_electric: :permanent,
           restdis_replicator: :permanent,
           restdis_server: :permanent,
           restdis_buster: :permanent

@@ -1,0 +1,162 @@
+defmodule RestdisServer.HTTP.ElectricTest do
+  use ExUnit.Case
+
+  alias RestdisServer.TenantStore.InMemory
+
+  @tenant_id "test-electric-tenant"
+
+  setup do
+    InMemory.seed([
+      %{
+        api_key: "sk_electric",
+        tenant_id: @tenant_id,
+        default_ttl_s: 60,
+        persist_cap: 50_000,
+        pgrst_base_url: "http://localhost:3003",
+        pgrst_api_key: "svc_key",
+        replica_url: nil,
+        allow_shape_deletion: true
+      }
+    ])
+
+    Restdis.Cache.flush_tenant(@tenant_id)
+
+    tables = Application.get_env(:restdis_electric, :tables, %{})
+
+    Application.put_env(
+      :restdis_electric,
+      :tables,
+      Map.put(tables, "public.widgets", %{
+        columns: ["id", "name"],
+        primary_key: ["id"],
+        replica_identity: :full
+      })
+    )
+
+    stub_rows = Application.get_env(:restdis_electric, :stub_rows, %{})
+
+    Application.put_env(
+      :restdis_electric,
+      :stub_rows,
+      Map.put(stub_rows, "widgets", [%{"id" => 1, "name" => "a"}])
+    )
+
+    on_exit(fn -> InMemory.clear() end)
+    :ok
+  end
+
+  defp req do
+    Req.new(plug: RestdisServer.HTTP.Endpoint)
+  end
+
+  defp auth, do: [{"authorization", "Bearer sk_electric"}]
+
+  test "missing auth returns 401" do
+    {:ok, resp} = Req.get(req(), url: "/v1/shape?table=widgets&offset=-1", retry: false)
+    assert resp.status == 401
+  end
+
+  test "subscribing from -1 returns a snapshot with electric headers" do
+    {:ok, resp} =
+      Req.get(req(),
+        url: "/v1/shape?table=widgets&offset=-1",
+        headers: auth(),
+        retry: false
+      )
+
+    assert resp.status == 200
+    assert [handle] = Req.Response.get_header(resp, "electric-handle")
+    assert Req.Response.get_header(resp, "electric-up-to-date") == ["true"]
+    assert [_offset] = Req.Response.get_header(resp, "electric-offset")
+
+    [insert_message, control_message] = resp.body
+    assert insert_message["value"] == %{"id" => 1, "name" => "a"}
+    assert insert_message["headers"]["operation"] == "insert"
+    assert control_message["headers"]["control"] == "up-to-date"
+    assert is_binary(handle)
+  end
+
+  test "an unknown table returns 400" do
+    {:ok, resp} =
+      Req.get(req(), url: "/v1/shape?table=nope&offset=-1", headers: auth(), retry: false)
+
+    assert resp.status == 400
+  end
+
+  test "resuming with an unknown handle returns 409 with a location header" do
+    {:ok, resp} =
+      Req.get(req(),
+        url: "/v1/shape?table=widgets&offset=0_inf&handle=bogus-1",
+        headers: auth(),
+        retry: false
+      )
+
+    assert resp.status == 409
+    assert [location] = Req.Response.get_header(resp, "location")
+    assert location =~ "offset=-1"
+  end
+
+  test "resuming without a handle returns 400" do
+    {:ok, resp} =
+      Req.get(req(),
+        url: "/v1/shape?table=widgets&offset=0_inf",
+        headers: auth(),
+        retry: false
+      )
+
+    assert resp.status == 400
+  end
+
+  test "DELETE /v1/shape removes the shape when allow_shape_deletion is set" do
+    {:ok, snapshot} =
+      Req.get(req(),
+        url: "/v1/shape?table=widgets&offset=-1",
+        headers: auth(),
+        retry: false
+      )
+
+    [handle] = Req.Response.get_header(snapshot, "electric-handle")
+
+    {:ok, resp} =
+      Req.delete(req(),
+        url: "/v1/shape?handle=#{handle}",
+        headers: auth(),
+        retry: false
+      )
+
+    assert resp.status == 202
+
+    {:ok, resumed} =
+      Req.get(req(),
+        url: "/v1/shape?table=widgets&offset=0_inf&handle=#{handle}",
+        headers: auth(),
+        retry: false
+      )
+
+    assert resumed.status == 409
+  end
+
+  test "DELETE /v1/shape returns 404 when disabled" do
+    InMemory.seed([
+      %{
+        api_key: "sk_no_delete",
+        tenant_id: "no-delete-tenant",
+        default_ttl_s: 60,
+        persist_cap: 50_000,
+        pgrst_base_url: "http://localhost:3003",
+        pgrst_api_key: "svc_key",
+        replica_url: nil,
+        allow_shape_deletion: false
+      }
+    ])
+
+    {:ok, resp} =
+      Req.delete(req(),
+        url: "/v1/shape?handle=whatever",
+        headers: [{"authorization", "Bearer sk_no_delete"}],
+        retry: false
+      )
+
+    assert resp.status == 404
+  end
+end

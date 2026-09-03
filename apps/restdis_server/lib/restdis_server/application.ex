@@ -23,6 +23,7 @@ defmodule RestdisServer.Application do
       cluster_formation() ++
         [
           Restdis.Cache,
+          RestdisElectric,
           tenant_config_cache_spec(),
           TenantConfig.Cache,
           RestdisServer.PolicyStore,

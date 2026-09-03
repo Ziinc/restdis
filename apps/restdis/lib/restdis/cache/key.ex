@@ -3,7 +3,7 @@ defmodule Restdis.Cache.Key do
   Cache key construction, encoding and decoding of the wire representation.
   """
 
-  @type scope :: :table | :rpc | :view | :raw
+  @type scope :: :table | :rpc | :view | :shape | :raw
 
   @type t :: %__MODULE__{
           scope: scope(),
@@ -13,14 +13,14 @@ defmodule Restdis.Cache.Key do
 
   defstruct [:scope, :ident, :params_hash]
 
-  @scope_to_wire %{table: "t", rpc: "r", view: "v"}
-  @wire_to_scope %{"t" => :table, "r" => :rpc, "v" => :view}
+  @scope_to_wire %{table: "t", rpc: "r", view: "v", shape: "s"}
+  @wire_to_scope %{"t" => :table, "r" => :rpc, "v" => :view, "s" => :shape}
 
   @doc """
   Builds a cache key from a scope, identifier and query params.
   """
   @spec build(scope(), String.t(), map()) :: t()
-  def build(scope, ident, params) when scope in [:table, :rpc, :view] do
+  def build(scope, ident, params) when scope in [:table, :rpc, :view, :shape] do
     %__MODULE__{scope: scope, ident: ident, params_hash: :erlang.phash2(params)}
   end
 
@@ -37,8 +37,9 @@ defmodule Restdis.Cache.Key do
   @doc """
   Decodes a wire key back into a `t:t/0`.
 
-  Keys prefixed `pgrst:` decode into the canonical `table`/`rpc`/`view` scopes
-  used by `PGRST.QUERY`/`PGRST.POLICY`. Any other colon-free string decodes as
+  Keys prefixed `pgrst:` decode into the canonical `table`/`rpc`/`view`/`shape`
+  scopes used by `PGRST.QUERY`/`PGRST.POLICY` and shape logs. Any other
+  colon-free string decodes as
   a `:raw` key: a plain, user-managed key written via `SET` and readable via
   `GET`/`MGET`/`TTL`/`EXISTS`/`DEL`. Keys containing a colon but lacking the
   `pgrst:` prefix are reserved for the `<table>:<primary_key>` replicated

@@ -10,6 +10,7 @@ defmodule RestdisServer.HTTP.Endpoint do
   alias Restdis.Cache.Key
   alias Restdis.Cache.Router
   alias RestdisServer.Fallback
+  alias RestdisServer.HTTP.Electric
   alias RestdisServer.HTTP.Plug.Auth
   alias RestdisServer.HTTP.Plug.CacheHeaders
   alias RestdisServer.PGRST.QueryParser
@@ -49,6 +50,16 @@ defmodule RestdisServer.HTTP.Endpoint do
         {:error, _} -> send_resp(conn, 400, Jason.encode!(%{error: "invalid JSON"}))
       end
     end
+  end
+
+  get "/v1/shape" do
+    conn = Auth.call(conn, [])
+    if conn.halted, do: conn, else: Electric.get_shape(conn)
+  end
+
+  delete "/v1/shape" do
+    conn = Auth.call(conn, [])
+    if conn.halted, do: conn, else: Electric.delete_shape(conn)
   end
 
   match _ do

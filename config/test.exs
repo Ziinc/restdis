@@ -34,6 +34,12 @@ config :restdis,
   tenant_config_lookup: nil,
   ecto_repos: [Restdis.TestRepo]
 
+config :restdis_electric,
+  table_info: RestdisElectric.TableInfo.Static,
+  snapshot_reader: RestdisElectric.Snapshotter.Stub,
+  tables: %{},
+  stub_rows: %{}
+
 # Exercises `Restdis.Migration` against a real repo. Kept in sync with `apps/restdis/config/test.exs`.
 config :restdis, Restdis.TestRepo,
   username: "postgres",
