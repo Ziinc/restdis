@@ -21,6 +21,15 @@ defmodule RestdisElectric.Eval do
 
   `$1` placeholders read from the `params` map given to `compile/2`. Values
   are never interpolated into the expression text.
+
+  ## Text ordering
+
+  `<`, `<=`, `>`, and `>=` on text compare with Elixir's byte-order `<`/`>`,
+  which matches a Postgres database initialized with the `C` collation. A
+  database using a linguistic collation (the default on many platform
+  installs) may order punctuation and case differently and disagree with us.
+  Tenants that need `<`/`>` on text must run their table under `C` collation,
+  or restrict shapes to the other supported operators.
   """
 
   alias RestdisElectric.SqlParser

@@ -6,6 +6,10 @@ services:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
       POSTGRES_DB: restdis_dev
+      # RestdisElectric.Eval compares text with Elixir's byte-order `<`/`>`,
+      # matching a database initialized with the C collation. A linguistic
+      # collation orders punctuation differently and would disagree.
+      POSTGRES_INITDB_ARGS: "--locale=C"
     ports:
       - "5432:5432"
     volumes:
