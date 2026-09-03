@@ -295,12 +295,52 @@ response is the same ordered insert/update/delete messages the HTTP shape API re
 translated into the Redis protocol. No database round trip, and no code path outside
 `RestdisElectric`'s read API.
 
+### Fan-out model: one upstream subscription, many followers
+
+The scalability property this phase is built around is that following is cheap because
+it never adds upstream cost. There is exactly one thing in the whole system that talks
+to Postgres about changes: the single, cluster-wide logical replication slot
+`restdis_buster` already owns (`PRD.md`, "WAL Broadcasting"). Everything downstream of
+that one subscription is fan-out, and `RT.FOLLOW` adds no new tier below it — it only
+adds consumers on top of tiers that already exist:
+
+1. **One WAL subscription, cluster-wide.** `restdis_buster`'s `GenSingleton` tailer is
+   the only process anywhere that reads the replication slot. `RT.FOLLOW` never opens a
+   second one, never opens a per-tenant one, and never opens a per-table one. This is
+   true today and does not change.
+2. **One shape consumer per distinct definition, not per follower.** `RestdisElectric`
+   deduplicates by `(tenant_id, definition)` when computing a handle (`ELECTRIC_PRD.md`,
+   "Handles, offsets, and cache keys"). When `RT.FOLLOW` on `table_or_channel` with a
+   given `FILTER`/`LIMIT` produces the same definition as an existing shape — whether
+   that shape was created by another `RT.FOLLOW` call, by another tenant client, or by
+   `GET /v1/shape` — it attaches to that shape's existing `RestdisElectric.Consumer`
+   instead of starting a second one. A thousand callers following the same table with
+   the same filter cost one WAL-side consumer, not a thousand.
+3. **One append, many readers.** Within a single shape, `restdis_electric`'s per-AZ fan-
+   out and live-request collapsing (`ELECTRIC_PRD.md`, "Fan-out, and where we differ on
+   purpose") already merge every waiting `(tenant, handle, offset)` reader — whether it
+   arrived via `GET /v1/shape` or via a blocking `RT.CHANGES` — into one waiting set that
+   a single log append wakes. `RT.FOLLOW` callers are simply more members of that same
+   waiting set; they do not create a second broadcast path alongside it.
+4. **Read replicas fan out reads further, not writes.** Snapshot reads for a new follow
+   (the initial page-through via `RestdisElectric.Snapshotter`) route through
+   `Restdis.Cache.Origin` and inherit Phase 1's read replica preference, so a burst of
+   new followers hitting the same table pulls its initial snapshot from the replica, not
+   the primary, the same way any other origin fetch does.
+
+The net effect: the marginal cost of the Nth follower of an already-followed
+table/filter is one more entry in an in-memory waiting set, not one more Postgres
+connection, one more replication slot, or one more WAL scan. Scalability comes from
+collapsing at every tier, not from any tier being individually fast.
+
 ### Implementation steps
 
 1. Implement `RT.FOLLOW` in `restdis_server`'s Redis command dispatch: build a
    `RestdisElectric.Definition` from the command arguments, call `RestdisElectric` to
    obtain a handle, and store the `(tenant, table_or_channel) -> handle` mapping needed
-   to resolve later `RT.CHANGES` calls.
+   to resolve later `RT.CHANGES` calls. Rely on `RestdisElectric`'s existing
+   definition-hash deduplication (step 2 of `ELECTRIC_PRD.md` Phase 1) to attach to an
+   existing shape/consumer rather than adding a second dedup layer in `restdis_server`.
 2. Map `LIMIT` to the shape's configured retention length (`ELECTRIC_PRD.md`, "How we
    store the shape log"), as a per-follow override of the tenant default, rather than
    introducing a second cap concept.
@@ -325,6 +365,16 @@ translated into the Redis protocol. No database round trip, and no code path out
   `RestdisElectric`'s log, with no Postgres round trip.
 - `RT.FOLLOW` on a table already followed via `GET /v1/shape` with an identical
   definition reuses the existing shape and handle rather than creating a second one.
+- 1,000 concurrent `RT.FOLLOW` calls across many tenant clients, all with the same
+  table and `FILTER`, produce exactly one `RestdisElectric.Consumer` and one WAL-side
+  subscription — verified directly against the fan-out model above, not just against
+  observed latency.
+- 1,000 concurrent blocking `RT.CHANGES` callers waiting on the same
+  `(tenant, handle, offset)` are woken by exactly one log append, the same collapsing
+  guarantee `ELECTRIC_PRD.md` Phase 2 requires for `GET /v1/shape?live=true`.
+- The whole cluster's replication-slot count does not change as `RT.FOLLOW` usage grows
+  from 0 to N distinct definitions across all tenants: it stays at one, the same slot
+  `restdis_buster` already holds.
 - A shape evicted or invalidated for any of the reasons in `ELECTRIC_PRD.md`'s "Every
   reason we return `409`" table surfaces as a distinct, documented error to the
   `RT.CHANGES` caller rather than silently returning stale or empty data.
@@ -334,13 +384,21 @@ translated into the Redis protocol. No database round trip, and no code path out
 - This phase has a hard dependency on `restdis_electric` Phases 1–2 shipping first;
   sequencing this RFC's Realtime work against `ELECTRIC_PRD.md`'s own phases is a
   cross-RFC scheduling risk, not just an implementation one.
+- The fan-out property depends entirely on `RT.FOLLOW` calls actually producing
+  identical `RestdisElectric.Definition` values for what a human would consider "the
+  same follow." Inconsistent argument ordering, whitespace, or casing in `FILTER`
+  between two callers must normalize to the same canonical definition before hashing,
+  or two functionally identical follows silently create two consumers instead of
+  sharing one — quietly defeating the scalability goal without any visible error.
 - `FILTER` reuses the `where`-clause subset from `ELECTRIC_PRD.md` Phase 3
   (`RestdisElectric.Eval`); until that phase ships, `RT.FOLLOW ... FILTER ...` must
   return an explicit "not yet supported" error rather than silently ignoring the filter.
 - Retention (`LIMIT`) is a per-shape configuration value, not a live parameter a client
   can renegotiate after the fact; changing it for an existing follow requires issuing a
-  new `RT.FOLLOW`, which produces a new handle — document this rather than silently
-  truncating or growing an existing log.
+  new `RT.FOLLOW`, which produces a new handle. Because `LIMIT` is part of the
+  definition that gets hashed, two callers following the same table/filter with
+  different `LIMIT` values are — correctly — two different shapes, not one; document
+  this so tenants understand it as a deliberate boundary of the fan-out model, not a bug.
 
 ---
 
