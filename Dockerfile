@@ -10,7 +10,7 @@ ARG RUNNER_IMAGE="alpine:${ALPINE_VERSION}"
 # ---------------------------------------------------------------------------
 FROM ${BUILDER_IMAGE} AS builder
 
-RUN apk add --no-cache build-base git ca-certificates
+RUN apk add --no-cache build-base git ca-certificates cargo rustc
 
 WORKDIR /app
 
