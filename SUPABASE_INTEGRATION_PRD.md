@@ -38,21 +38,41 @@ from the primary whenever the tenant has a replica.
 ## Background
 
 This RFC builds directly on the architecture in `PRD.md`. It does not introduce a new
-umbrella app; it teaches the existing `restdis_server` (HTTP proxy), `restdis_cache`
-(three-layer cache), and `restdis_buster` (WAL tailer) about four new origin types, plus
-a channel/table "follow" mode that is new: a change-log style cache rather than a
-query-result cache.
+umbrella app for PostgREST, Storage, Auth, or Edge Functions caching; it teaches the
+existing `restdis_server` (HTTP proxy), `restdis_cache` (three-layer cache), and
+`restdis_buster` (WAL tailer) about three new origin types.
 
-All four integrations reduce to the same base primitive already implemented for
+Three of the four integrations reduce to the same base primitive already implemented for
 PostgREST:
 
 > Receive an HTTP `GET`, fetch it from a declared origin, cache the result, serve it on
 > repeat, bust it on the matching WAL event.
 
-The Realtime integration is the one exception that needs a new primitive: instead of
-caching a single query result, it caches an append-only window of the last N observed
-changes for a followed channel or table, independent of any specific query being
-re-issued.
+### Realtime builds on `restdis_electric`, not a new primitive
+
+`ELECTRIC_PRD.md` adds a fifth umbrella application, `restdis_electric`, that already
+solves the exact problem this RFC originally proposed solving from scratch: an
+ordered, bounded, WAL-fed log of row-level changes for a declared subset of a table
+(a "shape"), served over HTTP with resume-by-offset semantics. That is the same shape
+as "follow a table or channel, keep the last N changes, let a client catch up without
+hitting Postgres."
+
+Building a second, bespoke ring-buffer primitive for Realtime follow mode alongside
+`restdis_electric`'s shape log would leave Restdis with two overlapping append-only log
+implementations doing the same job with different retention and read semantics.
+`ELECTRIC_PRD.md` is explicit about avoiding exactly this split for
+`restdis_replicator`'s always-live datasets ("One storage layer, shared with
+`restdis_replicator`"). This RFC applies the same reasoning: Realtime follow mode is a
+Restdis-native client (not an Electric-protocol client) of the shape log that
+`restdis_electric` already builds, not a fourth storage model.
+
+Concretely, the Realtime phase below (Phase 5) depends on `restdis_electric`'s public
+API — `RestdisElectric` for handles/reads and `RestdisElectric.Definition` for shape
+construction — the same way `restdis_server`'s `/v1/shape` route does. It adds no new
+append-only store. The `RT.FOLLOW` / `RT.CHANGES` Redis-protocol commands described
+below are a second front door onto the same shape log that `GET /v1/shape` exposes over
+HTTP, sized and retained per Restdis's own configuration rather than Electric's client
+protocol.
 
 ---
 
@@ -66,8 +86,10 @@ re-issued.
 - Storage object/bucket metadata caching, WAL-driven busting on storage schema changes.
 - Auth user-data caching with mandatory redaction of sensitive fields, WAL-driven busting
   on the `auth.users` table (and configured related tables).
-- Realtime "follow" primitive: subscribe to a channel or replicated table, retain the
-  last N events in memory + disk cache, serve them as a change-log query.
+- Realtime "follow" commands (`RT.FOLLOW` / `RT.CHANGES`): subscribe to a channel or
+  table and read the last N changes as a change-log query, implemented as a
+  Redis-protocol front door onto `restdis_electric`'s shape log rather than a new
+  storage engine.
 - Edge Function `GET` caching, transparent when routed through Restdis.
 
 **Out of scope:**
@@ -235,28 +257,31 @@ validation.
 
 ---
 
-## Phase 5: Realtime Integration — Follow Mode
+## Phase 5: Realtime Integration — Follow Mode on `restdis_electric`
 
-Delivers a new primitive: a WAL-fed, bounded change-log per followed table or channel,
-served independently of any re-executed query. Ships after the other Postgres-backed
-integrations because it is the one part of this RFC that is not a straightforward reuse
-of the existing query-cache-and-bust pattern.
+Delivers `RT.FOLLOW` / `RT.CHANGES` as a Redis-protocol client of `restdis_electric`'s
+shape log (`ELECTRIC_PRD.md`). Ships after the other Postgres-backed integrations, and
+depends on `restdis_electric` Phase 1 (the shape log and reads without live updates) and
+Phase 2 (live updates) having landed first. It adds no new append-only store: the
+bounded, WAL-fed change-log this RFC originally proposed building is exactly what a
+shape already is.
 
 ### Model
 
-A tenant issues a **follow** command against a channel or a replicated table:
+A tenant issues a **follow** command against a channel or a table:
 
 ```
 RT.FOLLOW <table_or_channel> [LIMIT <n>] [FILTER <postgres_changes_filter>]
 ```
 
-This does not execute a query. It registers interest with `restdis_buster`, the same WAL
-tailer already consuming the replication slot for cache invalidation. From that point on,
-every matching WAL event (INSERT/UPDATE/DELETE) for the followed table is appended to a
-bounded ring buffer — last `n` entries, default configurable per tenant — held in ETS
-(hot) and persisted to CubDB (durable). This is a change-log, not a materialized query
-result: entries are the raw before/after row deltas from WAL, tagged with LSN and
-timestamp.
+`RT.FOLLOW` translates its arguments into a `RestdisElectric.Definition` — `table` maps
+directly, `FILTER` maps to the shape's `where` clause (subject to the same supported
+subset and `400`-on-reject rules as `ELECTRIC_PRD.md` Phase 3), and `LIMIT` sets the
+shape's configured retention length instead of Electric's default unbounded-with-
+compaction log. This calls the same `RestdisElectric` public API that
+`RestdisServer.HTTP.Electric` calls for `GET /v1/shape`; it does not talk to
+`restdis_buster` directly, and it does not open a second WAL subscription for a table
+already followed by another shape or by `PRD.md` Phase 5 table replication.
 
 ### Read path
 
@@ -264,42 +289,58 @@ timestamp.
 RT.CHANGES <table_or_channel> [SINCE <lsn_or_cursor>] [LIMIT <n>]
 ```
 
-Serves directly from the ring buffer in ETS/CubDB. No database round trip.
+Maps to a read of the shape log by offset: `SINCE` becomes the Electric-format
+`{lsn}_{op_offset}` offset (or `-1` when omitted, to start from a snapshot), and the
+response is the same ordered insert/update/delete messages the HTTP shape API returns,
+translated into the Redis protocol. No database round trip, and no code path outside
+`RestdisElectric`'s read API.
 
 ### Implementation steps
 
-1. Implement `RT.FOLLOW`: register a follow target with `restdis_buster`, keyed by table
-   the same way the reverse index is, reusing the existing per-AZ fan-out dispatch.
-2. Implement the bounded ring buffer: per-tenant, per-followed-table cap (analogous to
-   the existing persist cap), stored in ETS with CubDB persistence, pure FIFO eviction
-   once the cap is hit — no TTL.
-3. On matching WAL event, append the before/after row delta tagged with LSN and
-   timestamp to the ring buffer instead of (or in addition to, if the table is also
-   cached) busting a query cache entry.
-4. Implement `RT.CHANGES`: read from the ring buffer by cursor/LSN and limit, entirely
-   from ETS/CubDB.
-5. When `RT.FOLLOW` targets a table already covered by Phase 5 table replication
-   (`PRD.md`), reuse that existing subscription rather than opening a second one.
+1. Implement `RT.FOLLOW` in `restdis_server`'s Redis command dispatch: build a
+   `RestdisElectric.Definition` from the command arguments, call `RestdisElectric` to
+   obtain a handle, and store the `(tenant, table_or_channel) -> handle` mapping needed
+   to resolve later `RT.CHANGES` calls.
+2. Map `LIMIT` to the shape's configured retention length (`ELECTRIC_PRD.md`, "How we
+   store the shape log"), as a per-follow override of the tenant default, rather than
+   introducing a second cap concept.
+3. Implement `RT.CHANGES`: resolve the stored handle, convert `SINCE`/`LIMIT` into an
+   offset and range, call `RestdisElectric`'s read API, and translate the returned
+   messages into a RESP response.
+4. Implement a non-blocking variant that surfaces `RestdisElectric.await/3` (from
+   `ELECTRIC_PRD.md` Phase 2) so a client can long-poll `RT.CHANGES` for new events the
+   same way `live=true` works over HTTP, without introducing a second live-update
+   mechanism.
+5. Translate a `409`/must-refetch result from `RestdisElectric` (handle evicted,
+   retention window exceeded, replication slot recreated) into a Redis-protocol error
+   that tells the client to re-issue `RT.FOLLOW` from the beginning, mirroring the HTTP
+   `location` header's role.
 
 **Completion criteria:**
 
-- `RT.FOLLOW` on a table followed by no prior subscriber begins populating the ring
-  buffer from the next WAL event onward.
-- `RT.CHANGES` returns the last N events for a followed table entirely from cache, with
-  no Postgres round trip.
-- Ring buffer size caps at the configured per-table limit with FIFO eviction, verified
-  under sustained write load exceeding the cap.
-- Following a table already under `PRD.md` Phase 5 replication does not open a second
-  WAL subscription for that table.
+- `RT.FOLLOW` on a table with no prior shape creates exactly one
+  `RestdisElectric` shape and one WAL subscription for it, verified against
+  `restdis_electric`'s per-shape process count.
+- `RT.CHANGES` returns the last N events for a followed table entirely from
+  `RestdisElectric`'s log, with no Postgres round trip.
+- `RT.FOLLOW` on a table already followed via `GET /v1/shape` with an identical
+  definition reuses the existing shape and handle rather than creating a second one.
+- A shape evicted or invalidated for any of the reasons in `ELECTRIC_PRD.md`'s "Every
+  reason we return `409`" table surfaces as a distinct, documented error to the
+  `RT.CHANGES` caller rather than silently returning stale or empty data.
 
 **Risks:**
 
-- Ring buffer memory cost scales with per-tenant, per-table cap; validate default cap
-  against the existing ETS per-tenant budget (`PRD.md`, "Resource Limits") so a few
-  heavily-followed tables can't crowd out query cache memory for the same tenant.
-- `RT.FOLLOW` on a high-write table without a `FILTER` can fill the buffer faster than
-  a slow-polling client can drain it, discarding events the client never read; document
-  this as expected FIFO behavior, not a bug.
+- This phase has a hard dependency on `restdis_electric` Phases 1–2 shipping first;
+  sequencing this RFC's Realtime work against `ELECTRIC_PRD.md`'s own phases is a
+  cross-RFC scheduling risk, not just an implementation one.
+- `FILTER` reuses the `where`-clause subset from `ELECTRIC_PRD.md` Phase 3
+  (`RestdisElectric.Eval`); until that phase ships, `RT.FOLLOW ... FILTER ...` must
+  return an explicit "not yet supported" error rather than silently ignoring the filter.
+- Retention (`LIMIT`) is a per-shape configuration value, not a live parameter a client
+  can renegotiate after the fact; changing it for an existing follow requires issuing a
+  new `RT.FOLLOW`, which produces a new handle — document this rather than silently
+  truncating or growing an existing log.
 
 ---
 
@@ -343,9 +384,10 @@ so it can't reuse WAL-driven busting as a correctness mechanism, only as an opti
 
 | #   | Question                                     | Resolution                                                                                                    |
 | --- | --------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
-| 1   | Does Realtime follow-mode execute queries?    | No. It's a WAL-fed ring buffer per table/channel, read via `RT.CHANGES`, not a re-executed query.               |
+| 1   | Does Realtime follow-mode execute queries?    | No. `RT.FOLLOW`/`RT.CHANGES` are a Redis-protocol front door onto a `restdis_electric` shape log, not a re-executed query and not a bespoke ring buffer. |
 | 2   | Is Auth caching ever allowed to hold secrets? | No. Field allow-list enforced in code, applies to both ETS and CubDB, session/token tables excluded entirely.   |
 | 3   | Does read replica preference cover Storage/Auth? | Yes, generalized from the PostgREST-only flag to any Postgres-backed origin fetch, delivered first in Phase 1. |
 | 4   | Is Storage file content cached?               | No, metadata only. File bytes are out of scope for this phase.                                                  |
 | 5   | Why does Read Replica Preference ship before the other integrations? | It is a small, low-risk generalization of existing logic that every later Postgres-backed phase (Storage, Auth) benefits from immediately. |
-| 6   | Why does Realtime follow-mode ship after Storage and Auth?  | It is the only phase needing a new caching primitive (a WAL-fed ring buffer) rather than a reuse of the existing query-cache-and-bust pattern. |
+| 6   | Why does Realtime follow-mode ship after Storage and Auth?  | It depends on `restdis_electric` (`ELECTRIC_PRD.md`) Phases 1–2 landing first, which is a cross-RFC dependency the other phases don't have. |
+| 7   | Does this RFC introduce a fourth storage model alongside cached responses, replicated key-value datasets, and the shape log? | No. Realtime follow mode is built entirely on the shape log `restdis_electric` already owns; see "Realtime builds on `restdis_electric`, not a new primitive". |
