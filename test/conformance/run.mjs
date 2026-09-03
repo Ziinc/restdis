@@ -8,6 +8,13 @@
 // old_value, resuming from a handle/offset, must-refetch (409 + rotation),
 // the `Shape` materialised-view API, and the documented error responses.
 //
+// A few documented behaviours (gatekeeper mode, open mode's shared secret,
+// combining a subquery with AND/OR in `where`) are not implemented yet.
+// Those scenarios are marked `export const xfail = "reason"` and are
+// expected to fail; the runner reports them as XFAIL rather than FAIL, but
+// flags XPASS as a failure so an unexpectedly-passing xfail — the day the
+// gap closes — gets noticed and the marker removed.
+//
 // This does not replace Restdis's own ExUnit suite (see
 // apps/restdis_server/test/http/electric_test.exs for status-code-level
 // coverage). It is the minimum needed to catch a real protocol regression
@@ -30,14 +37,28 @@ async function main() {
   for (const file of files) {
     const label = file.replace(/\.mjs$/, "");
     process.stdout.write(`RUN  ${label} ... `);
+    const module = await import(path.join(scenariosDir, file));
+    const xfail = module.xfail;
+
     try {
-      const module = await import(path.join(scenariosDir, file));
       await module.default();
-      console.log("PASS");
+      if (xfail) {
+        failures += 1;
+        console.log("XPASS");
+        console.error(
+          `${label} was marked xfail (${xfail}) but passed — the gap it documents looks closed; remove the xfail marker.`
+        );
+      } else {
+        console.log("PASS");
+      }
     } catch (error) {
-      failures += 1;
-      console.log("FAIL");
-      console.error(error.stack ?? String(error));
+      if (xfail) {
+        console.log(`XFAIL (${xfail})`);
+      } else {
+        failures += 1;
+        console.log("FAIL");
+        console.error(error.stack ?? String(error));
+      }
     }
   }
 
