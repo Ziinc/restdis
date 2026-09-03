@@ -132,6 +132,7 @@ defmodule RestdisServer.HTTP.Electric do
     conn
     |> shape_headers(handle, offset, result)
     |> cache_headers(cache_mode(conn.params, result), handle, offset)
+    |> maybe_cursor_header(conn.params)
     |> put_resp_content_type("application/json")
     |> send_resp(200, Jason.encode!(body))
   end
@@ -142,6 +143,19 @@ defmodule RestdisServer.HTTP.Electric do
     |> put_resp_header("electric-offset", Offset.encode(offset))
     |> put_resp_header("electric-up-to-date", to_string(result.up_to_date))
     |> put_resp_header("electric-schema", schema_header(result))
+  end
+
+  # The published @electric-sql/client rejects any live=true response without this header.
+  defp maybe_cursor_header(conn, params) do
+    if live?(params) do
+      put_resp_header(
+        conn,
+        "electric-cursor",
+        to_string(System.unique_integer([:positive, :monotonic]))
+      )
+    else
+      conn
+    end
   end
 
   # The real client only needs the header present, one object per column with at least a `type`.
@@ -193,6 +207,7 @@ defmodule RestdisServer.HTTP.Electric do
       conn
       |> shape_headers(handle, offset, result)
       |> cache_headers(:live, handle, offset)
+      |> maybe_cursor_header(conn.params)
       |> put_resp_header("x-accel-buffering", "no")
       |> put_resp_content_type("text/event-stream")
       |> send_chunked(200)

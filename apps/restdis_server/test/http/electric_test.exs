@@ -84,6 +84,36 @@ defmodule RestdisServer.HTTP.ElectricTest do
     assert is_binary(handle)
   end
 
+  test "a live=true response carries an electric-cursor header, which the real client library requires" do
+    {:ok, snap} =
+      Req.get(req(), url: "/v1/shape?table=widgets&offset=-1", headers: auth(), retry: false)
+
+    [handle] = Req.Response.get_header(snap, "electric-handle")
+    [offset] = Req.Response.get_header(snap, "electric-offset")
+
+    :ok =
+      RestdisElectric.WAL.ingest(%{
+        tenant_id: @tenant_id,
+        schema: "public",
+        table: "widgets",
+        op: :insert,
+        pk: 2,
+        new_row: %{"id" => 2, "name" => "b"},
+        old_row: nil,
+        lsn: 1
+      })
+
+    {:ok, resp} =
+      Req.get(req(),
+        url: "/v1/shape?table=widgets&offset=#{offset}&handle=#{handle}&live=true",
+        headers: auth(),
+        retry: false
+      )
+
+    assert resp.status == 200
+    assert [_cursor] = Req.Response.get_header(resp, "electric-cursor")
+  end
+
   test "exceeding the tenant's max_shapes returns 429 with an actionable message" do
     limits_tenant_id = "test-electric-tenant-shape-limit"
 

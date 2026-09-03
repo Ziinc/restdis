@@ -9,6 +9,7 @@ defmodule RestdisBuster.Worker do
   alias RestdisBuster.TenantTableConfig
   alias RestdisBuster.WAL.Event
   alias RestdisBuster.Worker.HandlerConfig
+  alias RestdisElectric.TableInfo
   alias RestdisElectric.WAL, as: ElectricWAL
 
   @infra_schema "public"
@@ -127,19 +128,66 @@ defmodule RestdisBuster.Worker do
 
   defp handle_ddl_message(_), do: :ok
 
-  # Runs before ack/1: ingest/1 blocks until every shape durably appends the change first.
+  # pgoutput discards type OIDs while decoding, so every value here is text; cast it back to a real type.
   defp ingest_shape_change(config, event, pk) do
+    types = table_types(event.schema, event.table)
+
     ElectricWAL.ingest(%{
       tenant_id: config.tenant_id,
       schema: event.schema,
       table: event.table,
       op: event.op,
       pk: pk,
-      new_row: event.new_row,
-      old_row: event.old_row,
+      new_row: cast_row(event.new_row, types),
+      old_row: cast_row(event.old_row, types),
       lsn: event.lsn
     })
   end
+
+  defp table_types(schema, table) do
+    case TableInfo.fetch(schema, table) do
+      {:ok, %{types: types}} -> types
+      :error -> %{}
+    end
+  end
+
+  defp cast_row(nil, _types), do: nil
+
+  defp cast_row(row, types),
+    do: Map.new(row, fn {col, val} -> {col, cast_value(val, Map.get(types, col))} end)
+
+  defp cast_value(val, type) when is_binary(val) and is_binary(type) do
+    cond do
+      integer_type?(type) -> parse_integer(val)
+      boolean_type?(type) -> parse_boolean(val)
+      float_type?(type) -> parse_float(val)
+      true -> val
+    end
+  end
+
+  defp cast_value(val, _type), do: val
+
+  defp integer_type?(type), do: String.starts_with?(type, ["smallint", "integer", "bigint"])
+  defp boolean_type?(type), do: type == "boolean"
+  defp float_type?(type), do: String.starts_with?(type, ["real", "double precision", "numeric"])
+
+  defp parse_integer(val) do
+    case Integer.parse(val) do
+      {int, ""} -> int
+      _ -> val
+    end
+  end
+
+  defp parse_float(val) do
+    case Float.parse(val) do
+      {f, ""} -> f
+      _ -> val
+    end
+  end
+
+  defp parse_boolean("t"), do: true
+  defp parse_boolean("f"), do: false
+  defp parse_boolean(val), do: val
 
   defp apply_change(%{mode: "replication"} = config, event, row, _pk) do
     case Application.get_env(:restdis_buster, :replication_dispatcher) do
