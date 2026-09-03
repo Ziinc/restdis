@@ -133,6 +133,18 @@ defmodule RestdisElectric.Eval do
     end
   end
 
+  defp check({:binop, op, left, right}, params) when op in @array_ops do
+    # Postgres reads `@>`, `<@` and `&&` over ranges as well as arrays, and we
+    # cannot tell the two apart from the clause alone. Requiring one side to be
+    # an array literal keeps us to the array reading, which is the one we
+    # evaluate, rather than guessing at a range and getting it wrong.
+    if match?({:array, _}, left) or match?({:array, _}, right) do
+      check_all([left, right], params)
+    else
+      {:error, {:unsupported_where, "operator #{op} without an array literal operand"}}
+    end
+  end
+
   defp check({:binop, op, left, right}, params) do
     if op in @comparison or op in @arithmetic or op in @bitwise or op in @array_ops or
          op in @logical do
@@ -152,7 +164,8 @@ defmodule RestdisElectric.Eval do
   defp check({:between, expr, low, high, _negated}, params),
     do: check_all([expr, low, high], params)
 
-  defp check({:like, expr, pattern, _negated, _ci}, params), do: check_all([expr, pattern], params)
+  defp check({:like, expr, pattern, _negated, _ci}, params),
+    do: check_all([expr, pattern], params)
 
   defp check({kind, op, left, right}, params) when kind in [:any, :all] do
     if op in @comparison do
@@ -226,7 +239,7 @@ defmodule RestdisElectric.Eval do
     end
   end
 
-  defp eval({:is, test, expr}, row, params), do: is_test(test, eval(expr, row, params))
+  defp eval({:is, test, expr}, row, params), do: sql_test(test, eval(expr, row, params))
 
   defp eval({:in_list, expr, items, negated}, row, params) do
     value = eval(expr, row, params)
@@ -331,16 +344,16 @@ defmodule RestdisElectric.Eval do
   defp not_(false), do: true
   defp not_(_), do: :null
 
-  defp is_test("is_null", :null), do: true
-  defp is_test("is_null", _), do: false
-  defp is_test("is_not_null", :null), do: false
-  defp is_test("is_not_null", _), do: true
-  defp is_test("is_true", value), do: value == true
-  defp is_test("is_not_true", value), do: value != true
-  defp is_test("is_false", value), do: value == false
-  defp is_test("is_not_false", value), do: value != false
-  defp is_test("is_unknown", value), do: value == :null
-  defp is_test("is_not_unknown", value), do: value != :null
+  defp sql_test("is_null", :null), do: true
+  defp sql_test("is_null", _), do: false
+  defp sql_test("is_not_null", :null), do: false
+  defp sql_test("is_not_null", _), do: true
+  defp sql_test("is_true", value), do: value == true
+  defp sql_test("is_not_true", value), do: value != true
+  defp sql_test("is_false", value), do: value == false
+  defp sql_test("is_not_false", value), do: value != false
+  defp sql_test("is_unknown", value), do: value == :null
+  defp sql_test("is_not_unknown", value), do: value != :null
 
   defp binop(_op, :null, _right), do: :null
   defp binop(_op, _left, :null), do: :null
@@ -494,7 +507,10 @@ defmodule RestdisElectric.Eval do
   defp like_to_regex(pattern), do: like_to_regex(String.graphemes(pattern), [])
 
   defp like_to_regex([], acc), do: acc |> Enum.reverse() |> Enum.join()
-  defp like_to_regex(["\\", char | rest], acc), do: like_to_regex(rest, [Regex.escape(char) | acc])
+
+  defp like_to_regex(["\\", char | rest], acc),
+    do: like_to_regex(rest, [Regex.escape(char) | acc])
+
   defp like_to_regex(["%" | rest], acc), do: like_to_regex(rest, ["(?s:.)*" | acc])
   defp like_to_regex(["_" | rest], acc), do: like_to_regex(rest, ["(?s:.)" | acc])
   defp like_to_regex([char | rest], acc), do: like_to_regex(rest, [Regex.escape(char) | acc])

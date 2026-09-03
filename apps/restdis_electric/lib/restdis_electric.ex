@@ -10,6 +10,7 @@ defmodule RestdisElectric do
   """
 
   alias RestdisElectric.Definition
+  alias RestdisElectric.Eval
   alias RestdisElectric.Handle
   alias RestdisElectric.Log
   alias RestdisElectric.Message
@@ -138,7 +139,7 @@ defmodule RestdisElectric do
   end
 
   defp resume(ctx, offset, handle) do
-    ShapeRegistry.register(ctx.tenant_id, ctx.definition.schema, ctx.definition.table, handle)
+    ShapeRegistry.register(ctx.tenant_id, ctx.definition, handle)
 
     case Log.read(ctx.tenant_id, handle, offset) do
       {:ok, messages, last_offset} ->
@@ -157,7 +158,7 @@ defmodule RestdisElectric do
 
   # An empty log looks the same as a never-snapshotted one; re-snapshotting is wasted work, not a bug.
   defp ensure_snapshot(ctx, handle) do
-    ShapeRegistry.register(ctx.tenant_id, ctx.definition.schema, ctx.definition.table, handle)
+    ShapeRegistry.register(ctx.tenant_id, ctx.definition, handle)
 
     case Log.read(ctx.tenant_id, handle, Offset.beginning()) do
       {:ok, [], :beginning} -> run_snapshot(ctx, handle)
@@ -171,15 +172,25 @@ defmodule RestdisElectric do
     counter = :counters.new(1, [])
 
     Snapshotter.stream(ctx.tenant_config, ctx.definition, fn rows ->
-      messages = Enum.map(rows, &snapshot_message(&1, info, counter))
+      messages =
+        rows
+        |> Enum.filter(&Eval.matches?(ctx.definition.filter, &1))
+        |> Enum.map(&snapshot_message(&1, ctx.definition, info, counter))
+
       Log.append(ctx.tenant_id, handle, messages)
     end)
   end
 
-  defp snapshot_message(row, info, counter) do
+  # The filter is applied here rather than pushed into the origin query so the
+  # snapshot and the log agree by construction: both decide membership with
+  # `RestdisElectric.Eval` over the same compiled clause.
+  defp snapshot_message(row, definition, info, counter) do
     op_offset = :counters.get(counter, 1)
     :counters.add(counter, 1, 1)
     key = Enum.map_join(info.primary_key, ",", &Map.get(row, &1))
-    Message.change({0, op_offset}, :insert, key, row)
+    Message.change({0, op_offset}, :insert, key, project(definition, row))
   end
+
+  defp project(%Definition{columns: nil}, row), do: row
+  defp project(%Definition{columns: columns}, row), do: Map.take(row, columns)
 end

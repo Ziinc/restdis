@@ -108,7 +108,13 @@ defmodule RestdisServer.HTTP.Electric do
       value: message.value,
       headers: %{operation: Atom.to_string(message.operation)}
     }
+    |> put_old_value(message.old_value)
   end
+
+  # `old_value` appears only under `replica=full`, where the context has
+  # already decided the message carries the complete previous row.
+  defp put_old_value(encoded, nil), do: encoded
+  defp put_old_value(encoded, old_value), do: Map.put(encoded, :old_value, old_value)
 
   defp control_wire(:up_to_date), do: "up-to-date"
   defp control_wire(:must_refetch), do: "must-refetch"
@@ -138,8 +144,11 @@ defmodule RestdisServer.HTTP.Electric do
   defp send_error(conn, {:unknown_columns, columns}),
     do: bad_request(conn, "unknown columns: #{Enum.join(columns, ", ")}")
 
-  defp send_error(conn, {:unsupported_where, _}),
-    do: bad_request(conn, "the 'where' parameter is not supported yet")
+  defp send_error(conn, {:unsupported_where, construct}),
+    do: bad_request(conn, "unsupported construct in 'where': #{construct}")
+
+  defp send_error(conn, {:invalid_where, message}),
+    do: bad_request(conn, "invalid 'where' parameter: #{message}")
 
   defp send_error(conn, {:unsupported_replica, value}),
     do: bad_request(conn, "unsupported 'replica' value: #{value}")

@@ -8,6 +8,7 @@ defmodule RestdisElectric.Definition do
   table}}` and friends); this module never speaks HTTP.
   """
 
+  alias RestdisElectric.Eval
   alias RestdisElectric.TableInfo
 
   @type t :: %__MODULE__{
@@ -17,6 +18,7 @@ defmodule RestdisElectric.Definition do
           columns: [String.t()] | nil,
           where: String.t() | nil,
           params: %{String.t() => String.t()},
+          filter: Eval.t() | nil,
           replica: :default | :full,
           log_mode: :full | :changes_only
         }
@@ -27,6 +29,7 @@ defmodule RestdisElectric.Definition do
           | {:missing_primary_key, [String.t()]}
           | {:unknown_columns, [String.t()]}
           | {:unsupported_where, String.t()}
+          | {:invalid_where, String.t()}
           | {:unsupported_log_mode, String.t()}
           | {:unsupported_replica, String.t()}
           | {:missing_replica_identity, String.t()}
@@ -37,6 +40,7 @@ defmodule RestdisElectric.Definition do
     :table,
     :columns,
     :where,
+    :filter,
     params: %{},
     replica: :default,
     log_mode: :full
@@ -47,10 +51,15 @@ defmodule RestdisElectric.Definition do
   @doc """
   Builds and validates a definition for `tenant_id` from raw shape parameters.
 
-  Accepts the string keys `"table"`, `"columns"`, `"where"`, `"replica"` and
-  `"log"`. `where`, `replica=full` and `log=changes_only` are not implemented
-  yet and are rejected rather than silently ignored, so a client never receives
-  a log that differs from the shape it asked for.
+  Accepts the string keys `"table"`, `"columns"`, `"where"`, `"params"`,
+  `"replica"` and `"log"`. `log=changes_only` needs the direct Postgres
+  snapshot path, which does not exist yet, and is rejected rather than
+  silently ignored so a client never receives a log that differs from the
+  shape it asked for.
+
+  The `where` clause is parsed and validated here, at subscription time, and
+  never later: a construct outside the supported subset must fail the client's
+  first request rather than produce a quietly wrong log.
   """
   @spec new(String.t(), map()) :: {:ok, t()} | {:error, error()}
   def new(tenant_id, params) when is_binary(tenant_id) and is_map(params) do
@@ -58,12 +67,15 @@ defmodule RestdisElectric.Definition do
          {:ok, columns} <- parse_columns(params["columns"]),
          {:ok, replica} <- parse_replica(params["replica"]),
          {:ok, log_mode} <- parse_log_mode(params["log"]),
-         :ok <- reject_where(params["where"]) do
+         {:ok, where} <- parse_where(params["where"]),
+         {:ok, where_params} <- parse_params(params["params"]) do
       validate(%__MODULE__{
         tenant_id: tenant_id,
         schema: schema,
         table: table,
         columns: columns,
+        where: where,
+        params: where_params,
         replica: replica,
         log_mode: log_mode
       })
@@ -148,15 +160,38 @@ defmodule RestdisElectric.Definition do
 
   defp parse_replica(nil), do: {:ok, :default}
   defp parse_replica("default"), do: {:ok, :default}
+  defp parse_replica("full"), do: {:ok, :full}
   defp parse_replica(other), do: {:error, {:unsupported_replica, to_string(other)}}
 
   defp parse_log_mode(nil), do: {:ok, :full}
   defp parse_log_mode("full"), do: {:ok, :full}
   defp parse_log_mode(other), do: {:error, {:unsupported_log_mode, to_string(other)}}
 
-  defp reject_where(nil), do: :ok
-  defp reject_where(""), do: :ok
-  defp reject_where(where), do: {:error, {:unsupported_where, where}}
+  defp parse_where(nil), do: {:ok, nil}
+  defp parse_where(""), do: {:ok, nil}
+  defp parse_where(where) when is_binary(where), do: {:ok, where}
+
+  defp parse_where(other),
+    do: {:error, {:invalid_where, "'where' must be text: #{inspect(other)}"}}
+
+  defp parse_params(nil), do: {:ok, %{}}
+  defp parse_params(""), do: {:ok, %{}}
+
+  defp parse_params(params) when is_map(params) do
+    {:ok, Map.new(params, fn {key, value} -> {to_string(key), to_string(value)} end)}
+  end
+
+  # `params` also arrives as a JSON object, which is how the Electric clients
+  # send it when they do not use the `params[1]=` bracket form.
+  defp parse_params(json) when is_binary(json) do
+    case Jason.decode(json) do
+      {:ok, decoded} when is_map(decoded) -> parse_params(decoded)
+      _ -> {:error, {:invalid_where, "'params' must be a JSON object"}}
+    end
+  end
+
+  defp parse_params(other),
+    do: {:error, {:invalid_where, "'params' must be a JSON object: #{inspect(other)}"}}
 
   defp with_replica_identity(%__MODULE__{} = definition, info) do
     if info.replica_identity == :full do
@@ -166,7 +201,8 @@ defmodule RestdisElectric.Definition do
     end
   end
 
-  defp validate_columns(%__MODULE__{columns: nil} = definition, _info), do: {:ok, definition}
+  defp validate_columns(%__MODULE__{columns: nil} = definition, info),
+    do: compile_filter(definition, info)
 
   defp validate_columns(%__MODULE__{columns: columns} = definition, info) do
     unknown = columns -- info.columns
@@ -175,7 +211,37 @@ defmodule RestdisElectric.Definition do
     cond do
       unknown != [] -> {:error, {:unknown_columns, unknown}}
       missing_pk != [] -> {:error, {:missing_primary_key, missing_pk}}
-      true -> {:ok, definition}
+      true -> compile_filter(definition, info)
     end
+  end
+
+  defp compile_filter(%__MODULE__{where: nil} = definition, _info), do: {:ok, definition}
+
+  defp compile_filter(%__MODULE__{where: where} = definition, info) do
+    with {:ok, filter} <- Eval.compile(where, definition.params),
+         :ok <- check_filter_columns(definition, filter, info) do
+      {:ok, %{definition | filter: filter}}
+    end
+  end
+
+  # A clause that names a column the table does not have would silently never
+  # match, so it is a definition error, not an empty shape.
+  defp check_filter_columns(definition, filter, info) do
+    case Enum.uniq(Eval.columns(filter)) -- known_names(definition, info) do
+      [] -> :ok
+      unknown -> {:error, {:unknown_columns, unknown}}
+    end
+  end
+
+  # A clause may address a column plainly, or qualified by table, or by schema
+  # and table. All three name the one table the shape reads.
+  defp known_names(definition, info) do
+    Enum.flat_map(info.columns, fn column ->
+      [
+        column,
+        "#{definition.table}.#{column}",
+        "#{definition.schema}.#{definition.table}.#{column}"
+      ]
+    end)
   end
 end

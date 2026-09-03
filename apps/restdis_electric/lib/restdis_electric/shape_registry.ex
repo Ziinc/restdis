@@ -15,7 +15,11 @@ defmodule RestdisElectric.ShapeRegistry do
 
   use GenServer
 
+  alias RestdisElectric.Definition
+  alias RestdisElectric.Filter
+
   @table __MODULE__
+  @shapes __MODULE__.Shapes
 
   @doc """
   Starts the registry's ETS table.
@@ -26,12 +30,44 @@ defmodule RestdisElectric.ShapeRegistry do
   end
 
   @doc """
-  Registers `handle` as reading `schema`.`table` for `tenant_id`.
+  Registers `handle` as reading `schema`.`table` for `tenant_id`, with no
+  filter, so every change to that table reaches it.
   """
   @spec register(String.t(), String.t(), String.t(), String.t()) :: :ok
   def register(tenant_id, schema, table, handle) do
-    :ets.insert(@table, {{tenant_id, schema, table}, handle})
+    register(
+      tenant_id,
+      %Definition{tenant_id: tenant_id, schema: schema, table: table},
+      handle
+    )
+  end
+
+  @doc """
+  Registers `handle` for `definition`, keeping the definition so
+  `RestdisElectric.WAL` can apply its filter, column list and replica mode to
+  each change, and indexing it in `RestdisElectric.Filter`.
+  """
+  @spec register(String.t(), Definition.t(), String.t()) :: :ok
+  def register(tenant_id, %Definition{} = definition, handle) do
+    :ets.insert(@table, {{tenant_id, definition.schema, definition.table}, handle})
+    :ets.insert(@shapes, {{tenant_id, handle}, definition})
+    Filter.add(tenant_id, definition, handle)
     :ok
+  end
+
+  @doc """
+  Returns the definition registered for `handle`, if there is one.
+  """
+  @spec fetch(String.t(), String.t()) :: {:ok, Definition.t()} | :error
+  def fetch(tenant_id, handle) do
+    if :ets.whereis(@shapes) == :undefined do
+      :error
+    else
+      case :ets.lookup(@shapes, {tenant_id, handle}) do
+        [{_key, definition} | _] -> {:ok, definition}
+        [] -> :error
+      end
+    end
   end
 
   @doc """
@@ -40,6 +76,8 @@ defmodule RestdisElectric.ShapeRegistry do
   @spec unregister(String.t(), String.t()) :: :ok
   def unregister(tenant_id, handle) do
     :ets.match_delete(@table, {{tenant_id, :_, :_}, handle})
+    :ets.delete(@shapes, {tenant_id, handle})
+    Filter.remove(tenant_id, handle)
     :ok
   end
 
@@ -60,6 +98,7 @@ defmodule RestdisElectric.ShapeRegistry do
   @impl GenServer
   def init(_opts) do
     :ets.new(@table, [:bag, :public, :named_table, read_concurrency: true])
+    :ets.new(@shapes, [:set, :public, :named_table, read_concurrency: true])
     {:ok, %{}}
   end
 end
