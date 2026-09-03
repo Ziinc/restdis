@@ -41,7 +41,8 @@ defmodule RestdisElectric.Definition do
           params: %{String.t() => String.t()},
           filter: Eval.t() | nil,
           replica: :default | :full,
-          log_mode: :full | :changes_only
+          log_mode: :full | :changes_only,
+          retention: pos_integer() | nil
         }
 
   @type error ::
@@ -55,6 +56,7 @@ defmodule RestdisElectric.Definition do
           | {:unsupported_replica, String.t()}
           | {:missing_replica_identity, String.t()}
           | {:correlated_subquery, String.t()}
+          | {:invalid_retention, String.t()}
 
   defstruct [
     :tenant_id,
@@ -63,6 +65,7 @@ defmodule RestdisElectric.Definition do
     :columns,
     :where,
     :filter,
+    :retention,
     params: %{},
     replica: :default,
     log_mode: :full
@@ -90,7 +93,8 @@ defmodule RestdisElectric.Definition do
          {:ok, replica} <- parse_replica(params["replica"]),
          {:ok, log_mode} <- parse_log_mode(params["log"]),
          {:ok, where} <- parse_where(params["where"]),
-         {:ok, where_params} <- parse_params(params["params"]) do
+         {:ok, where_params} <- parse_params(params["params"]),
+         {:ok, retention} <- parse_retention(params["retention"]) do
       validate(%__MODULE__{
         tenant_id: tenant_id,
         schema: schema,
@@ -99,7 +103,8 @@ defmodule RestdisElectric.Definition do
         where: where,
         params: where_params,
         replica: replica,
-        log_mode: log_mode
+        log_mode: log_mode,
+        retention: retention
       })
     end
   end
@@ -196,6 +201,18 @@ defmodule RestdisElectric.Definition do
 
   defp parse_where(other),
     do: {:error, {:invalid_where, "'where' must be text: #{inspect(other)}"}}
+
+  defp parse_retention(nil), do: {:ok, nil}
+  defp parse_retention(""), do: {:ok, nil}
+
+  defp parse_retention(raw) when is_binary(raw) do
+    case Integer.parse(raw) do
+      {value, ""} when value > 0 -> {:ok, value}
+      _ -> {:error, {:invalid_retention, raw}}
+    end
+  end
+
+  defp parse_retention(other), do: {:error, {:invalid_retention, to_string(other)}}
 
   defp parse_params(nil), do: {:ok, %{}}
   defp parse_params(""), do: {:ok, %{}}

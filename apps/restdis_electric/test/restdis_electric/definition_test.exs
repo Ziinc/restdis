@@ -254,6 +254,25 @@ defmodule RestdisElectric.DefinitionTest do
              Definition.new("t1", %{"table" => "widgets", "log" => "batched"})
   end
 
+  test "accepts a retention parameter as a positive integer" do
+    assert {:ok, %{retention: 500}} =
+             Definition.new("t1", %{"table" => "widgets", "retention" => "500"})
+  end
+
+  test "defaults retention to nil when not given" do
+    assert {:ok, %{retention: nil}} = Definition.new("t1", %{"table" => "widgets"})
+  end
+
+  test "rejects a non-integer retention value" do
+    assert {:error, {:invalid_retention, "abc"}} =
+             Definition.new("t1", %{"table" => "widgets", "retention" => "abc"})
+  end
+
+  test "rejects a zero or negative retention value" do
+    assert {:error, {:invalid_retention, "0"}} =
+             Definition.new("t1", %{"table" => "widgets", "retention" => "0"})
+  end
+
   test "canonical/1 is stable for equal definitions and differs for different ones" do
     {:ok, a} = Definition.new("t1", %{"table" => "widgets"})
     {:ok, b} = Definition.new("t1", %{"table" => "widgets"})

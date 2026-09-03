@@ -163,7 +163,7 @@ defmodule RestdisElectric do
         {:error, {:missing_handle, nil}}
 
       not Handle.matches?(given_handle, ctx.definition) ->
-        {:error, :must_refetch, expected_handle}
+        must_refetch(ctx, :handle_mismatch)
 
       true ->
         resume(ctx, offset, given_handle)
@@ -216,20 +216,44 @@ defmodule RestdisElectric do
   defp resume(ctx, offset, handle) do
     ShapeRegistry.register(ctx.tenant_id, ctx.definition, handle)
 
-    case Log.read(ctx.tenant_id, handle, offset) do
-      {:ok, messages, last_offset} ->
-        {:ok,
-         %{
-           handle: handle,
-           messages: messages,
-           offset: Offset.max(offset, last_offset),
-           up_to_date: true,
-           settled: false
-         }}
+    if stale_offset?(ctx.tenant_id, handle, offset) do
+      must_refetch(ctx, :retention)
+    else
+      case Log.read(ctx.tenant_id, handle, offset) do
+        {:ok, messages, last_offset} ->
+          {:ok,
+           %{
+             handle: handle,
+             messages: messages,
+             offset: Offset.max(offset, last_offset),
+             up_to_date: true,
+             settled: false
+           }}
 
-      :error ->
-        {:error, :must_refetch, Handle.new(ctx.definition)}
+        :error ->
+          must_refetch(ctx, :log_missing)
+      end
     end
+  end
+
+  # A resume offset at or before the log's retention boundary asks for evicted operations.
+  defp stale_offset?(tenant_id, handle, offset) do
+    case Log.truncated_before(tenant_id, handle) do
+      nil -> false
+      truncated_before -> Offset.before?(offset, truncated_before)
+    end
+  end
+
+  defp must_refetch(ctx, cause) do
+    new_handle = Handle.new(ctx.definition)
+
+    :telemetry.execute(
+      [:restdis_electric, :shape, :must_refetch],
+      %{count: 1},
+      %{tenant_id: ctx.tenant_id, cause: cause}
+    )
+
+    {:error, :must_refetch, new_handle}
   end
 
   # An empty log looks the same as a never-snapshotted one; re-snapshotting is wasted work, not a bug.

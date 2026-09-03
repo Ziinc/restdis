@@ -137,6 +137,80 @@ defmodule RestdisElectricTest do
              RestdisElectric.Log.read(tenant_id, subscribed.handle, subscribed.offset)
   end
 
+  test "resuming below a shape's configured retention window returns must_refetch, not stale data" do
+    tenant_id = TestUtils.tenant_id()
+    TestUtils.put_stub_rows("widgets", [%{"id" => 1, "name" => "a"}])
+
+    {:ok, subscribed} =
+      RestdisElectric.subscribe(tenant_id, @tenant_config, %{
+        "table" => "widgets",
+        "offset" => "-1",
+        "retention" => "2"
+      })
+
+    resume_offset = subscribed.offset
+
+    for n <- 1..5 do
+      :ok =
+        WAL.ingest(%{
+          tenant_id: tenant_id,
+          schema: "public",
+          table: "widgets",
+          op: :update,
+          pk: 1,
+          new_row: %{"id" => 1, "name" => "v#{n}"},
+          old_row: %{"id" => 1, "name" => "v#{n - 1}"},
+          lsn: 100 + n
+        })
+    end
+
+    assert {:error, :must_refetch, new_handle} =
+             RestdisElectric.subscribe(tenant_id, @tenant_config, %{
+               "table" => "widgets",
+               "handle" => subscribed.handle,
+               "offset" => RestdisElectric.Offset.encode(resume_offset),
+               "retention" => "2"
+             })
+
+    assert is_binary(new_handle)
+  end
+
+  test "a shape with no retention configured never rejects a resume as stale" do
+    tenant_id = TestUtils.tenant_id()
+    TestUtils.put_stub_rows("widgets", [%{"id" => 1, "name" => "a"}])
+
+    {:ok, subscribed} =
+      RestdisElectric.subscribe(tenant_id, @tenant_config, %{
+        "table" => "widgets",
+        "offset" => "-1"
+      })
+
+    resume_offset = subscribed.offset
+
+    for n <- 1..5 do
+      :ok =
+        WAL.ingest(%{
+          tenant_id: tenant_id,
+          schema: "public",
+          table: "widgets",
+          op: :update,
+          pk: 1,
+          new_row: %{"id" => 1, "name" => "v#{n}"},
+          old_row: %{"id" => 1, "name" => "v#{n - 1}"},
+          lsn: 100 + n
+        })
+    end
+
+    assert {:ok, resumed} =
+             RestdisElectric.subscribe(tenant_id, @tenant_config, %{
+               "table" => "widgets",
+               "handle" => subscribed.handle,
+               "offset" => RestdisElectric.Offset.encode(resume_offset)
+             })
+
+    assert length(resumed.messages) == 5
+  end
+
   describe "settled reads" do
     test "a read from -1 is not settled while it reaches the tip of the log" do
       tenant_id = TestUtils.tenant_id()

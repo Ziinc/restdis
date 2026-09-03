@@ -5,6 +5,7 @@ defmodule RestdisElectric.LogTest do
   alias RestdisElectric.Log
   alias RestdisElectric.Message
   alias RestdisElectric.Offset
+  alias RestdisElectric.ShapeRegistry
   alias RestdisElectric.TestUtils
 
   test "read/3 returns nothing for a handle that was never written" do
@@ -110,6 +111,61 @@ defmodule RestdisElectric.LogTest do
     :ok = Log.append(tenant_id, handle, [Message.change({0, 0}, :insert, "1", %{"id" => 1})])
 
     assert :timeout = Log.await(tenant_id, handle, {0, 0}, 100)
+  end
+
+  test "truncated_before/2 is nil for a shape with no retention limit configured" do
+    tenant_id = TestUtils.tenant_id()
+    handle = "h-no-retention"
+    :ok = ShapeRegistry.register(tenant_id, "public", "widgets", handle)
+    :ok = Log.append(tenant_id, handle, [Message.change({0, 0}, :insert, "1", %{"id" => 1})])
+
+    assert Log.truncated_before(tenant_id, handle) == nil
+  end
+
+  test "append/3 truncates the front of the log once it exceeds the shape's effective retention" do
+    tenant_id = TestUtils.tenant_id()
+    handle = "h-retention"
+
+    definition = %RestdisElectric.Definition{
+      tenant_id: tenant_id,
+      schema: "public",
+      table: "widgets",
+      retention: 3
+    }
+
+    :ok = ShapeRegistry.register(tenant_id, definition, handle)
+
+    messages =
+      for n <- 0..9, do: Message.change({0, n}, :insert, Integer.to_string(n), %{"id" => n})
+
+    :ok = Log.append(tenant_id, handle, messages)
+
+    assert {:ok, kept, {0, 9}} = Log.read(tenant_id, handle, Offset.beginning())
+    assert Enum.map(kept, & &1.offset) == [{0, 7}, {0, 8}, {0, 9}]
+    assert Log.truncated_before(tenant_id, handle) == {0, 6}
+  end
+
+  test "resuming from an offset inside the retained window still succeeds" do
+    tenant_id = TestUtils.tenant_id()
+    handle = "h-retention-ok"
+
+    definition = %RestdisElectric.Definition{
+      tenant_id: tenant_id,
+      schema: "public",
+      table: "widgets",
+      retention: 3
+    }
+
+    :ok = ShapeRegistry.register(tenant_id, definition, handle)
+
+    messages =
+      for n <- 0..9, do: Message.change({0, n}, :insert, Integer.to_string(n), %{"id" => n})
+
+    :ok = Log.append(tenant_id, handle, messages)
+
+    # {0, 6} is exactly the truncation boundary; resuming from it should still work.
+    assert {:ok, tail, {0, 9}} = Log.read(tenant_id, handle, {0, 6})
+    assert Enum.map(tail, & &1.offset) == [{0, 7}, {0, 8}, {0, 9}]
   end
 
   property "replaying from any offset produces the same tail as replaying from beginning" do
