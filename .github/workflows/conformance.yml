@@ -37,8 +37,8 @@ jobs:
       - uses: actions/cache@v4
         with:
           path: |
-            apps/restdis/deps
-            apps/restdis/_build
+            deps
+            _build
           key: ${{ runner.os }}-restdis-conformance-${{ env.OTP_VERSION }}-${{ env.ELIXIR_VERSION }}-${{ hashFiles('apps/restdis/mix.lock') }}
           restore-keys: ${{ runner.os }}-restdis-conformance-${{ env.OTP_VERSION }}-${{ env.ELIXIR_VERSION }}-
 
@@ -62,17 +62,15 @@ jobs:
           exit 1
 
       - name: Install dependencies, migrate, and seed the conformance fixture
-        working-directory: apps/restdis
         run: |
           mix deps.get
           mix ecto.create --quiet
           mix ecto.migrate --quiet
           DIRECT_PG_URL_OVERRIDE="postgres://postgres:postgres@localhost:5432/restdis_dev" \
             psql "postgresql://postgres:postgres@localhost:5432/restdis_dev" \
-            -v ON_ERROR_STOP=1 -f ../../test/conformance/seed.sql
+            -v ON_ERROR_STOP=1 -f test/conformance/seed.sql
 
       - name: Start Restdis
-        working-directory: apps/restdis
         run: |
           nohup mix run --no-halt > /tmp/restdis-conformance.log 2>&1 &
           for _ in $(seq 1 30); do

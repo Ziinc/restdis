@@ -34,3 +34,13 @@ ON CONFLICT (tenant_id) DO UPDATE SET direct_pg_url = EXCLUDED.direct_pg_url;
 INSERT INTO api_keys (api_key, tenant_id, status, inserted_at, updated_at)
 VALUES ('sk_conformance', 'conformance-tenant', 'active', now(), now())
 ON CONFLICT (api_key) DO UPDATE SET tenant_id = EXCLUDED.tenant_id;
+
+-- RestdisBuster.Worker only dispatches a WAL change to a shape (`ingest_shape_change`)
+-- when `tenant_table_config` has a row for the table; without this, the snapshot
+-- would work but a live write would never reach the shape's log.
+INSERT INTO tenant_table_config (
+  tenant_id, schema, table_name, mode, pk_column, inserted_at, updated_at
+) VALUES (
+  'conformance-tenant', 'public', 'conformance_widgets', 'replication', 'id', now(), now()
+)
+ON CONFLICT (tenant_id, schema, table_name) DO UPDATE SET mode = EXCLUDED.mode;
