@@ -73,3 +73,65 @@ INSERT INTO tenant_table_config (
   'conformance-tenant', 'public', 'conformance_items', 'replication', 'id', now(), now()
 )
 ON CONFLICT (tenant_id, schema, table_name) DO UPDATE SET mode = EXCLUDED.mode;
+
+-- A gatekeeper-mode tenant (ELECTRIC_PRD.md Phase 7): the client sends only
+-- a `shape` name and protocol parameters; `table`/`where`/`columns` are
+-- resolved server-side from `shape_definitions` and rejected if the client
+-- supplies them itself.
+INSERT INTO tenants (
+  tenant_id, default_ttl_s, persist_cap, pgrst_base_url, pgrst_api_key,
+  direct_pg_url, allow_shape_deletion, auth_mode, inserted_at, updated_at
+) VALUES (
+  'conformance-gatekeeper-tenant', 60, 50000,
+  'http://unused.invalid', 'unused',
+  :'direct_pg_url',
+  false, 'gatekeeper', now(), now()
+)
+ON CONFLICT (tenant_id) DO UPDATE SET direct_pg_url = EXCLUDED.direct_pg_url, auth_mode = EXCLUDED.auth_mode;
+
+INSERT INTO api_keys (api_key, tenant_id, status, inserted_at, updated_at)
+VALUES ('sk_conformance_gatekeeper', 'conformance-gatekeeper-tenant', 'active', now(), now())
+ON CONFLICT (api_key) DO UPDATE SET tenant_id = EXCLUDED.tenant_id;
+
+INSERT INTO tenant_table_config (
+  tenant_id, schema, table_name, mode, pk_column, inserted_at, updated_at
+) VALUES (
+  'conformance-gatekeeper-tenant', 'public', 'conformance_items', 'replication', 'id', now(), now()
+)
+ON CONFLICT (tenant_id, schema, table_name) DO UPDATE SET mode = EXCLUDED.mode;
+
+INSERT INTO shape_definitions (
+  tenant_id, name, "table", "where", replica, inserted_at, updated_at
+) VALUES (
+  'conformance-gatekeeper-tenant', 'active_conformance_items', 'conformance_items',
+  'status = ''active''', 'default', now(), now()
+)
+ON CONFLICT (tenant_id, name) DO UPDATE SET "table" = EXCLUDED."table", "where" = EXCLUDED."where";
+
+-- An open-mode tenant with a shape secret configured (ELECTRIC_PRD.md Phase
+-- 7): a request must supply `secret` matching this value, independent of
+-- the API key that already identifies the tenant.
+INSERT INTO tenants (
+  tenant_id, default_ttl_s, persist_cap, pgrst_base_url, pgrst_api_key,
+  direct_pg_url, allow_shape_deletion, auth_mode, shape_secret, inserted_at, updated_at
+) VALUES (
+  'conformance-secret-tenant', 60, 50000,
+  'http://unused.invalid', 'unused',
+  :'direct_pg_url',
+  false, 'open', 'conformance-shape-secret', now(), now()
+)
+ON CONFLICT (tenant_id) DO UPDATE SET
+  direct_pg_url = EXCLUDED.direct_pg_url,
+  auth_mode = EXCLUDED.auth_mode,
+  shape_secret = EXCLUDED.shape_secret;
+
+INSERT INTO api_keys (api_key, tenant_id, status, inserted_at, updated_at)
+VALUES ('sk_conformance_secret', 'conformance-secret-tenant', 'active', now(), now())
+ON CONFLICT (api_key) DO UPDATE SET tenant_id = EXCLUDED.tenant_id;
+
+INSERT INTO tenant_table_config (
+  tenant_id, schema, table_name, mode, pk_column, inserted_at, updated_at
+) VALUES (
+  'conformance-secret-tenant', 'public', 'conformance_items', 'replication', 'id', now(), now()
+)
+ON CONFLICT (tenant_id, schema, table_name) DO UPDATE SET mode = EXCLUDED.mode;
