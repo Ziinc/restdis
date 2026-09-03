@@ -29,6 +29,7 @@ defmodule RestdisServer.MixProject do
   defp deps do
     [
       {:restdis, in_umbrella: true},
+      {:restdis_electric, in_umbrella: true},
       {:restdis_replicator, in_umbrella: true},
       {:restdis_repo, in_umbrella: true},
       {:libcluster, "~> 3.5"},

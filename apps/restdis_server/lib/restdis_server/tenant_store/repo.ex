@@ -46,7 +46,8 @@ defmodule RestdisServer.TenantStore.Repo do
       persist_cap: tenant.persist_cap,
       pgrst_base_url: tenant.pgrst_base_url,
       pgrst_api_key: tenant.pgrst_api_key,
-      replica_url: tenant.replica_url
+      replica_url: tenant.replica_url,
+      allow_shape_deletion: tenant.allow_shape_deletion
     }
   end
 end

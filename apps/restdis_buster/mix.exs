@@ -29,6 +29,7 @@ defmodule RestdisBuster.MixProject do
   defp deps do
     [
       {:restdis, in_umbrella: true},
+      {:restdis_electric, in_umbrella: true},
       {:restdis_repo, in_umbrella: true},
       {:syn, "~> 3.3"},
       {:postgrex, "~> 0.17"},

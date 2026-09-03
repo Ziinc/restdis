@@ -1,12 +1,16 @@
-defmodule Restdis.MixProject do
+defmodule RestdisElectric.MixProject do
   use Mix.Project
 
-  @umbrella_namespaces ~w(RestdisServer RestdisBuster RestdisRepo RestdisElectric)
+  @umbrella_namespaces ~w(RestdisServer RestdisBuster RestdisRepo RestdisReplicator)
 
   def project do
     [
-      app: :restdis,
+      app: :restdis_electric,
       version: "0.1.0",
+      build_path: "../../_build",
+      config_path: "../../config/config.exs",
+      deps_path: "../../deps",
+      lockfile: "../../mix.lock",
       elixir: "~> 1.20",
       start_permanent: Mix.env() == :prod,
       elixirc_paths: elixirc_paths(Mix.env()),
@@ -17,7 +21,7 @@ defmodule Restdis.MixProject do
 
   def application do
     [
-      extra_applications: [:logger]
+      extra_applications: [:logger, :crypto]
     ]
   end
 
@@ -26,14 +30,13 @@ defmodule Restdis.MixProject do
 
   defp deps do
     [
-      {:cubdb, "~> 2.0"},
+      {:restdis, in_umbrella: true},
       {:jason, "~> 1.4"},
       {:telemetry, "~> 1.0"},
+      {:req, "~> 0.6"},
       {:ecto_sql, "~> 3.13"},
-      {:postgrex, "~> 0.22"},
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
-      {:stream_data, "~> 1.1", only: :test},
-      {:benchee, "~> 1.3", only: :dev, runtime: false}
+      {:stream_data, "~> 1.1", only: :test}
     ]
   end
 
@@ -42,7 +45,7 @@ defmodule Restdis.MixProject do
       check: ["check.compile", "check.format", "check.lint", "check.boundary"],
       "check.compile": ["compile --force --warnings-as-errors"],
       "check.format": ["format --check-formatted"],
-      "check.lint": ["credo --strict --config-file .credo.exs"],
+      "check.lint": ["credo --strict"],
       "check.boundary": &boundary/1
     ]
   end
@@ -66,7 +69,10 @@ defmodule Restdis.MixProject do
         :ok
 
       lines ->
-        Mix.raise("restdis must not reference the host application.\n" <> Enum.join(lines, "\n"))
+        Mix.raise(
+          "restdis_electric must not reference other umbrella applications.\n" <>
+            Enum.join(lines, "\n")
+        )
     end
   end
 end

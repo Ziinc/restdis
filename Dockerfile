@@ -22,6 +22,7 @@ ENV MIX_ENV="prod"
 # copied, so editing an app does not invalidate the dependency layers.
 COPY mix.exs mix.lock ./
 COPY apps/restdis_buster/mix.exs apps/restdis_buster/
+COPY apps/restdis_electric/mix.exs apps/restdis_electric/
 COPY apps/restdis_replicator/mix.exs apps/restdis_replicator/
 COPY apps/restdis_repo/mix.exs apps/restdis_repo/
 COPY apps/restdis_server/mix.exs apps/restdis_server/

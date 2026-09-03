@@ -100,7 +100,7 @@ jobs:
         run: |
           started=$(docker exec restdis /app/bin/restdis rpc \
             'Application.started_applications() |> Enum.map(&elem(&1, 0)) |> Enum.sort() |> Enum.join(",") |> IO.puts()')
-          for app in restdis restdis_buster restdis_replicator restdis_repo restdis_server; do
+          for app in restdis restdis_buster restdis_electric restdis_replicator restdis_repo restdis_server; do
             case ",$started," in
               *",$app,"*) ;;
               *) echo "$app is not running in the release" >&2; exit 1 ;;

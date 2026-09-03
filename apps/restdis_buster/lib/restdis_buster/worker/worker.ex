@@ -9,6 +9,7 @@ defmodule RestdisBuster.Worker do
   alias RestdisBuster.TenantTableConfig
   alias RestdisBuster.WAL.Event
   alias RestdisBuster.Worker.HandlerConfig
+  alias RestdisElectric.WAL, as: ElectricWAL
 
   @infra_schema "public"
   @tenants_table "tenants"
@@ -74,6 +75,7 @@ defmodule RestdisBuster.Worker do
         )
 
         apply_change(config, event, row, pk)
+        ingest_shape_change(config, event, pk)
 
         :telemetry.execute(
           [:restdis_buster, :invalidation, :latency],
@@ -124,6 +126,20 @@ defmodule RestdisBuster.Worker do
   end
 
   defp handle_ddl_message(_), do: :ok
+
+  # Runs before ack/1: ingest/1 blocks until every shape durably appends the change first.
+  defp ingest_shape_change(config, event, pk) do
+    ElectricWAL.ingest(%{
+      tenant_id: config.tenant_id,
+      schema: event.schema,
+      table: event.table,
+      op: event.op,
+      pk: pk,
+      new_row: event.new_row,
+      old_row: event.old_row,
+      lsn: event.lsn
+    })
+  end
 
   defp apply_change(%{mode: "replication"} = config, event, row, _pk) do
     case Application.get_env(:restdis_buster, :replication_dispatcher) do

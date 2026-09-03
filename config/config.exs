@@ -22,6 +22,11 @@ config :restdis,
   replication_transport: Restdis.Cache.Replication.Transport.Distribution,
   tenant_config_lookup: {RestdisServer.TenantConfig, :lookup_by_tenant_id, []}
 
+config :restdis_electric,
+  repo: RestdisRepo,
+  table_info: RestdisElectric.TableInfo.Postgres,
+  snapshot_reader: RestdisElectric.Snapshotter.PostgREST
+
 config :restdis_server,
   topologies: [],
   resp_port: 6380,

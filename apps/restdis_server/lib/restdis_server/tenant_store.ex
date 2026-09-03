@@ -12,7 +12,8 @@ defmodule RestdisServer.TenantStore do
           persist_cap: pos_integer(),
           pgrst_base_url: String.t(),
           pgrst_api_key: String.t(),
-          replica_url: String.t() | nil
+          replica_url: String.t() | nil,
+          allow_shape_deletion: boolean()
         }
 
   @callback fetch_by_api_key(api_key()) :: {:ok, tenant_config()} | {:error, :not_found}
