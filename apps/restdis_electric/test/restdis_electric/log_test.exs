@@ -8,6 +8,8 @@ defmodule RestdisElectric.LogTest do
   alias RestdisElectric.ShapeRegistry
   alias RestdisElectric.TestUtils
 
+  import RestdisElectric.TestUtils, only: [eventually: 1]
+
   test "read/3 returns nothing for a handle that was never written" do
     tenant_id = TestUtils.tenant_id()
     assert :error = Log.read(tenant_id, "unknown-handle", Offset.beginning())
@@ -64,7 +66,12 @@ defmodule RestdisElectric.LogTest do
     Process.exit(pid, :kill)
     assert_receive {:DOWN, ^ref, :process, ^pid, :killed}
 
-    assert {:ok, [^message], {0, 0}} = Log.read(tenant_id, handle, Offset.beginning())
+    result =
+      eventually do
+        Log.read(tenant_id, handle, Offset.beginning())
+      end
+
+    assert {:ok, [^message], {0, 0}} = result
   end
 
   test "waiting?/2 is false for a handle with no log process and no waiters" do
