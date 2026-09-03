@@ -31,11 +31,13 @@ defmodule RestdisElectric.MixProject do
   defp deps do
     [
       {:restdis, in_umbrella: true},
+      {:rustler, "~> 0.38"},
       {:jason, "~> 1.4"},
       {:telemetry, "~> 1.0"},
       {:req, "~> 0.6"},
       {:ecto_sql, "~> 3.13"},
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
+      {:postgrex, "~> 0.22", only: :test},
       {:stream_data, "~> 1.1", only: :test}
     ]
   end

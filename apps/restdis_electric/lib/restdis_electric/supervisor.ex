@@ -1,8 +1,8 @@
 defmodule RestdisElectric.Supervisor do
   @moduledoc """
   Supervision tree for the shape context: the log process registry, the
-  dynamic supervisor that owns one process per active shape, and the shape
-  filter's registry.
+  dynamic supervisor that owns one process per active shape, the shape
+  filter's hash index, and the registry of shapes reading each table.
   """
 
   use Supervisor
@@ -20,6 +20,7 @@ defmodule RestdisElectric.Supervisor do
     children = [
       {Registry, keys: :unique, name: RestdisElectric.Log.Registry},
       {DynamicSupervisor, name: RestdisElectric.Log.Supervisor, strategy: :one_for_one},
+      RestdisElectric.Filter,
       RestdisElectric.ShapeRegistry
     ]
 

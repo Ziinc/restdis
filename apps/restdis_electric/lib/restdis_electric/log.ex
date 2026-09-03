@@ -86,18 +86,28 @@ defmodule RestdisElectric.Log do
   def read(tenant_id, handle, from_offset) do
     case Registry.lookup(@registry, {tenant_id, handle}) do
       [{pid, _}] ->
-        GenServer.call(pid, {:read, from_offset})
+        call(pid, {tenant_id, handle}, {:read, from_offset})
 
       [] ->
         case load(tenant_id, handle) do
           {:ok, _messages, _last_offset} ->
             {:ok, pid} = ensure_started(tenant_id, handle)
-            GenServer.call(pid, {:read, from_offset})
+            call(pid, {tenant_id, handle}, {:read, from_offset})
 
           :error ->
             :error
         end
     end
+  end
+
+  # A log process that died between lookup and call lost nothing: its state is on disk, so retrying works.
+  defp call(pid, {tenant_id, handle} = shape, message, attempts \\ 5) do
+    GenServer.call(pid, message)
+  catch
+    :exit, {reason, _} when reason in [:noproc, :normal, :killed, :shutdown] and attempts > 0 ->
+      Process.sleep(10)
+      {:ok, restarted} = ensure_started(tenant_id, handle)
+      call(restarted, shape, message, attempts - 1)
   end
 
   @doc """

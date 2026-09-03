@@ -10,6 +10,7 @@ defmodule RestdisElectric do
   """
 
   alias RestdisElectric.Definition
+  alias RestdisElectric.Eval
   alias RestdisElectric.Handle
   alias RestdisElectric.Log
   alias RestdisElectric.Message
@@ -21,11 +22,21 @@ defmodule RestdisElectric do
   @typedoc "Everything a single subscribe call needs, bundled to keep helper arities small."
   @type context :: %{tenant_id: String.t(), tenant_config: map(), definition: Definition.t()}
 
+  @typedoc """
+  The result of one read of a shape log.
+
+  `settled` marks a response whose content can never change: it stops at a
+  boundary the log has already passed, so every later read of the same range
+  produces the same bytes. The HTTP layer turns that into a long `max-age`.
+  A response that reaches the tip of the log is never settled, because the
+  next append extends it.
+  """
   @type subscribe_result :: %{
           handle: String.t(),
           messages: [Message.t()],
           offset: Offset.t(),
-          up_to_date: boolean()
+          up_to_date: boolean(),
+          settled: boolean()
         }
 
   @type subscribe_error ::
@@ -130,15 +141,38 @@ defmodule RestdisElectric do
             :error -> {[], Offset.beginning()}
           end
 
-        {:ok, %{handle: handle, messages: messages, offset: last_offset, up_to_date: true}}
+        {:ok, from_beginning(handle, messages, last_offset)}
 
       {:error, reason} ->
         {:error, {:snapshot_failed, reason}}
     end
   end
 
+  # A read from `-1` stops at the snapshot's end once the log has passed it, so it is final and cacheable.
+  defp from_beginning(handle, messages, last_offset) do
+    {snapshot, rest} = Enum.split_with(messages, &Offset.snapshot?(&1.offset))
+
+    if rest == [] do
+      %{
+        handle: handle,
+        messages: snapshot,
+        offset: last_offset,
+        up_to_date: true,
+        settled: false
+      }
+    else
+      %{
+        handle: handle,
+        messages: snapshot,
+        offset: Offset.snapshot_end(),
+        up_to_date: false,
+        settled: true
+      }
+    end
+  end
+
   defp resume(ctx, offset, handle) do
-    ShapeRegistry.register(ctx.tenant_id, ctx.definition.schema, ctx.definition.table, handle)
+    ShapeRegistry.register(ctx.tenant_id, ctx.definition, handle)
 
     case Log.read(ctx.tenant_id, handle, offset) do
       {:ok, messages, last_offset} ->
@@ -147,7 +181,8 @@ defmodule RestdisElectric do
            handle: handle,
            messages: messages,
            offset: Offset.max(offset, last_offset),
-           up_to_date: true
+           up_to_date: true,
+           settled: false
          }}
 
       :error ->
@@ -157,7 +192,7 @@ defmodule RestdisElectric do
 
   # An empty log looks the same as a never-snapshotted one; re-snapshotting is wasted work, not a bug.
   defp ensure_snapshot(ctx, handle) do
-    ShapeRegistry.register(ctx.tenant_id, ctx.definition.schema, ctx.definition.table, handle)
+    ShapeRegistry.register(ctx.tenant_id, ctx.definition, handle)
 
     case Log.read(ctx.tenant_id, handle, Offset.beginning()) do
       {:ok, [], :beginning} -> run_snapshot(ctx, handle)
@@ -171,15 +206,23 @@ defmodule RestdisElectric do
     counter = :counters.new(1, [])
 
     Snapshotter.stream(ctx.tenant_config, ctx.definition, fn rows ->
-      messages = Enum.map(rows, &snapshot_message(&1, info, counter))
+      messages =
+        rows
+        |> Enum.filter(&Eval.matches?(ctx.definition.filter, &1))
+        |> Enum.map(&snapshot_message(&1, ctx.definition, info, counter))
+
       Log.append(ctx.tenant_id, handle, messages)
     end)
   end
 
-  defp snapshot_message(row, info, counter) do
+  # Filtering here, not in the origin query, makes snapshot and log agree by construction: both use `Eval`.
+  defp snapshot_message(row, definition, info, counter) do
     op_offset = :counters.get(counter, 1)
     :counters.add(counter, 1, 1)
     key = Enum.map_join(info.primary_key, ",", &Map.get(row, &1))
-    Message.change({0, op_offset}, :insert, key, row)
+    Message.change({0, op_offset}, :insert, key, project(definition, row))
   end
+
+  defp project(%Definition{columns: nil}, row), do: row
+  defp project(%Definition{columns: columns}, row), do: Map.take(row, columns)
 end

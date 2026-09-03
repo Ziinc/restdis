@@ -30,6 +30,35 @@ defmodule RestdisServer.Metrics do
       counter("restdis.cache.ets_evict.count", tags: [:tenant_id]),
       counter("restdis.cache.cubdb_evict.count", tags: [:tenant_id]),
 
+      # Shape filters: how often the index answers, how many shapes each change tests against, and fan-out latency.
+      distribution("restdis_electric.filter.lookup.candidates",
+        tags: [:tenant_id, :table],
+        reporter_options: [buckets: [1, 2, 5, 10, 25, 50, 100, 500, 1_000]]
+      ),
+      distribution("restdis_electric.filter.lookup.indexed",
+        tags: [:tenant_id, :table],
+        reporter_options: [buckets: [1, 2, 5, 10, 25, 50, 100, 500, 1_000]]
+      ),
+      distribution("restdis_electric.filter.lookup.unindexed",
+        tags: [:tenant_id, :table],
+        reporter_options: [buckets: [1, 2, 5, 10, 25, 50, 100, 500, 1_000]]
+      ),
+      counter("restdis_electric.wal.ingest.appended", tags: [:tenant_id, :table, :operation]),
+      distribution("restdis_electric.wal.ingest.tested",
+        tags: [:tenant_id, :table],
+        reporter_options: [buckets: [1, 2, 5, 10, 25, 50, 100, 500, 1_000]]
+      ),
+      distribution("restdis_electric.wal.ingest.duration",
+        tags: [:tenant_id, :table],
+        unit: {:native, :microsecond},
+        reporter_options: [buckets: [100, 500, 1_000, 5_000, 10_000, 50_000, 100_000]]
+      ),
+      distribution("restdis_electric.where.parse.duration",
+        tags: [:result],
+        unit: {:native, :microsecond},
+        reporter_options: [buckets: [100, 500, 1_000, 5_000, 10_000, 50_000]]
+      ),
+
       # Cluster distribution
       counter("restdis.cluster.forward.count", tags: [:tenant_id, :owner, :op]),
       counter("restdis.cluster.unreachable.count", tags: [:tenant_id, :owner, :op]),

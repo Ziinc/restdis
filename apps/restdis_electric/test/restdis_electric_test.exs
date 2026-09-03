@@ -135,4 +135,54 @@ defmodule RestdisElectricTest do
     assert {:ok, [%Message{operation: :update, value: %{"name" => "changed"}}], _offset} =
              RestdisElectric.Log.read(tenant_id, subscribed.handle, subscribed.offset)
   end
+
+  describe "settled reads" do
+    test "a read from -1 is not settled while it reaches the tip of the log" do
+      tenant_id = TestUtils.tenant_id()
+
+      assert {:ok, result} =
+               RestdisElectric.subscribe(tenant_id, @tenant_config, %{
+                 "table" => "widgets",
+                 "offset" => "-1"
+               })
+
+      assert result.settled == false
+      assert result.up_to_date == true
+    end
+
+    test "a read from -1 stops at the snapshot end once the log has moved past it" do
+      tenant_id = TestUtils.tenant_id()
+
+      {:ok, first} =
+        RestdisElectric.subscribe(tenant_id, @tenant_config, %{
+          "table" => "widgets",
+          "offset" => "-1"
+        })
+
+      :ok =
+        WAL.ingest(%{
+          tenant_id: tenant_id,
+          schema: "public",
+          table: "widgets",
+          op: :insert,
+          pk: 2,
+          new_row: %{"id" => 2, "name" => "b"},
+          old_row: nil,
+          lsn: 100
+        })
+
+      {:ok, second} =
+        RestdisElectric.subscribe(tenant_id, @tenant_config, %{
+          "table" => "widgets",
+          "offset" => "-1",
+          "handle" => first.handle
+        })
+
+      # The settled response is exactly the snapshot: messages before `0_inf` are already written and never rewritten.
+      assert second.settled == true
+      assert second.up_to_date == false
+      assert second.offset == RestdisElectric.Offset.snapshot_end()
+      assert Enum.map(second.messages, & &1.offset) == Enum.map(first.messages, & &1.offset)
+    end
+  end
 end
