@@ -22,11 +22,21 @@ defmodule RestdisElectric do
   @typedoc "Everything a single subscribe call needs, bundled to keep helper arities small."
   @type context :: %{tenant_id: String.t(), tenant_config: map(), definition: Definition.t()}
 
+  @typedoc """
+  The result of one read of a shape log.
+
+  `settled` marks a response whose content can never change: it stops at a
+  boundary the log has already passed, so every later read of the same range
+  produces the same bytes. The HTTP layer turns that into a long `max-age`.
+  A response that reaches the tip of the log is never settled, because the
+  next append extends it.
+  """
   @type subscribe_result :: %{
           handle: String.t(),
           messages: [Message.t()],
           offset: Offset.t(),
-          up_to_date: boolean()
+          up_to_date: boolean(),
+          settled: boolean()
         }
 
   @type subscribe_error ::
@@ -131,10 +141,37 @@ defmodule RestdisElectric do
             :error -> {[], Offset.beginning()}
           end
 
-        {:ok, %{handle: handle, messages: messages, offset: last_offset, up_to_date: true}}
+        {:ok, from_beginning(handle, messages, last_offset)}
 
       {:error, reason} ->
         {:error, {:snapshot_failed, reason}}
+    end
+  end
+
+  # A read from `-1` stops at the end of the snapshot whenever the log has
+  # already moved past it. That response is then final — the snapshot's
+  # messages never change — so it can be cached for a long time, and the
+  # client continues from `0_inf`, which is the path every Electric client
+  # already takes.
+  defp from_beginning(handle, messages, last_offset) do
+    {snapshot, rest} = Enum.split_with(messages, &Offset.snapshot?(&1.offset))
+
+    if rest == [] do
+      %{
+        handle: handle,
+        messages: snapshot,
+        offset: last_offset,
+        up_to_date: true,
+        settled: false
+      }
+    else
+      %{
+        handle: handle,
+        messages: snapshot,
+        offset: Offset.snapshot_end(),
+        up_to_date: false,
+        settled: true
+      }
     end
   end
 
@@ -148,7 +185,8 @@ defmodule RestdisElectric do
            handle: handle,
            messages: messages,
            offset: Offset.max(offset, last_offset),
-           up_to_date: true
+           up_to_date: true,
+           settled: false
          }}
 
       :error ->

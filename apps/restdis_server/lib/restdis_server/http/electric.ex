@@ -6,6 +6,34 @@ defmodule RestdisServer.HTTP.Electric do
   status code and every `electric-*` header appears here. It converts query
   parameters into a call to `RestdisElectric` and converts the domain result
   back into a `Plug.Conn` response.
+
+  ## Transports
+
+  Long-polling and Server-Sent Events are two framings of the same domain
+  call, `RestdisElectric.await/4`. The context reports that the log has passed
+  an offset; deciding whether that becomes one JSON body or one more SSE event
+  is this module's job, and no transport detail crosses back into the context.
+
+  ## Caching
+
+  A wrong cache header here is severe: mark a live response as permanent and a
+  cache can serve it forever, so the client never advances again. The rules
+  are therefore narrow.
+
+  | Response | `cache-control` |
+  | --- | --- |
+  | Live, by long-poll or SSE | `no-store, no-cache, must-revalidate, max-age=0` |
+  | Settled — a range the log has already passed | `public, max-age=604800, stale-while-revalidate=2629746, immutable` |
+  | Up to date at the tip of the log | `public, max-age=5, stale-while-revalidate=5` |
+  | An error, of any kind | `no-store` |
+
+  Only a settled response is cacheable for long, and a settled response can
+  never change: it stops at a boundary the log has already passed, so repeated
+  reads produce the same bytes and the same `etag`.
+
+  The `cursor` parameter carries no meaning for the log. It exists to change
+  the URL, so that a live client reconnecting cannot be answered from a cached
+  copy of its previous request. It is part of the `etag` for the same reason.
   """
 
   import Plug.Conn
@@ -14,6 +42,16 @@ defmodule RestdisServer.HTTP.Electric do
   alias RestdisElectric.Offset
 
   @live_timeout_ms 20_000
+  @keepalive_ms 21_000
+  @sse_lifetime_ms 300_000
+
+  # A settled range never changes, so it may be held for a week and served
+  # stale for a month while it revalidates. Anything at the tip of the log may
+  # be extended by the next append, so it expires in seconds.
+  @settled_cache "public, max-age=604800, stale-while-revalidate=2629746, immutable"
+  @tip_cache "public, max-age=5, stale-while-revalidate=5"
+  @live_cache "no-store, no-cache, must-revalidate, max-age=0"
+  @error_cache "no-store"
 
   @doc """
   Handles `GET /v1/shape`: resolves a snapshot or a range of the shape log,
@@ -25,15 +63,8 @@ defmodule RestdisServer.HTTP.Electric do
     tenant_config = conn.assigns.tenant_config
 
     case RestdisElectric.subscribe(tenant_id, tenant_config, conn.params) do
-      {:ok, %{messages: []} = result} ->
-        if live?(conn.params) do
-          await_live(conn, tenant_id, result)
-        else
-          send_shape(conn, result)
-        end
-
       {:ok, result} ->
-        send_shape(conn, result)
+        send_live_or_settled(conn, tenant_id, result)
 
       {:error, :must_refetch, new_handle} ->
         send_must_refetch(conn, new_handle)
@@ -66,34 +97,132 @@ defmodule RestdisServer.HTTP.Electric do
     end
   end
 
-  defp live?(params), do: params["live"] in ["true", "1"]
+  defp live?(params), do: truthy?(params["live"]) or sse?(params)
+  defp sse?(params), do: truthy?(params["live_sse"])
+  defp truthy?(value), do: value in ["true", "1"]
+
+  defp send_live_or_settled(conn, tenant_id, result) do
+    cond do
+      sse?(conn.params) -> stream_sse(conn, tenant_id, result)
+      result.messages == [] and live?(conn.params) -> await_live(conn, tenant_id, result)
+      true -> send_shape(conn, result)
+    end
+  end
 
   defp await_live(conn, tenant_id, %{handle: handle, offset: offset}) do
     case RestdisElectric.await(tenant_id, handle, offset, @live_timeout_ms) do
       {:ok, messages, new_offset} ->
-        result = %{handle: handle, messages: messages, offset: new_offset, up_to_date: true}
-        send_shape(conn, result)
+        send_shape(conn, live_result(handle, messages, new_offset))
 
       :timeout ->
-        send_shape(conn, %{handle: handle, messages: [], offset: offset, up_to_date: true})
+        send_shape(conn, live_result(handle, [], offset))
     end
   end
 
-  defp send_shape(conn, %{
-         handle: handle,
-         messages: messages,
-         offset: offset,
-         up_to_date: up_to_date
-       }) do
-    body = Enum.map(messages, &encode_message/1) ++ control_messages(up_to_date)
+  defp live_result(handle, messages, offset) do
+    %{handle: handle, messages: messages, offset: offset, up_to_date: true, settled: false}
+  end
 
+  defp send_shape(conn, %{handle: handle, messages: messages, offset: offset} = result) do
+    body = Enum.map(messages, &encode_message/1) ++ control_messages(result.up_to_date)
+
+    conn
+    |> shape_headers(handle, offset, result.up_to_date)
+    |> cache_headers(cache_mode(conn.params, result), handle, offset)
+    |> put_resp_content_type("application/json")
+    |> send_resp(200, Jason.encode!(body))
+  end
+
+  defp shape_headers(conn, handle, offset, up_to_date) do
     conn
     |> put_resp_header("electric-handle", handle)
     |> put_resp_header("electric-offset", Offset.encode(offset))
     |> put_resp_header("electric-up-to-date", to_string(up_to_date))
-    |> put_resp_content_type("application/json")
-    |> send_resp(200, Jason.encode!(body))
   end
+
+  defp cache_mode(params, result) do
+    cond do
+      live?(params) -> :live
+      result.settled -> :settled
+      true -> :tip
+    end
+  end
+
+  defp cache_headers(conn, mode, handle, offset) do
+    conn
+    |> put_resp_header("cache-control", cache_control(mode))
+    |> put_resp_header("etag", etag(conn, handle, offset))
+  end
+
+  defp cache_control(:settled), do: @settled_cache
+  defp cache_control(:tip), do: @tip_cache
+  defp cache_control(:live), do: @live_cache
+
+  # The body is exactly the messages between the offset asked for and the
+  # offset reached, so those two, the handle and the cursor identify it.
+  defp etag(conn, handle, offset) do
+    from = conn.params["offset"] || "-1"
+    cursor = conn.params["cursor"] || ""
+    ~s("#{handle}:#{from}:#{Offset.encode(offset)}:#{cursor}")
+  end
+
+  # -- Server-Sent Events -----------------------------------------------------
+
+  defp stream_sse(conn, tenant_id, %{handle: handle, offset: offset} = result) do
+    conn =
+      conn
+      |> shape_headers(handle, offset, result.up_to_date)
+      |> cache_headers(:live, handle, offset)
+      |> put_resp_header("x-accel-buffering", "no")
+      |> put_resp_content_type("text/event-stream")
+      |> send_chunked(200)
+
+    events = Enum.map(result.messages, &encode_message/1) ++ control_messages(result.up_to_date)
+
+    case send_events(conn, events) do
+      {:ok, conn} -> sse_loop(conn, tenant_id, handle, offset, deadline())
+      {:error, conn} -> conn
+    end
+  end
+
+  defp sse_loop(conn, tenant_id, handle, offset, deadline) do
+    if System.monotonic_time(:millisecond) >= deadline do
+      conn
+    else
+      case RestdisElectric.await(tenant_id, handle, offset, keepalive_ms()) do
+        {:ok, messages, new_offset} ->
+          events = Enum.map(messages, &encode_message/1) ++ control_messages(true)
+          continue(conn, send_events(conn, events), tenant_id, handle, new_offset, deadline)
+
+        :timeout ->
+          # A comment keeps the connection, and any proxy in front of it, alive
+          # without telling the client anything about the log.
+          continue(conn, chunk(conn, ": keepalive\n\n"), tenant_id, handle, offset, deadline)
+      end
+    end
+  end
+
+  defp continue(_conn, {:ok, conn}, tenant_id, handle, offset, deadline),
+    do: sse_loop(conn, tenant_id, handle, offset, deadline)
+
+  # The client has gone. Nothing to clean up: the wait is already over.
+  defp continue(conn, {:error, _reason}, _tenant_id, _handle, _offset, _deadline), do: conn
+
+  defp send_events(conn, events) do
+    Enum.reduce_while(events, {:ok, conn}, fn event, {:ok, conn} ->
+      case chunk(conn, "data: " <> Jason.encode!(event) <> "\n\n") do
+        {:ok, conn} -> {:cont, {:ok, conn}}
+        {:error, _reason} -> {:halt, {:error, conn}}
+      end
+    end)
+  end
+
+  defp deadline do
+    System.monotonic_time(:millisecond) +
+      Application.get_env(:restdis_server, :sse_lifetime_ms, @sse_lifetime_ms)
+  end
+
+  defp keepalive_ms, do: Application.get_env(:restdis_server, :sse_keepalive_ms, @keepalive_ms)
 
   defp control_messages(true), do: [%{headers: %{control: "up-to-date"}}]
   defp control_messages(false), do: []
@@ -103,13 +232,18 @@ defmodule RestdisServer.HTTP.Electric do
   end
 
   defp encode_message(message) do
-    %{
-      key: message.key,
-      value: message.value,
-      headers: %{operation: Atom.to_string(message.operation)}
-    }
+    %{key: message.key, value: message.value, headers: message_headers(message)}
     |> put_old_value(message.old_value)
   end
+
+  # The offset travels inside the message as well as in the response header,
+  # because a Server-Sent Events client reads one event at a time and has no
+  # response header to advance from.
+  defp message_headers(%{offset: {lsn, op_position}} = message) do
+    %{operation: Atom.to_string(message.operation), lsn: lsn, op_position: op_position}
+  end
+
+  defp message_headers(message), do: %{operation: Atom.to_string(message.operation)}
 
   # `old_value` appears only under `replica=full`, where the context has
   # already decided the message carries the complete previous row.
@@ -121,6 +255,7 @@ defmodule RestdisServer.HTTP.Electric do
 
   defp send_must_refetch(conn, new_handle) do
     conn
+    |> put_resp_header("cache-control", @error_cache)
     |> put_resp_header("location", "/v1/shape?handle=#{new_handle}&offset=-1")
     |> send_resp(409, Jason.encode!(%{error: "shape handle no longer valid", handle: new_handle}))
   end
@@ -162,10 +297,17 @@ defmodule RestdisServer.HTTP.Electric do
   defp send_error(conn, {:missing_handle, _}),
     do: bad_request(conn, "missing 'handle' query parameter")
 
-  defp send_error(conn, {:snapshot_failed, reason}),
-    do: send_resp(conn, 502, Jason.encode!(%{error: "snapshot failed: #{inspect(reason)}"}))
+  defp send_error(conn, {:snapshot_failed, reason}) do
+    conn
+    |> put_resp_header("cache-control", @error_cache)
+    |> send_resp(502, Jason.encode!(%{error: "snapshot failed: #{inspect(reason)}"}))
+  end
 
   defp send_error(conn, reason), do: bad_request(conn, inspect(reason))
 
-  defp bad_request(conn, message), do: send_resp(conn, 400, Jason.encode!(%{error: message}))
+  defp bad_request(conn, message) do
+    conn
+    |> put_resp_header("cache-control", @error_cache)
+    |> send_resp(400, Jason.encode!(%{error: message}))
+  end
 end
