@@ -19,6 +19,7 @@ defmodule RestdisElectric do
   alias RestdisElectric.ShapeRegistry
   alias RestdisElectric.Snapshotter
   alias RestdisElectric.Snapshotter.DirectPostgres
+  alias RestdisElectric.SubqueryTracker
   alias RestdisElectric.TableInfo
 
   @typedoc "Everything a single subscribe call needs, bundled to keep helper arities small."
@@ -105,15 +106,25 @@ defmodule RestdisElectric do
   end
 
   # `log=changes_only` without a direct pool would silently fall back to `full`, so it is a subscribe error.
-  defp check_direct_pool(%Definition{log_mode: :changes_only}, tenant_config) do
+  defp check_direct_pool(%Definition{log_mode: :changes_only}, tenant_config),
+    do: ensure_direct_pool(tenant_config)
+
+  # `RestdisElectric.SubqueryTracker` needs a direct pool to read the subquery's own table.
+  defp check_direct_pool(%Definition{filter: filter}, tenant_config) do
+    if Eval.subqueries(filter) == [] do
+      :ok
+    else
+      ensure_direct_pool(tenant_config)
+    end
+  end
+
+  defp ensure_direct_pool(tenant_config) do
     if tenant_config[:direct_pg_url] do
       :ok
     else
       {:error, {:missing_direct_pool, nil}}
     end
   end
-
-  defp check_direct_pool(%Definition{}, _tenant_config), do: :ok
 
   @doc """
   Blocks until the shape's log has a message after `since_offset`, or until
@@ -137,6 +148,7 @@ defmodule RestdisElectric do
   @spec delete_shape(String.t(), String.t()) :: :ok
   def delete_shape(tenant_id, handle) do
     ShapeRegistry.unregister(tenant_id, handle)
+    SubqueryTracker.unregister_shape(tenant_id, handle)
     Log.delete(tenant_id, handle)
   end
 
@@ -214,7 +226,7 @@ defmodule RestdisElectric do
   end
 
   defp resume(ctx, offset, handle) do
-    ShapeRegistry.register(ctx.tenant_id, ctx.definition, handle)
+    register(ctx, handle)
 
     if stale_offset?(ctx.tenant_id, handle, offset) do
       must_refetch(ctx, :retention)
@@ -273,7 +285,10 @@ defmodule RestdisElectric do
     end
   end
 
-  defp register(ctx, handle), do: ShapeRegistry.register(ctx.tenant_id, ctx.definition, handle)
+  defp register(ctx, handle) do
+    ShapeRegistry.register(ctx.tenant_id, ctx.definition, handle)
+    SubqueryTracker.register_shape(ctx.tenant_id, ctx.tenant_config, ctx.definition, handle)
+  end
 
   defp run_snapshot(ctx, handle) do
     method = snapshot_method(ctx.definition)
@@ -326,10 +341,11 @@ defmodule RestdisElectric do
 
   defp append_page(rows, page_ctx) do
     %{ctx: ctx, handle: handle, info: info, counter: counter, error_box: error_box} = page_ctx
+    resolver = SubqueryTracker.resolver(ctx.tenant_id, handle)
 
     messages =
       rows
-      |> Enum.filter(&Eval.matches?(ctx.definition.filter, &1))
+      |> Enum.filter(&Eval.matches?(ctx.definition.filter, &1, resolver))
       |> Enum.map(&snapshot_message(&1, ctx.definition, info, counter))
 
     case Log.append(ctx.tenant_id, handle, messages) do

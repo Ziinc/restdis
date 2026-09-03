@@ -147,14 +147,25 @@ defmodule RestdisElectric.DefinitionTest do
       :ok
     end
 
-    test "parses and validates a plain, non-correlated subquery, but rejects it as not yet implemented" do
-      assert {:error, {:unsupported_where, message}} =
+    test "accepts a plain, non-correlated, bare subquery" do
+      assert {:ok, %{filter: filter}} =
                Definition.new("t1", %{
                  "table" => "widgets",
                  "where" => "id IN (SELECT id FROM parents WHERE archived = false)"
                })
 
-      assert message =~ "not supported yet"
+      assert {:ok, _pieces} = RestdisElectric.Eval.bare_subquery(filter)
+    end
+
+    test "rejects a NOT IN subquery combined with another table's real primary key check" do
+      # A bare `NOT IN` is still accepted (`negated` lives on the in_subquery node itself).
+      assert {:ok, %{filter: filter}} =
+               Definition.new("t1", %{
+                 "table" => "widgets",
+                 "where" => "id NOT IN (SELECT id FROM parents WHERE archived = false)"
+               })
+
+      assert {:ok, %{negated: true}} = RestdisElectric.Eval.bare_subquery(filter)
     end
 
     test "rejects a subquery with more than one projected column" do

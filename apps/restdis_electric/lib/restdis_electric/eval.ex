@@ -16,15 +16,17 @@ defmodule RestdisElectric.Eval do
   would send one tenant's rows to another.
 
   `field IN (SELECT column FROM table [WHERE ...])` parses and structurally
-  validates (see `subqueries/1`), but `evaluate/2` and `matches?/2` cannot
-  decide it from one row alone — the answer depends on a second table. A
-  compiled clause containing this node must never reach `matches?/2` in
-  production; `RestdisElectric.Definition` currently rejects it at subscribe
-  time with `{:error, {:unsupported_where, _}}` because Electric does not yet
-  incrementally track the subquery's live result set (ELECTRIC_PRD Phase 6
-  item 1). `evaluate/2`/`matches?/2` return `:null`/`false` for it rather than
-  raising, purely so a test can exercise the rest of a clause without
-  reaching this node.
+  validates (see `subqueries/1`), but deciding it from one row alone is
+  impossible — the answer depends on a second table's current contents.
+  `matches?/2` (no resolver) and `evaluate/2` treat it as `:null`, which is
+  what every test that only cares about the rest of a clause gets.
+  `matches?/3` accepts a `t:subquery_resolver/0` that decides it instead;
+  `RestdisElectric.SubqueryTracker` supplies one backed by a live-maintained
+  result set for the bare form `RestdisElectric.Definition` accepts (see
+  `bare_subquery/1` and `RestdisElectric.SubqueryTracker`'s moduledoc for the
+  scope: a subquery combined with `AND`/`OR` is still rejected, because that
+  would require this module to also decide the surrounding clause against
+  a partially-invalidated row, which it does not yet do).
 
   Values follow Postgres's three-valued logic. `:null` is SQL `NULL`, and a
   row matches only when the clause evaluates to exactly `true`, which is what
@@ -85,21 +87,75 @@ defmodule RestdisElectric.Eval do
     end
   end
 
+  @typedoc """
+  Decides whether `value` (the outer row's value of the `IN`'s left-hand
+  expression) is currently a member of a `field IN (subquery)` clause's live
+  result set. `table` and `column` identify the subquery, as returned by
+  `subqueries/1`. Used by `RestdisElectric.SubqueryTracker` to make
+  `matches?/3` actually decide a bare subquery clause instead of treating it
+  as `:null`; see its moduledoc for the scope this supports.
+  """
+  @type subquery_resolver ::
+          (table :: String.t(), column :: String.t(), value :: value() -> boolean() | :null)
+
   @doc """
   Returns true when `row` satisfies the compiled clause.
 
   A `nil` clause matches every row, which is what a shape with no `where`
   parameter means. A `nil` row never matches: it is the missing pre-image of
   an insert or the missing post-image of a delete.
-  """
-  @spec matches?(t() | nil, row() | nil) :: boolean()
-  def matches?(nil, nil), do: false
-  def matches?(nil, _row), do: true
-  def matches?(%__MODULE__{}, nil), do: false
 
-  def matches?(%__MODULE__{} = compiled, row) when is_map(row) do
-    eval(compiled.tree, row, compiled.params) == true
+  `resolver`, if given, decides any `field IN (subquery)` node the clause
+  contains (see `t:subquery_resolver/0`); without one such a node is always
+  `:null`, per this module's moduledoc.
+  """
+  @spec matches?(t() | nil, row() | nil, subquery_resolver() | nil) :: boolean()
+  def matches?(compiled, row, resolver \\ nil)
+  def matches?(nil, nil, _resolver), do: false
+  def matches?(nil, _row, _resolver), do: true
+  def matches?(%__MODULE__{}, nil, _resolver), do: false
+
+  def matches?(%__MODULE__{} = compiled, row, resolver) when is_map(row) do
+    eval(compiled.tree, row, with_resolver(compiled.params, resolver)) == true
   end
+
+  # `resolver` rides in the `params` map every `eval` clause threads through, under a key no placeholder collides with.
+  defp with_resolver(params, nil), do: params
+  defp with_resolver(params, resolver), do: Map.put(params, :subquery_resolver, resolver)
+
+  @doc """
+  If `filter`'s entire clause is exactly one `column IN (subquery)` (or
+  `NOT IN`) node — no `AND`/`OR` combination with anything else — returns its
+  pieces. Anything else, including a subquery inside a larger clause,
+  returns `:error`. `RestdisElectric.Definition.check_subqueries/3` only
+  accepts a subquery in this bare form (see `RestdisElectric.SubqueryTracker`
+  for why), so this is the single source of truth both use for "is this
+  shape's live subquery tracking supported".
+  """
+  @spec bare_subquery(t() | nil) ::
+          {:ok,
+           %{
+             column: String.t(),
+             table: String.t(),
+             inner_column: String.t(),
+             selection: SqlParser.tree() | :none,
+             negated: boolean()
+           }}
+          | :error
+  def bare_subquery(%__MODULE__{
+        tree: {:in_subquery, {:ident, column}, negated, table, inner_column, selection}
+      }) do
+    {:ok,
+     %{
+       column: column,
+       table: table,
+       inner_column: inner_column,
+       selection: selection,
+       negated: negated
+     }}
+  end
+
+  def bare_subquery(_filter), do: :error
 
   @doc """
   Returns the column names the clause references.
@@ -355,7 +411,21 @@ defmodule RestdisElectric.Eval do
   defp eval({:func, name, args}, row, params),
     do: call(name, Enum.map(args, &eval(&1, row, params)))
 
+  defp eval({:in_subquery, expr, negated, table, column, _selection}, row, params) do
+    case Map.get(params, :subquery_resolver) do
+      nil -> :null
+      resolver -> resolved_member({table, column, eval(expr, row, params)}, resolver, negated)
+    end
+  end
+
   defp eval(_other, _row, _params), do: :null
+
+  defp resolved_member({table, column, value}, resolver, negated) do
+    case resolver.(table, column, value) do
+      :null -> :null
+      member? when is_boolean(member?) -> if negated, do: not member?, else: member?
+    end
+  end
 
   defp fetch_column(row, name) do
     case Map.fetch(row, name) do
@@ -378,7 +448,7 @@ defmodule RestdisElectric.Eval do
 
   defp literal_value({:number, text}), do: parse_number(text)
   defp literal_value({:string, text}), do: text
-  defp literal_value({:bool, bool}), do: bool
+  defp literal_value({:bool_, bool}), do: bool
   defp literal_value(:null), do: :null
 
   defp param_value(nil), do: :null

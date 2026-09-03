@@ -37,6 +37,7 @@ defmodule RestdisElectric.WAL do
   alias RestdisElectric.Log
   alias RestdisElectric.Message
   alias RestdisElectric.ShapeRegistry
+  alias RestdisElectric.SubqueryTracker
 
   @type change :: %{
           required(:tenant_id) => String.t() | nil,
@@ -61,6 +62,12 @@ defmodule RestdisElectric.WAL do
       when is_binary(tenant_id) and is_integer(lsn) and op in [:insert, :update, :delete] do
     new_row = Map.get(c, :new_row)
     old_row = Map.get(c, :old_row)
+
+    SubqueryTracker.route_inner_change(tenant_id, schema, table, %{
+      new_row: new_row,
+      old_row: old_row,
+      lsn: lsn
+    })
 
     case Filter.candidates(tenant_id, schema, table, [new_row, old_row]) do
       [] ->
@@ -93,9 +100,10 @@ defmodule RestdisElectric.WAL do
     %{op: op, new_row: new_row, old_row: old_row} = change
     definition = definition_for(tenant_id, handle)
     filter = definition.filter
+    resolver = SubqueryTracker.resolver(tenant_id, handle)
 
-    matched_before = op != :insert and Eval.matches?(filter, old_row)
-    matched_after = op != :delete and Eval.matches?(filter, new_row)
+    matched_before = op != :insert and Eval.matches?(filter, old_row, resolver)
+    matched_after = op != :delete and Eval.matches?(filter, new_row, resolver)
 
     case logged_operation(matched_before, matched_after) do
       nil ->

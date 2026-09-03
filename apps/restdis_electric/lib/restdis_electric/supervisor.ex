@@ -23,7 +23,8 @@ defmodule RestdisElectric.Supervisor do
       RestdisElectric.Filter,
       RestdisElectric.ShapeRegistry,
       RestdisElectric.Limits,
-      RestdisElectric.SchemaWatcher
+      RestdisElectric.SchemaWatcher,
+      RestdisElectric.SubqueryTracker
     ]
 
     Supervisor.init(children, strategy: :one_for_one)

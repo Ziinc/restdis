@@ -18,15 +18,15 @@ defmodule RestdisElectric.Definition do
   `{:error, {:correlated_subquery, column}}`; any other name not found on
   the subquery's table produces `{:error, {:unknown_columns, [column]}}`.
 
-  A subquery that passes all of that is still rejected, with
-  `{:error, {:unsupported_where, _}}`, because nothing yet incrementally
-  tracks the subquery's live result set: accepting it would either force a
-  full scan of this shape's table on every write to the subquery's table, or
-  worse, silently miss the rows that enter or leave the shape when the
-  subquery's result changes but the row itself does not (ELECTRIC_PRD Phase 6
-  item 1). A future implementation only needs to replace that final
-  rejection with real tracking; the parsing and validation above already do
-  the rest.
+  A subquery that passes all of that is accepted only when it is the shape's
+  *entire* filter — `Eval.bare_subquery/1` — because that is what
+  `RestdisElectric.SubqueryTracker` incrementally tracks (ELECTRIC_PRD Phase
+  6 item 1): it maintains the subquery's live result set and keeps the
+  shape's log in sync as the subquery's own table changes. A subquery
+  combined with `AND`/`OR` is still rejected with
+  `{:error, {:unsupported_where, _}}`, because nothing yet decides the rest
+  of such a clause against a row whose subquery membership just changed
+  without the row itself changing.
   """
 
   alias RestdisElectric.Eval
@@ -283,14 +283,21 @@ defmodule RestdisElectric.Definition do
     end)
   end
 
-  # Validated in full, including correlation, then rejected until Phase 6 item 1's tracker exists; see the moduledoc.
+  # Validated in full, then accepted only in the bare form RestdisElectric.SubqueryTracker tracks.
   defp check_subqueries(definition, filter, outer_info) do
     subqueries = Eval.subqueries(filter)
 
     case Enum.find_value(subqueries, &subquery_error(definition, &1, outer_info)) do
       nil when subqueries == [] -> :ok
-      nil -> not_yet_implemented()
+      nil -> check_bare_subquery(filter)
       error -> error
+    end
+  end
+
+  defp check_bare_subquery(filter) do
+    case Eval.bare_subquery(filter) do
+      {:ok, _pieces} -> :ok
+      :error -> not_yet_implemented()
     end
   end
 

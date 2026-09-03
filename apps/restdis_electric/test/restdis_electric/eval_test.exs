@@ -83,6 +83,13 @@ defmodule RestdisElectric.EvalTest do
       assert matches?("active IS NOT UNKNOWN")
     end
 
+    test "a literal boolean compares correctly, not just a bare boolean identifier" do
+      assert matches?("active = true")
+      refute matches?("active = false")
+      refute matches?("active <> true")
+      assert matches?("active <> false")
+    end
+
     test "IN and NOT IN" do
       assert matches?("id IN (1, 7, 9)")
       refute matches?("id IN (1, 9)")
