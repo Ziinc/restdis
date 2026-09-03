@@ -9,6 +9,7 @@ defmodule RestdisServer.Test.OpenApiConformance do
   import ExUnit.Assertions
 
   alias OpenApiSpex.Cast
+  alias OpenApiSpex.Cast.Error, as: CastError
   alias RestdisServer.HTTP.ApiSpec
 
   @doc """
@@ -43,19 +44,25 @@ defmodule RestdisServer.Test.OpenApiConformance do
 
   defp assert_headers!(spec, response, resp) do
     Enum.each(response.headers || %{}, fn {name, header} ->
-      values = Req.Response.get_header(resp, name)
-
-      if header.required do
-        assert values != [], "expected response header #{inspect(name)} to be present"
-      end
-
-      Enum.each(values, fn value ->
-        case Cast.cast(header.schema, value, spec.components.schemas) do
-          {:ok, _} -> :ok
-          {:error, errors} -> flunk(cast_error_message("header #{name}", errors))
-        end
-      end)
+      assert_header!(spec, name, header, resp)
     end)
+  end
+
+  defp assert_header!(spec, name, header, resp) do
+    values = Req.Response.get_header(resp, name)
+
+    if header.required do
+      assert values != [], "expected response header #{inspect(name)} to be present"
+    end
+
+    Enum.each(values, &assert_header_value!(spec, name, header, &1))
+  end
+
+  defp assert_header_value!(spec, name, header, value) do
+    case Cast.cast(header.schema, value, spec.components.schemas) do
+      {:ok, _} -> :ok
+      {:error, errors} -> flunk(cast_error_message("header #{name}", errors))
+    end
   end
 
   defp assert_body!(spec, response, resp) do
@@ -77,7 +84,7 @@ defmodule RestdisServer.Test.OpenApiConformance do
   defp decode_body!(%{body: body}) when is_binary(body), do: Jason.decode!(body)
 
   defp cast_error_message(context, errors) do
-    details = Enum.map_join(errors, "\n", &OpenApiSpex.Cast.Error.message/1)
+    details = Enum.map_join(errors, "\n", &CastError.message/1)
     "#{context} did not conform to the OpenAPI schema:\n#{details}"
   end
 end

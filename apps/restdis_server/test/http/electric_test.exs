@@ -592,7 +592,7 @@ defmodule RestdisServer.HTTP.ElectricTest do
         )
 
       assert resp.status == 202
-      assert resp.body == %{"ok" => true}
+      assert Jason.decode!(resp.body) == %{"ok" => true}
       OpenApiConformance.assert_conforms!("delete", "/v1/shape", resp)
 
       {:ok, resumed} =
@@ -628,7 +628,7 @@ defmodule RestdisServer.HTTP.ElectricTest do
         )
 
       assert resp.status == 404
-      assert %{"error" => _} = resp.body
+      assert %{"error" => _} = Jason.decode!(resp.body)
       OpenApiConformance.assert_conforms!("delete", "/v1/shape", resp)
     end
 
@@ -641,7 +641,7 @@ defmodule RestdisServer.HTTP.ElectricTest do
         )
 
       assert resp.status == 400
-      assert %{"error" => _} = resp.body
+      assert %{"error" => _} = Jason.decode!(resp.body)
       OpenApiConformance.assert_conforms!("delete", "/v1/shape", resp)
     end
 
@@ -665,7 +665,7 @@ defmodule RestdisServer.HTTP.ElectricTest do
         )
 
       assert resp.status == 401
-      assert %{"error" => _} = resp.body
+      assert %{"error" => _} = Jason.decode!(resp.body)
       OpenApiConformance.assert_conforms!("delete", "/v1/shape", resp)
     end
 

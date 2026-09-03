@@ -14,20 +14,18 @@ defmodule RestdisServer.HTTP.ApiSpec do
 
   @behaviour OpenApiSpex.OpenApi
 
-  alias OpenApiSpex.{
-    Components,
-    Header,
-    Info,
-    MediaType,
-    OpenApi,
-    Operation,
-    Parameter,
-    PathItem,
-    Reference,
-    Response,
-    Schema,
-    SecurityScheme
-  }
+  alias OpenApiSpex.Components
+  alias OpenApiSpex.Header
+  alias OpenApiSpex.Info
+  alias OpenApiSpex.MediaType
+  alias OpenApiSpex.OpenApi
+  alias OpenApiSpex.Operation
+  alias OpenApiSpex.Parameter
+  alias OpenApiSpex.PathItem
+  alias OpenApiSpex.Reference
+  alias OpenApiSpex.Response
+  alias OpenApiSpex.Schema
+  alias OpenApiSpex.SecurityScheme
 
   @impl OpenApiSpex.OpenApi
   def spec do
