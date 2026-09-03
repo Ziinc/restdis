@@ -10,6 +10,8 @@ defmodule RestdisElectric.TableInfo.Postgres do
 
   require Logger
 
+  alias Ecto.Adapters.SQL
+
   @columns_query """
   SELECT a.attname, format_type(a.atttypid, a.atttypmod)
   FROM pg_attribute a
@@ -54,7 +56,7 @@ defmodule RestdisElectric.TableInfo.Postgres do
   end
 
   defp query(sql, args) do
-    case Ecto.Adapters.SQL.query(repo(), sql, args) do
+    case SQL.query(repo(), sql, args) do
       {:ok, %{rows: rows}} -> {:ok, rows}
       {:error, _reason} -> :error
     end

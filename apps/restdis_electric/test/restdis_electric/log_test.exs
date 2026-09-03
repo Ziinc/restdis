@@ -47,9 +47,8 @@ defmodule RestdisElectric.LogTest do
     :ok = Log.append(tenant_id, handle, [message])
 
     {:ok, pid} = Log.ensure_started(tenant_id, handle)
-    Process.exit(pid, :kill)
-    # allow the DynamicSupervisor's :transient child to actually terminate
     ref = Process.monitor(pid)
+    Process.exit(pid, :kill)
     assert_receive {:DOWN, ^ref, :process, ^pid, :killed}
 
     assert {:ok, [^message], {0, 0}} = Log.read(tenant_id, handle, Offset.beginning())

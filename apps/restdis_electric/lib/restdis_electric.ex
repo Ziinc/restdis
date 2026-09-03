@@ -155,11 +155,7 @@ defmodule RestdisElectric do
     end
   end
 
-  # A shape whose log has never been written registers here for the first
-  # time and runs its snapshot. A log with no messages yet is
-  # indistinguishable from a genuinely empty table; re-running the snapshot
-  # in that case is wasted work, not a correctness problem, because every
-  # row is appended as an idempotent insert.
+  # An empty log looks the same as a never-snapshotted one; re-snapshotting is wasted work, not a bug.
   defp ensure_snapshot(ctx, handle) do
     ShapeRegistry.register(ctx.tenant_id, ctx.definition.schema, ctx.definition.table, handle)
 
@@ -183,7 +179,7 @@ defmodule RestdisElectric do
   defp snapshot_message(row, info, counter) do
     op_offset = :counters.get(counter, 1)
     :counters.add(counter, 1, 1)
-    key = info.primary_key |> Enum.map(&Map.get(row, &1)) |> Enum.join(",")
+    key = Enum.map_join(info.primary_key, ",", &Map.get(row, &1))
     Message.change({0, op_offset}, :insert, key, row)
   end
 end

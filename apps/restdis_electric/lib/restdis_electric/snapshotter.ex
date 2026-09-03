@@ -18,6 +18,14 @@ defmodule RestdisElectric.Snapshotter do
   @callback stream(tenant_config :: map(), Definition.t(), page_fun :: ([map()] -> :ok)) ::
               :ok | {:error, term()}
 
+  @page_size 1_000
+
+  @doc """
+  The number of rows fetched per snapshot page.
+  """
+  @spec page_size() :: pos_integer()
+  def page_size, do: @page_size
+
   @doc """
   Streams every row of `definition`'s table, page by page, calling
   `page_fun` with each page's rows in primary-key order.

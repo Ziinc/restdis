@@ -127,11 +127,7 @@ defmodule RestdisBuster.Worker do
 
   defp handle_ddl_message(_), do: :ok
 
-  # `RestdisElectric.WAL.ingest/1` appends synchronously to every matching
-  # shape's log before returning, so calling it here (before `ack/1`) is what
-  # gives the "confirm the LSN to Postgres only after every active shape has
-  # written the change" guarantee the RFC requires: a crash before `ack/1`
-  # simply replays this event from the last confirmed LSN.
+  # Runs before ack/1: ingest/1 blocks until every shape durably appends the change first.
   defp ingest_shape_change(config, event, pk) do
     ElectricWAL.ingest(%{
       tenant_id: config.tenant_id,

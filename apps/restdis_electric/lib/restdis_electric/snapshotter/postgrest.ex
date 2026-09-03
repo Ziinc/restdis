@@ -11,12 +11,14 @@ defmodule RestdisElectric.Snapshotter.PostgREST do
 
   @impl RestdisElectric.Snapshotter
   def stream(tenant_config, %Definition{} = definition, page_fun) do
-    with {:ok, info} <- RestdisElectric.TableInfo.fetch(definition.schema, definition.table) do
-      order = Enum.join(info.primary_key, ",")
-      req = %{tenant_config: tenant_config, definition: definition, order: order}
-      page(req, 0, page_fun)
-    else
-      :error -> {:error, {:unknown_table, Definition.qualified(definition)}}
+    case RestdisElectric.TableInfo.fetch(definition.schema, definition.table) do
+      {:ok, info} ->
+        order = Enum.join(info.primary_key, ",")
+        req = %{tenant_config: tenant_config, definition: definition, order: order}
+        page(req, 0, page_fun)
+
+      :error ->
+        {:error, {:unknown_table, Definition.qualified(definition)}}
     end
   end
 
