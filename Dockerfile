@@ -10,7 +10,11 @@ ARG RUNNER_IMAGE="alpine:${ALPINE_VERSION}"
 # ---------------------------------------------------------------------------
 FROM ${BUILDER_IMAGE} AS builder
 
-RUN apk add --no-cache build-base git ca-certificates cargo rust
+# Alpine 3.22's own rust/cargo (1.87) predate rustler 0.38's MSRV (1.91), so
+# the toolchain is pulled from the edge repo, pinned only for these two
+# packages; everything else on the image stays on the tagged Alpine release.
+RUN echo "@edge https://dl-cdn.alpinelinux.org/alpine/edge/main" >> /etc/apk/repositories \
+  && apk add --no-cache build-base git ca-certificates cargo@edge rust@edge
 
 WORKDIR /app
 
