@@ -1,0 +1,14 @@
+{
+  "name": "restdis-electric-conformance",
+  "private": true,
+  "version": "0.0.0",
+  "description": "Minimal conformance check: the real @electric-sql/client ShapeStream against a running Restdis instance. See Phase 6 item 7 of ELECTRIC_PRD.md.",
+  "type": "module",
+  "scripts": {
+    "test": "node run.mjs"
+  },
+  "dependencies": {
+    "@electric-sql/client": "1.5.27",
+    "pg": "8.13.1"
+  }
+}

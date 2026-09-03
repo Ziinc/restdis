@@ -136,6 +136,104 @@ defmodule RestdisElectric.DefinitionTest do
     end
   end
 
+  describe "field IN (subquery)" do
+    setup do
+      TestUtils.put_table("public.parents", %{
+        columns: ["id", "archived"],
+        primary_key: ["id"],
+        replica_identity: :full
+      })
+
+      :ok
+    end
+
+    test "parses and validates a plain, non-correlated subquery, but rejects it as not yet implemented" do
+      assert {:error, {:unsupported_where, message}} =
+               Definition.new("t1", %{
+                 "table" => "widgets",
+                 "where" => "id IN (SELECT id FROM parents WHERE archived = false)"
+               })
+
+      assert message =~ "not supported yet"
+    end
+
+    test "rejects a subquery with more than one projected column" do
+      assert {:error, {:unsupported_where, message}} =
+               Definition.new("t1", %{
+                 "table" => "widgets",
+                 "where" => "id IN (SELECT id, archived FROM parents)"
+               })
+
+      assert message =~ "one column"
+    end
+
+    test "rejects a subquery with a join" do
+      assert {:error, {:unsupported_where, message}} =
+               Definition.new("t1", %{
+                 "table" => "widgets",
+                 "where" => "id IN (SELECT id FROM parents JOIN widgets ON true)"
+               })
+
+      assert message =~ "join"
+    end
+
+    test "rejects a subquery nested inside a subquery" do
+      TestUtils.put_table("public.grandparents", %{
+        columns: ["id"],
+        primary_key: ["id"],
+        replica_identity: :full
+      })
+
+      assert {:error, {:unsupported_where, message}} =
+               Definition.new("t1", %{
+                 "table" => "widgets",
+                 "where" =>
+                   "id IN (SELECT id FROM parents WHERE id IN (SELECT id FROM grandparents))"
+               })
+
+      assert message =~ "nested"
+    end
+
+    test "rejects a subquery reading an unknown table" do
+      assert {:error, {:unknown_table, "public.nope"}} =
+               Definition.new("t1", %{
+                 "table" => "widgets",
+                 "where" => "id IN (SELECT id FROM nope)"
+               })
+    end
+
+    test "rejects a correlated subquery, naming the offending column" do
+      assert {:error, {:correlated_subquery, column}} =
+               Definition.new("t1", %{
+                 "table" => "widgets",
+                 "where" => "id IN (SELECT id FROM parents WHERE archived = widgets.price)"
+               })
+
+      assert column =~ "price"
+    end
+
+    test "rejects a subquery clause naming an unknown column of its own table" do
+      assert {:error, {:unknown_columns, ["bogus"]}} =
+               Definition.new("t1", %{
+                 "table" => "widgets",
+                 "where" => "id IN (SELECT id FROM parents WHERE bogus = 1)"
+               })
+    end
+
+    test "supports being combined with AND, OR, and NOT" do
+      for where <- [
+            "id IN (SELECT id FROM parents WHERE archived = false) AND name = 'x'",
+            "id IN (SELECT id FROM parents WHERE archived = false) OR name = 'x'",
+            "NOT (id IN (SELECT id FROM parents WHERE archived = false))"
+          ] do
+        assert {:error, {:unsupported_where, message}} =
+                 Definition.new("t1", %{"table" => "widgets", "where" => where})
+
+        assert message =~ "not supported yet"
+      end
+    end
+  end
+
   test "accepts replica=full" do
     assert {:ok, %{replica: :full}} =
              Definition.new("t1", %{"table" => "widgets", "replica" => "full"})
@@ -146,9 +244,14 @@ defmodule RestdisElectric.DefinitionTest do
              Definition.new("t1", %{"table" => "widgets", "replica" => "partial"})
   end
 
-  test "rejects log=changes_only (not yet supported)" do
-    assert {:error, {:unsupported_log_mode, "changes_only"}} =
+  test "accepts log=changes_only" do
+    assert {:ok, %{log_mode: :changes_only}} =
              Definition.new("t1", %{"table" => "widgets", "log" => "changes_only"})
+  end
+
+  test "rejects an unknown log value" do
+    assert {:error, {:unsupported_log_mode, "batched"}} =
+             Definition.new("t1", %{"table" => "widgets", "log" => "batched"})
   end
 
   test "canonical/1 is stable for equal definitions and differs for different ones" do

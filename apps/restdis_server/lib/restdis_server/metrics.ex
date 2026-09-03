@@ -44,6 +44,7 @@ defmodule RestdisServer.Metrics do
         reporter_options: [buckets: [1, 2, 5, 10, 25, 50, 100, 500, 1_000]]
       ),
       counter("restdis_electric.wal.ingest.appended", tags: [:tenant_id, :table, :operation]),
+      counter("restdis_electric.snapshot.method.count", tags: [:tenant_id, :table, :method]),
       distribution("restdis_electric.wal.ingest.tested",
         tags: [:tenant_id, :table],
         reporter_options: [buckets: [1, 2, 5, 10, 25, 50, 100, 500, 1_000]]

@@ -40,6 +40,8 @@ defmodule RestdisServer.HTTP.Electric do
 
   alias RestdisElectric
   alias RestdisElectric.Offset
+  alias RestdisElectric.SnapshotDescriptor
+  alias RestdisElectric.TableInfo
 
   @live_timeout_ms 20_000
   @keepalive_ms 21_000
@@ -107,35 +109,70 @@ defmodule RestdisServer.HTTP.Electric do
     end
   end
 
-  defp await_live(conn, tenant_id, %{handle: handle, offset: offset}) do
+  defp await_live(conn, tenant_id, %{handle: handle, offset: offset} = result) do
     case RestdisElectric.await(tenant_id, handle, offset, @live_timeout_ms) do
       {:ok, messages, new_offset} ->
-        send_shape(conn, live_result(handle, messages, new_offset))
+        send_shape(conn, live_result(result, messages, new_offset))
 
       :timeout ->
-        send_shape(conn, live_result(handle, [], offset))
+        send_shape(conn, live_result(result, [], offset))
+
+      {:error, reason} ->
+        send_error(conn, reason)
     end
   end
 
-  defp live_result(handle, messages, offset) do
-    %{handle: handle, messages: messages, offset: offset, up_to_date: true, settled: false}
+  defp live_result(result, messages, offset) do
+    %{result | messages: messages, offset: offset, up_to_date: true, settled: false}
   end
 
   defp send_shape(conn, %{handle: handle, messages: messages, offset: offset} = result) do
     body = Enum.map(messages, &encode_message/1) ++ control_messages(result.up_to_date)
 
     conn
-    |> shape_headers(handle, offset, result.up_to_date)
+    |> shape_headers(handle, offset, result)
     |> cache_headers(cache_mode(conn.params, result), handle, offset)
+    |> maybe_cursor_header(conn.params)
     |> put_resp_content_type("application/json")
     |> send_resp(200, Jason.encode!(body))
   end
 
-  defp shape_headers(conn, handle, offset, up_to_date) do
+  defp shape_headers(conn, handle, offset, result) do
     conn
     |> put_resp_header("electric-handle", handle)
     |> put_resp_header("electric-offset", Offset.encode(offset))
-    |> put_resp_header("electric-up-to-date", to_string(up_to_date))
+    |> put_resp_header("electric-up-to-date", to_string(result.up_to_date))
+    |> put_resp_header("electric-schema", schema_header(result))
+  end
+
+  # The published @electric-sql/client rejects any live=true response without this header.
+  defp maybe_cursor_header(conn, params) do
+    if live?(params) do
+      put_resp_header(
+        conn,
+        "electric-cursor",
+        to_string(System.unique_integer([:positive, :monotonic]))
+      )
+    else
+      conn
+    end
+  end
+
+  # The real client only needs the header present, one object per column with at least a `type`.
+  defp schema_header(%{schema: schema, table: table, columns: columns}) do
+    info =
+      case TableInfo.fetch(schema, table) do
+        {:ok, info} -> info
+        :error -> %{columns: columns || [], types: %{}}
+      end
+
+    selected = columns || info.columns
+
+    selected
+    |> Map.new(fn column ->
+      {column, %{type: Map.get(info.types, column, "text"), not_null: false}}
+    end)
+    |> Jason.encode!()
   end
 
   defp cache_mode(params, result) do
@@ -168,8 +205,9 @@ defmodule RestdisServer.HTTP.Electric do
   defp stream_sse(conn, tenant_id, %{handle: handle, offset: offset} = result) do
     conn =
       conn
-      |> shape_headers(handle, offset, result.up_to_date)
+      |> shape_headers(handle, offset, result)
       |> cache_headers(:live, handle, offset)
+      |> maybe_cursor_header(conn.params)
       |> put_resp_header("x-accel-buffering", "no")
       |> put_resp_content_type("text/event-stream")
       |> send_chunked(200)
@@ -194,6 +232,10 @@ defmodule RestdisServer.HTTP.Electric do
         :timeout ->
           # Keeps the connection, and any proxy in front, alive without telling the client anything new.
           continue(chunk(conn, ": keepalive\n\n"), shape, offset, deadline)
+
+        # The 200 status and SSE headers are already sent, so a limit hit here can only end the stream.
+        {:error, _reason} ->
+          conn
       end
     end
   end
@@ -222,6 +264,10 @@ defmodule RestdisServer.HTTP.Electric do
 
   defp control_messages(true), do: [%{headers: %{control: "up-to-date"}}]
   defp control_messages(false), do: []
+
+  defp encode_message(%{control: :snapshot_end, snapshot: descriptor}) do
+    %{headers: %{control: "snapshot-end", snapshot: SnapshotDescriptor.to_string(descriptor)}}
+  end
 
   defp encode_message(%{control: control}) when not is_nil(control) do
     %{headers: %{control: control_wire(control)}}
@@ -284,11 +330,34 @@ defmodule RestdisServer.HTTP.Electric do
   defp send_error(conn, {:unsupported_log_mode, value}),
     do: bad_request(conn, "unsupported 'log' value: #{value}")
 
+  defp send_error(conn, {:missing_direct_pool, _}),
+    do: bad_request(conn, "log=changes_only requires a direct Postgres pool for this tenant")
+
   defp send_error(conn, {:invalid_offset, raw}),
     do: bad_request(conn, "invalid 'offset' parameter: #{inspect(raw)}")
 
   defp send_error(conn, {:missing_handle, _}),
     do: bad_request(conn, "missing 'handle' query parameter")
+
+  defp send_error(conn, {:snapshot_failed, {:limit_exceeded, _kind, _limit} = reason}),
+    do: send_error(conn, reason)
+
+  defp send_error(conn, {:limit_exceeded, :shapes, limit}),
+    do: too_many_requests(conn, "tenant has reached its limit of #{limit} active shapes")
+
+  defp send_error(conn, {:limit_exceeded, :log_bytes, limit}),
+    do:
+      too_many_requests(
+        conn,
+        "tenant has reached its limit of #{limit} bytes for a shape's log"
+      )
+
+  defp send_error(conn, {:limit_exceeded, :waiting_clients, limit}),
+    do:
+      too_many_requests(
+        conn,
+        "tenant has reached its limit of #{limit} clients waiting for a live update"
+      )
 
   defp send_error(conn, {:snapshot_failed, reason}) do
     conn
@@ -296,7 +365,11 @@ defmodule RestdisServer.HTTP.Electric do
     |> send_resp(502, Jason.encode!(%{error: "snapshot failed: #{inspect(reason)}"}))
   end
 
-  defp send_error(conn, reason), do: bad_request(conn, inspect(reason))
+  defp too_many_requests(conn, message) do
+    conn
+    |> put_resp_header("cache-control", @error_cache)
+    |> send_resp(429, Jason.encode!(%{error: message}))
+  end
 
   defp bad_request(conn, message) do
     conn

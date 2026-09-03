@@ -1,0 +1,100 @@
+name: Electric conformance
+
+on:
+  push:
+    branches: [main]
+    paths-ignore: &docs
+      - "**/*.md"
+      - "docs/**"
+      - "LICENSE"
+  pull_request:
+    paths-ignore: *docs
+
+env:
+  MIX_ENV: dev
+  ELIXIR_VERSION: "1.20.3"
+  OTP_VERSION: "28.5"
+  POSTGRES_HOSTNAME: localhost
+  RESTDIS_SNAPSHOT_READER: direct_postgres
+
+jobs:
+  conformance:
+    name: Real @electric-sql/client against Restdis (blocks merge on failure)
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: erlef/setup-beam@v1
+        with:
+          elixir-version: ${{ env.ELIXIR_VERSION }}
+          otp-version: ${{ env.OTP_VERSION }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - uses: actions/cache@v4
+        with:
+          path: |
+            deps
+            _build
+          key: ${{ runner.os }}-restdis-conformance-${{ env.OTP_VERSION }}-${{ env.ELIXIR_VERSION }}-${{ hashFiles('apps/restdis/mix.lock') }}
+          restore-keys: ${{ runner.os }}-restdis-conformance-${{ env.OTP_VERSION }}-${{ env.ELIXIR_VERSION }}-
+
+      # Started with `docker run`, not the `services:` block, because the shape
+      # log needs a real logical replication slot (`wal_level=logical`), which
+      # `services:` has no way to pass to the Postgres entrypoint. Mirrors
+      # `docker-compose.yml`'s `db` service.
+      - name: Start Postgres (wal_level=logical)
+        run: |
+          docker run -d --name pg \
+            -e POSTGRES_USER=postgres -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=restdis_dev \
+            -e POSTGRES_INITDB_ARGS="--locale=C.UTF-8" \
+            -p 5432:5432 \
+            postgres:16 postgres -c wal_level=logical
+          for _ in $(seq 1 30); do
+            docker exec pg pg_isready -U postgres && exit 0
+            sleep 2
+          done
+          echo "Postgres never became healthy" >&2
+          docker logs pg >&2
+          exit 1
+
+      - name: Install dependencies, migrate, and seed the conformance fixture
+        run: |
+          mix deps.get
+          mix ecto.create --quiet
+          mix ecto.migrate --quiet
+          DIRECT_PG_URL_OVERRIDE="postgres://postgres:postgres@localhost:5432/restdis_dev" \
+            psql "postgresql://postgres:postgres@localhost:5432/restdis_dev" \
+            -v ON_ERROR_STOP=1 -f test/conformance/seed.sql
+
+      - name: Start Restdis
+        run: |
+          nohup mix run --no-halt > /tmp/restdis-conformance.log 2>&1 &
+          for _ in $(seq 1 30); do
+            curl -fsS http://localhost:4040/health > /dev/null 2>&1 && exit 0
+            sleep 2
+          done
+          echo "Restdis never became healthy" >&2
+          cat /tmp/restdis-conformance.log >&2
+          exit 1
+
+      - name: Install the pinned @electric-sql/client and run the conformance check
+        working-directory: test/conformance
+        run: |
+          npm ci
+          npm test
+        env:
+          RESTDIS_URL: http://localhost:4040
+          RESTDIS_API_KEY: sk_conformance
+          CONFORMANCE_DATABASE_URL: postgres://postgres:postgres@localhost:5432/restdis_dev
+
+      - name: Dump Restdis logs
+        if: always()
+        run: cat /tmp/restdis-conformance.log || true
+
+      - name: Tear down
+        if: always()
+        run: docker rm -f pg || true

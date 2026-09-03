@@ -201,6 +201,48 @@ defmodule RestdisBuster.WorkerTest do
     assert :miss = Restdis.Cache.peek("tenant1", key)
   end
 
+  test "DML event for a replication-mode table casts row values to their Postgres types before reaching a shape" do
+    config = %{
+      tenant_id: "tenant1",
+      schema: "public",
+      table_name: "widgets",
+      pk_column: "id",
+      mode: "replication"
+    }
+
+    seed_config("public", "widgets", config)
+    on_exit(&clear_config/0)
+
+    Application.put_env(:restdis_electric, :tables, %{
+      "public.widgets" => %{
+        columns: ["id", "active", "name"],
+        primary_key: ["id"],
+        types: %{"id" => "integer", "active" => "boolean", "name" => "text"}
+      }
+    })
+
+    on_exit(fn -> Application.delete_env(:restdis_electric, :tables) end)
+
+    case RestdisElectric.Supervisor.start_link([]) do
+      {:ok, _pid} -> :ok
+      {:error, {:already_started, _pid}} -> :ok
+    end
+
+    :ok = RestdisElectric.ShapeRegistry.register("tenant1", "public", "widgets", "h1")
+
+    event = %{
+      TestUtils.insert_event("widgets", "public", %{"id" => "3", "active" => "t", "name" => "x"})
+      | lsn: 1
+    }
+
+    Worker.run(event)
+
+    assert {:ok, [message], _} =
+             RestdisElectric.Log.read("tenant1", "h1", RestdisElectric.Offset.beginning())
+
+    assert message.value == %{"id" => 3, "active" => true, "name" => "x"}
+  end
+
   test "config table flush does not affect a different table's cache" do
     config = %{
       tenant_id: "tenant2",

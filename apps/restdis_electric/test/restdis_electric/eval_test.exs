@@ -166,6 +166,42 @@ defmodule RestdisElectric.EvalTest do
     end
   end
 
+  describe "field IN (subquery)" do
+    test "compiles, reports only the outer column, and cannot be decided from one row" do
+      assert {:ok, compiled} =
+               Eval.compile("id IN (SELECT id FROM parents WHERE archived = false)", %{})
+
+      assert Eval.columns(compiled) == ["id"]
+      refute matches?("id IN (SELECT id FROM parents WHERE archived = false)")
+    end
+
+    test "subqueries/1 returns the subquery's table, column, and inner selection" do
+      {:ok, compiled} =
+        Eval.compile("id IN (SELECT parent_id FROM parents WHERE archived = false)", %{})
+
+      assert [{"parents", "parent_id", selection}] = Eval.subqueries(compiled)
+      assert selection == {:binop, "=", {:ident, "archived"}, {:lit, {:bool_, false}}}
+    end
+
+    test "subqueries/1 finds a subquery nested inside AND, OR, and NOT" do
+      for where <- [
+            "id IN (SELECT id FROM parents) AND name = 'x'",
+            "id IN (SELECT id FROM parents) OR name = 'x'",
+            "NOT (id IN (SELECT id FROM parents))"
+          ] do
+        {:ok, compiled} = Eval.compile(where, %{})
+        assert [{"parents", "id", :none}] = Eval.subqueries(compiled)
+      end
+    end
+
+    test "a subquery whose own structure is unsupported is rejected the same way as anything else" do
+      assert {:error, {:unsupported_where, message}} =
+               Eval.compile("id IN (SELECT id, name FROM parents)", %{})
+
+      assert message =~ "one column"
+    end
+  end
+
   describe "matches?/2" do
     test "a nil clause matches every row but never a missing row" do
       assert Eval.matches?(nil, @row)

@@ -103,8 +103,11 @@ defmodule RestdisElectric.WAL do
 
       operation ->
         message = message(definition, operation, change)
-        Log.append(tenant_id, handle, [message])
-        true
+
+        case Log.append(tenant_id, handle, [message]) do
+          :ok -> true
+          {:error, _reason} -> false
+        end
     end
   end
 

@@ -1,6 +1,7 @@
 defmodule RestdisServer.HTTP.EndpointTest do
   use ExUnit.Case
 
+  alias RestdisServer.HTTP.Endpoint
   alias RestdisServer.TenantStore.InMemory
 
   @tenant_id "test-http-tenant"
@@ -104,5 +105,21 @@ defmodule RestdisServer.HTTP.EndpointTest do
     assert resp.status == 200
     assert resp.body =~ "restdis_server_rewarm_cold_read_count"
     assert resp.body =~ ~s(tenant_id="#{@tenant_id}")
+  end
+
+  # `Req.new(plug: ...)` fetches query params before invoking the plug (every other test here relies on that); this test builds the conn the way Bandit actually delivers it, unfetched, to catch a regression the rest of this file is blind to.
+  test "query params are read from a conn the way Bandit delivers it, unfetched" do
+    conn =
+      :get
+      |> Plug.Test.conn("/pgrst/query?path=/users")
+      |> Plug.Conn.put_req_header("authorization", "Bearer sk_http")
+
+    Req.Test.stub(RestdisServer.Finch, fn conn ->
+      Req.Test.json(conn, [%{"id" => 1}])
+    end)
+
+    resp = Endpoint.call(conn, [])
+
+    assert resp.status == 200
   end
 end

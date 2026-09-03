@@ -15,6 +15,18 @@ defmodule RestdisElectric.ShapeRegistryTest do
     assert ShapeRegistry.handles_for("other-tenant", "public", "widgets") == []
   end
 
+  test "tables/0 returns the distinct (tenant_id, schema, table) tuples with at least one shape" do
+    tenant_id = TestUtils.tenant_id()
+    :ok = ShapeRegistry.register(tenant_id, "public", "widgets", "h1")
+    :ok = ShapeRegistry.register(tenant_id, "public", "widgets", "h2")
+    :ok = ShapeRegistry.register(tenant_id, "public", "gadgets", "h3")
+
+    tables = ShapeRegistry.tables()
+
+    assert {tenant_id, "public", "widgets"} in tables
+    assert {tenant_id, "public", "gadgets"} in tables
+  end
+
   test "unregister/2 removes only the given handle" do
     tenant_id = TestUtils.tenant_id()
     :ok = ShapeRegistry.register(tenant_id, "public", "widgets", "h1")

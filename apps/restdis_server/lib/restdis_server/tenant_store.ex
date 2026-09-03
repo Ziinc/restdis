@@ -13,7 +13,11 @@ defmodule RestdisServer.TenantStore do
           pgrst_base_url: String.t(),
           pgrst_api_key: String.t(),
           replica_url: String.t() | nil,
-          allow_shape_deletion: boolean()
+          allow_shape_deletion: boolean(),
+          direct_pg_url: String.t() | nil,
+          max_shapes: pos_integer() | nil,
+          max_log_bytes: pos_integer() | nil,
+          max_waiting_clients: pos_integer() | nil
         }
 
   @callback fetch_by_api_key(api_key()) :: {:ok, tenant_config()} | {:error, :not_found}

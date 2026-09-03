@@ -21,7 +21,9 @@ defmodule RestdisElectric.Supervisor do
       {Registry, keys: :unique, name: RestdisElectric.Log.Registry},
       {DynamicSupervisor, name: RestdisElectric.Log.Supervisor, strategy: :one_for_one},
       RestdisElectric.Filter,
-      RestdisElectric.ShapeRegistry
+      RestdisElectric.ShapeRegistry,
+      RestdisElectric.Limits,
+      RestdisElectric.SchemaWatcher
     ]
 
     Supervisor.init(children, strategy: :one_for_one)

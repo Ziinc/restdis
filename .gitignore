@@ -10,3 +10,4 @@ test_cache_data/
 /tmp/
 .elixir_ls/
 /priv/plts/
+test/conformance/node_modules/

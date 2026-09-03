@@ -9,11 +9,22 @@ defmodule RestdisElectric.Eval do
   functions `lower`, `upper`, `coalesce`, `greatest` and `least`.
 
   Everything else — JSONB operators, full-text search, geometric and network
-  types, range operators, casts, subqueries, and functions whose result
+  types, range operators, casts, most subqueries, and functions whose result
   changes between calls such as `now()` — is rejected by `compile/2` with
   `{:error, {:unsupported_where, description}}`. Nothing outside the subset is
   ever silently accepted: accepting a shape and then filtering it incorrectly
   would send one tenant's rows to another.
+
+  `field IN (SELECT column FROM table [WHERE ...])` parses and structurally
+  validates (see `subqueries/1`), but `evaluate/2` and `matches?/2` cannot
+  decide it from one row alone — the answer depends on a second table. A
+  compiled clause containing this node must never reach `matches?/2` in
+  production; `RestdisElectric.Definition` currently rejects it at subscribe
+  time with `{:error, {:unsupported_where, _}}` because Electric does not yet
+  incrementally track the subquery's live result set (ELECTRIC_PRD Phase 6
+  item 1). `evaluate/2`/`matches?/2` return `:null`/`false` for it rather than
+  raising, purely so a test can exercise the rest of a clause without
+  reaching this node.
 
   Values follow Postgres's three-valued logic. `:null` is SQL `NULL`, and a
   row matches only when the clause evaluates to exactly `true`, which is what
@@ -96,6 +107,46 @@ defmodule RestdisElectric.Eval do
   @spec columns(t() | nil) :: [String.t()]
   def columns(nil), do: []
   def columns(%__MODULE__{columns: columns}), do: columns
+
+  @typedoc """
+  One `field IN (SELECT column FROM table [WHERE ...])` clause: the
+  subquery's table (as written, possibly `schema.table`), its one projected
+  column, and its own `WHERE` clause's parse tree, or `:none` if it has none.
+  """
+  @type subquery :: {table :: String.t(), column :: String.t(), SqlParser.tree() | :none}
+
+  @doc """
+  Returns every `field IN (subquery)` clause the compiled filter contains,
+  including ones nested inside `AND`, `OR`, and `NOT`.
+
+  This does not decide whether a subquery is correlated to the shape's own
+  table; that needs the two tables' real schemas, which only
+  `RestdisElectric.Definition` has.
+  """
+  @spec subqueries(t() | nil) :: [subquery()]
+  def subqueries(nil), do: []
+  def subqueries(%__MODULE__{tree: tree}), do: collect_subqueries(tree, [])
+
+  defp collect_subqueries({:in_subquery, _expr, _negated, table, column, selection}, acc),
+    do: [{table, column, selection} | acc]
+
+  defp collect_subqueries(node, acc) when is_tuple(node) do
+    node |> Tuple.to_list() |> Enum.reduce(acc, &collect_subqueries/2)
+  end
+
+  defp collect_subqueries(nodes, acc) when is_list(nodes),
+    do: Enum.reduce(nodes, acc, &collect_subqueries/2)
+
+  defp collect_subqueries(_other, acc), do: acc
+
+  @doc """
+  Returns the column names a raw parse tree references, the same rule
+  `columns/1` applies to a compiled filter's own table. Used to validate a
+  subquery's `WHERE` clause against its own table's schema.
+  """
+  @spec tree_columns(SqlParser.tree() | :none) :: [String.t()]
+  def tree_columns(:none), do: []
+  def tree_columns(tree), do: tree |> collect_columns([]) |> Enum.uniq()
 
   # -- parsing and validation -------------------------------------------------
 
@@ -191,7 +242,17 @@ defmodule RestdisElectric.Eval do
 
   defp check({:array, items}, params), do: check_all(items, params)
 
+  defp check({:in_subquery, expr, negated, _table, _column, selection}, params)
+       when is_boolean(negated) do
+    with :ok <- check(expr, params) do
+      check_selection(selection, params)
+    end
+  end
+
   defp check(other, _params), do: {:error, {:unsupported_where, inspect(other)}}
+
+  defp check_selection(:none, _params), do: :ok
+  defp check_selection(selection, params), do: check(selection, params)
 
   defp check_all(nodes, params) do
     Enum.reduce_while(nodes, :ok, fn node, :ok ->
@@ -203,6 +264,10 @@ defmodule RestdisElectric.Eval do
   end
 
   defp collect_columns({:ident, name}, acc), do: [name | acc]
+
+  # A subquery's columns belong to a second table, validated separately by `RestdisElectric.Definition`.
+  defp collect_columns({:in_subquery, expr, _negated, _table, _column, _selection}, acc),
+    do: collect_columns(expr, acc)
 
   defp collect_columns(node, acc) when is_tuple(node) do
     node |> Tuple.to_list() |> Enum.reduce(acc, &collect_columns/2)

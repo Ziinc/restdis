@@ -9,9 +9,10 @@ defmodule RestdisElectric.Message do
   """
 
   alias RestdisElectric.Offset
+  alias RestdisElectric.SnapshotDescriptor
 
   @type operation :: :insert | :update | :delete
-  @type control :: :up_to_date | :must_refetch
+  @type control :: :up_to_date | :must_refetch | :snapshot_end
 
   @type t :: %__MODULE__{
           offset: Offset.t(),
@@ -19,11 +20,12 @@ defmodule RestdisElectric.Message do
           value: map() | nil,
           old_value: map() | nil,
           operation: operation() | nil,
-          control: control() | nil
+          control: control() | nil,
+          snapshot: SnapshotDescriptor.t() | nil
         }
 
   @enforce_keys [:offset]
-  defstruct [:offset, :key, :value, :old_value, :operation, :control]
+  defstruct [:offset, :key, :value, :old_value, :operation, :control, :snapshot]
 
   @doc """
   Builds a change message for `operation` on `row`, keyed by its primary key.
@@ -39,6 +41,16 @@ defmodule RestdisElectric.Message do
   @spec control(Offset.t(), control()) :: t()
   def control(offset, control) when control in [:up_to_date, :must_refetch] do
     %__MODULE__{offset: offset, control: control}
+  end
+
+  @doc """
+  Builds the `changes_only` boundary marker: a control message carrying the
+  Postgres snapshot descriptor so the client can tell which of its own
+  buffered changes are already reflected in the snapshot it read directly.
+  """
+  @spec snapshot_end(Offset.t(), SnapshotDescriptor.t()) :: t()
+  def snapshot_end(offset, %{} = descriptor) do
+    %__MODULE__{offset: offset, control: :snapshot_end, snapshot: descriptor}
   end
 
   @doc """

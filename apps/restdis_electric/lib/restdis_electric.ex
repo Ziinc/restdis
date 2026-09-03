@@ -12,11 +12,13 @@ defmodule RestdisElectric do
   alias RestdisElectric.Definition
   alias RestdisElectric.Eval
   alias RestdisElectric.Handle
+  alias RestdisElectric.Limits
   alias RestdisElectric.Log
   alias RestdisElectric.Message
   alias RestdisElectric.Offset
   alias RestdisElectric.ShapeRegistry
   alias RestdisElectric.Snapshotter
+  alias RestdisElectric.Snapshotter.DirectPostgres
   alias RestdisElectric.TableInfo
 
   @typedoc "Everything a single subscribe call needs, bundled to keep helper arities small."
@@ -36,14 +38,19 @@ defmodule RestdisElectric do
           messages: [Message.t()],
           offset: Offset.t(),
           up_to_date: boolean(),
-          settled: boolean()
+          settled: boolean(),
+          schema: String.t(),
+          table: String.t(),
+          columns: [String.t()] | nil
         }
 
   @type subscribe_error ::
           Definition.error()
           | {:invalid_offset, String.t() | nil}
           | {:missing_handle, nil}
+          | {:missing_direct_pool, nil}
           | {:snapshot_failed, term()}
+          | Limits.limit_error()
 
   @doc """
   Child spec mounting the context's supervision tree in a host's own
@@ -75,21 +82,53 @@ defmodule RestdisElectric do
           | {:error, subscribe_error()}
           | {:error, :must_refetch, new_handle :: String.t()}
   def subscribe(tenant_id, tenant_config, raw_params) do
+    Limits.put_config(tenant_id, tenant_config)
+
     with {:ok, offset} <- decode_offset(raw_params["offset"]),
-         {:ok, definition} <- Definition.new(tenant_id, raw_params) do
+         {:ok, definition} <- Definition.new(tenant_id, raw_params),
+         :ok <- check_direct_pool(definition, tenant_config) do
       ctx = %{tenant_id: tenant_id, tenant_config: tenant_config, definition: definition}
-      do_subscribe(ctx, offset, raw_params["handle"])
+
+      case do_subscribe(ctx, offset, raw_params["handle"]) do
+        {:ok, result} -> {:ok, with_table_identity(result, definition)}
+        other -> other
+      end
     end
   end
+
+  defp with_table_identity(result, definition) do
+    Map.merge(result, %{
+      schema: definition.schema,
+      table: definition.table,
+      columns: definition.columns
+    })
+  end
+
+  # `log=changes_only` without a direct pool would silently fall back to `full`, so it is a subscribe error.
+  defp check_direct_pool(%Definition{log_mode: :changes_only}, tenant_config) do
+    if tenant_config[:direct_pg_url] do
+      :ok
+    else
+      {:error, {:missing_direct_pool, nil}}
+    end
+  end
+
+  defp check_direct_pool(%Definition{}, _tenant_config), do: :ok
 
   @doc """
   Blocks until the shape's log has a message after `since_offset`, or until
   `timeout_ms` elapses.
   """
   @spec await(String.t(), String.t(), Offset.t(), timeout()) ::
-          {:ok, [Message.t()], Offset.t()} | :timeout
+          {:ok, [Message.t()], Offset.t()} | :timeout | {:error, Limits.limit_error()}
   def await(tenant_id, handle, since_offset, timeout_ms) do
-    Log.await(tenant_id, handle, since_offset, timeout_ms)
+    with :ok <- Limits.enter_wait(tenant_id) do
+      try do
+        Log.await(tenant_id, handle, since_offset, timeout_ms)
+      after
+        Limits.exit_wait(tenant_id)
+      end
+    end
   end
 
   @doc """
@@ -143,6 +182,9 @@ defmodule RestdisElectric do
 
         {:ok, from_beginning(handle, messages, last_offset)}
 
+      {:error, {:limit_exceeded, _kind, _limit} = reason} ->
+        {:error, reason}
+
       {:error, reason} ->
         {:error, {:snapshot_failed, reason}}
     end
@@ -192,28 +234,89 @@ defmodule RestdisElectric do
 
   # An empty log looks the same as a never-snapshotted one; re-snapshotting is wasted work, not a bug.
   defp ensure_snapshot(ctx, handle) do
-    ShapeRegistry.register(ctx.tenant_id, ctx.definition, handle)
-
     case Log.read(ctx.tenant_id, handle, Offset.beginning()) do
-      {:ok, [], :beginning} -> run_snapshot(ctx, handle)
-      {:ok, _messages, _last_offset} -> :ok
-      :error -> run_snapshot(ctx, handle)
+      {:ok, [], :beginning} -> new_shape(ctx, handle)
+      {:ok, _messages, _last_offset} -> register(ctx, handle)
+      :error -> new_shape(ctx, handle)
     end
   end
 
-  defp run_snapshot(ctx, handle) do
-    {:ok, info} = TableInfo.fetch(ctx.definition.schema, ctx.definition.table)
-    counter = :counters.new(1, [])
-
-    Snapshotter.stream(ctx.tenant_config, ctx.definition, fn rows ->
-      messages =
-        rows
-        |> Enum.filter(&Eval.matches?(ctx.definition.filter, &1))
-        |> Enum.map(&snapshot_message(&1, ctx.definition, info, counter))
-
-      Log.append(ctx.tenant_id, handle, messages)
-    end)
+  # A shape not yet in this log is new: it counts against the tenant's max_shapes.
+  defp new_shape(ctx, handle) do
+    with :ok <- Limits.check_shapes(ctx.tenant_id) do
+      register(ctx, handle)
+      run_snapshot(ctx, handle)
+    end
   end
+
+  defp register(ctx, handle), do: ShapeRegistry.register(ctx.tenant_id, ctx.definition, handle)
+
+  defp run_snapshot(ctx, handle) do
+    method = snapshot_method(ctx.definition)
+    result = run_snapshot(method, ctx, handle)
+
+    :telemetry.execute(
+      [:restdis_electric, :snapshot, :method],
+      %{count: 1},
+      %{tenant_id: ctx.tenant_id, table: ctx.definition.table, method: method}
+    )
+
+    result
+  end
+
+  # `changes_only` sends the descriptor, not the rows: the client already has every row through its own replica.
+  defp run_snapshot(:direct_postgres, ctx, handle) do
+    case DirectPostgres.snapshot_descriptor(ctx.tenant_config, ctx.definition) do
+      {:ok, descriptor} ->
+        Log.append(ctx.tenant_id, handle, [Message.snapshot_end({0, 0}, descriptor)])
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  # `page_fun`'s return is discarded by every `Snapshotter`, so a limit hit reports via `page_ctx.error_box`.
+  defp run_snapshot(:postgrest, ctx, handle) do
+    {:ok, info} = TableInfo.fetch(ctx.definition.schema, ctx.definition.table)
+    {:ok, error_box} = Agent.start_link(fn -> nil end)
+
+    page_ctx = %{
+      ctx: ctx,
+      handle: handle,
+      info: info,
+      counter: :counters.new(1, []),
+      error_box: error_box
+    }
+
+    stream_result =
+      Snapshotter.stream(ctx.tenant_config, ctx.definition, &append_page(&1, page_ctx))
+
+    reason = Agent.get(error_box, & &1)
+    Agent.stop(error_box)
+
+    case reason do
+      nil -> stream_result
+      limit_error -> {:error, limit_error}
+    end
+  end
+
+  defp append_page(rows, page_ctx) do
+    %{ctx: ctx, handle: handle, info: info, counter: counter, error_box: error_box} = page_ctx
+
+    messages =
+      rows
+      |> Enum.filter(&Eval.matches?(ctx.definition.filter, &1))
+      |> Enum.map(&snapshot_message(&1, ctx.definition, info, counter))
+
+    case Log.append(ctx.tenant_id, handle, messages) do
+      :ok -> :ok
+      {:error, reason} -> Agent.update(error_box, fn _ -> reason end)
+    end
+  end
+
+  # `changes_only` always reads through the tenant's direct Postgres pool; every other shape reads through PostgREST.
+  defp snapshot_method(%Definition{log_mode: :changes_only}), do: :direct_postgres
+  defp snapshot_method(%Definition{}), do: :postgrest
 
   # Filtering here, not in the origin query, makes snapshot and log agree by construction: both use `Eval`.
   defp snapshot_message(row, definition, info, counter) do

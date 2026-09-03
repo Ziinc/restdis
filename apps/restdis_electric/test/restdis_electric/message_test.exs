@@ -16,4 +16,12 @@ defmodule RestdisElectric.MessageTest do
     assert message.control == :up_to_date
     assert Message.control?(message)
   end
+
+  test "snapshot_end/2 builds a control message carrying the snapshot descriptor" do
+    descriptor = %{xmin: 10, xmax: 20, xip_list: [15]}
+    message = Message.snapshot_end({0, 0}, descriptor)
+    assert message.control == :snapshot_end
+    assert message.snapshot == descriptor
+    assert Message.control?(message)
+  end
 end

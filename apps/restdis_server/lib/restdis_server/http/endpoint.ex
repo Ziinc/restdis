@@ -20,6 +20,7 @@ defmodule RestdisServer.HTTP.Endpoint do
 
   plug(Plug.Logger)
   plug(:match)
+  plug(:ensure_query_params_fetched)
   plug(:dispatch)
 
   get "/health" do
@@ -65,6 +66,9 @@ defmodule RestdisServer.HTTP.Endpoint do
   match _ do
     send_resp(conn, 404, Jason.encode!(%{error: "not found"}))
   end
+
+  # `Plug.Router.match` merges only *fetched* query params into `conn.params`, so on the unfetched conn Bandit hands us it silently keeps path params alone and drops the query string every route here reads.
+  defp ensure_query_params_fetched(conn, _opts), do: fetch_query_params(conn)
 
   defp handle_pgrst_query(conn, nil) do
     send_resp(conn, 400, Jason.encode!(%{error: "missing 'path' query parameter"}))
