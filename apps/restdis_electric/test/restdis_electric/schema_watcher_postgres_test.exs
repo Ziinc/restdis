@@ -74,7 +74,8 @@ defmodule RestdisElectric.SchemaWatcherPostgresTest do
     # No WAL event was produced by the ALTER TABLE above; only the periodic comparison detects this, on its next poll.
     assert {:ok, _} = TableInfo.fetch("public", table)
 
-    Process.sleep(50)
+    # Drive the poll synchronously with `check/1` instead of racing the timer with `Process.sleep/1`.
+    :ok = SchemaWatcher.check(server)
 
     assert ShapeRegistry.fetch(tenant_id, handle) == :error
     assert Log.read(tenant_id, handle, Offset.beginning()) == :error
