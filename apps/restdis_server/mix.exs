@@ -48,6 +48,7 @@ defmodule RestdisServer.MixProject do
       {:opentelemetry_semantic_conventions, "~> 1.27"},
       {:otel_metric_exporter, "~> 0.3"},
       {:logger_json, "~> 6.2"},
+      {:open_api_spex, "~> 3.21"},
       {:stream_data, "~> 1.1", only: :test}
     ]
   end

@@ -3,6 +3,7 @@ defmodule RestdisServer.HTTP.ElectricTest do
 
   alias RestdisElectric.Snapshotter.DirectPostgres
   alias RestdisServer.TenantStore.InMemory
+  alias RestdisServer.Test.OpenApiConformance
 
   @tenant_id "test-electric-tenant"
 
@@ -572,56 +573,124 @@ defmodule RestdisServer.HTTP.ElectricTest do
     end
   end
 
-  test "DELETE /v1/shape removes the shape when allow_shape_deletion is set" do
-    {:ok, snapshot} =
-      Req.get(req(),
-        url: "/v1/shape?table=widgets&offset=-1",
-        headers: auth(),
-        retry: false
-      )
+  describe "DELETE /v1/shape conformance" do
+    test "removes the shape when allow_shape_deletion is set" do
+      {:ok, snapshot} =
+        Req.get(req(),
+          url: "/v1/shape?table=widgets&offset=-1",
+          headers: auth(),
+          retry: false
+        )
 
-    [handle] = Req.Response.get_header(snapshot, "electric-handle")
+      [handle] = Req.Response.get_header(snapshot, "electric-handle")
 
-    {:ok, resp} =
-      Req.delete(req(),
-        url: "/v1/shape?handle=#{handle}",
-        headers: auth(),
-        retry: false
-      )
+      {:ok, resp} =
+        Req.delete(req(),
+          url: "/v1/shape?handle=#{handle}",
+          headers: auth(),
+          retry: false
+        )
 
-    assert resp.status == 202
+      assert resp.status == 202
+      assert Jason.decode!(resp.body) == %{"ok" => true}
+      OpenApiConformance.assert_conforms!("delete", "/v1/shape", resp)
 
-    {:ok, resumed} =
-      Req.get(req(),
-        url: "/v1/shape?table=widgets&offset=0_inf&handle=#{handle}",
-        headers: auth(),
-        retry: false
-      )
+      {:ok, resumed} =
+        Req.get(req(),
+          url: "/v1/shape?table=widgets&offset=0_inf&handle=#{handle}",
+          headers: auth(),
+          retry: false
+        )
 
-    assert resumed.status == 409
-  end
+      assert resumed.status == 409
+      OpenApiConformance.assert_conforms!("get", "/v1/shape", resumed)
+    end
 
-  test "DELETE /v1/shape returns 404 when disabled" do
-    InMemory.seed([
-      %{
-        api_key: "sk_no_delete",
-        tenant_id: "no-delete-tenant",
-        default_ttl_s: 60,
-        persist_cap: 50_000,
-        pgrst_base_url: "http://localhost:3003",
-        pgrst_api_key: "svc_key",
-        replica_url: nil,
-        allow_shape_deletion: false
-      }
-    ])
+    test "returns 404 when disabled for the tenant" do
+      InMemory.seed([
+        %{
+          api_key: "sk_no_delete",
+          tenant_id: "no-delete-tenant",
+          default_ttl_s: 60,
+          persist_cap: 50_000,
+          pgrst_base_url: "http://localhost:3003",
+          pgrst_api_key: "svc_key",
+          replica_url: nil,
+          allow_shape_deletion: false
+        }
+      ])
 
-    {:ok, resp} =
-      Req.delete(req(),
-        url: "/v1/shape?handle=whatever",
-        headers: [{"authorization", "Bearer sk_no_delete"}],
-        retry: false
-      )
+      {:ok, resp} =
+        Req.delete(req(),
+          url: "/v1/shape?handle=whatever",
+          headers: [{"authorization", "Bearer sk_no_delete"}],
+          retry: false
+        )
 
-    assert resp.status == 404
+      assert resp.status == 404
+      assert %{"error" => _} = Jason.decode!(resp.body)
+      OpenApiConformance.assert_conforms!("delete", "/v1/shape", resp)
+    end
+
+    test "returns 400 when the 'handle' query parameter is missing" do
+      {:ok, resp} =
+        Req.delete(req(),
+          url: "/v1/shape",
+          headers: auth(),
+          retry: false
+        )
+
+      assert resp.status == 400
+      assert %{"error" => _} = Jason.decode!(resp.body)
+      OpenApiConformance.assert_conforms!("delete", "/v1/shape", resp)
+    end
+
+    test "returns 400 when the 'handle' query parameter is empty" do
+      {:ok, resp} =
+        Req.delete(req(),
+          url: "/v1/shape?handle=",
+          headers: auth(),
+          retry: false
+        )
+
+      assert resp.status == 400
+      OpenApiConformance.assert_conforms!("delete", "/v1/shape", resp)
+    end
+
+    test "returns 401 when the API key is missing" do
+      {:ok, resp} =
+        Req.delete(req(),
+          url: "/v1/shape?handle=whatever",
+          retry: false
+        )
+
+      assert resp.status == 401
+      assert %{"error" => _} = Jason.decode!(resp.body)
+      OpenApiConformance.assert_conforms!("delete", "/v1/shape", resp)
+    end
+
+    test "returns 401 when the API key is invalid" do
+      {:ok, resp} =
+        Req.delete(req(),
+          url: "/v1/shape?handle=whatever",
+          headers: [{"authorization", "Bearer nope"}],
+          retry: false
+        )
+
+      assert resp.status == 401
+      OpenApiConformance.assert_conforms!("delete", "/v1/shape", resp)
+    end
+
+    test "deleting an unknown handle still returns 202" do
+      {:ok, resp} =
+        Req.delete(req(),
+          url: "/v1/shape?handle=does-not-exist",
+          headers: auth(),
+          retry: false
+        )
+
+      assert resp.status == 202
+      OpenApiConformance.assert_conforms!("delete", "/v1/shape", resp)
+    end
   end
 end
