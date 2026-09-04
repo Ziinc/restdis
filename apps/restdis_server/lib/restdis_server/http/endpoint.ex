@@ -82,7 +82,7 @@ defmodule RestdisServer.HTTP.Endpoint do
       tenant_id = conn.assigns.tenant_id
       config = conn.assigns.tenant_config
 
-      case QueryParser.parse(path) do
+      case QueryParser.parse(tenant_id, path) do
         {:ok, key, _params} ->
           wire_key = Key.encode(key)
 

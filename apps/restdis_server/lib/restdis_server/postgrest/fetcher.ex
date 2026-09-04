@@ -26,10 +26,22 @@ defmodule RestdisServer.PostgREST.Fetcher do
   end
 
   @doc """
-  Returns the PostgREST path a cache key was built from.
+  Returns the PostgREST path a cache key was built from, optionally with its
+  raw query string appended.
   """
-  @spec path_for(Key.t()) :: String.t()
-  def path_for(%Key{scope: :table, ident: ident}), do: "/#{URI.encode(ident)}"
-  def path_for(%Key{scope: :rpc, ident: ident}), do: "/rpc/#{URI.encode(ident)}"
-  def path_for(%Key{scope: :view, ident: ident}), do: "/#{URI.encode(ident)}"
+  @spec path_for(Key.t(), String.t()) :: String.t()
+  def path_for(key, query_string \\ "")
+
+  def path_for(%Key{scope: :table, ident: ident}, query_string),
+    do: append_query("/#{URI.encode(ident)}", query_string)
+
+  def path_for(%Key{scope: :rpc, ident: ident}, query_string),
+    do: append_query("/rpc/#{URI.encode(ident)}", query_string)
+
+  def path_for(%Key{scope: :view, ident: ident}, query_string),
+    do: append_query("/#{URI.encode(ident)}", query_string)
+
+  defp append_query(path, nil), do: path
+  defp append_query(path, ""), do: path
+  defp append_query(path, query_string), do: path <> "?" <> query_string
 end

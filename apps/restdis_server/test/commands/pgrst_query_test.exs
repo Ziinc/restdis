@@ -1,6 +1,8 @@
 defmodule RestdisServer.Commands.PgrstQueryTest do
   use ExUnit.Case
 
+  alias Restdis.Cache
+  alias Restdis.Cache.Key
   alias RestdisServer.Commands.Dispatcher
   alias RestdisServer.PolicyStore
   alias RestdisServer.Rewarm
@@ -140,5 +142,44 @@ defmodule RestdisServer.Commands.PgrstQueryTest do
       [{pid, _}] -> {:ok, pid}
       [] -> :error
     end
+  end
+
+  test "PGRST.QUERY forwards the query string to PostgREST", %{state: state} do
+    Req.Test.stub(RestdisServer.Finch, fn conn ->
+      assert conn.query_string == "id=eq.1"
+      Req.Test.json(conn, [%{"id" => 1, "name" => "Alice"}])
+    end)
+
+    {reply, _} = Dispatcher.dispatch(state, ["PGRST.QUERY", "/users?id=eq.1"])
+    wire = IO.iodata_to_binary(reply)
+    assert wire =~ "pgrst:t:users:"
+  end
+
+  test "distinct query strings on the same table are cached and fetched separately", %{
+    state: state
+  } do
+    Req.Test.stub(RestdisServer.Finch, fn conn ->
+      Req.Test.json(conn, [%{"query" => conn.query_string}])
+    end)
+
+    {reply1, _} = Dispatcher.dispatch(state, ["PGRST.QUERY", "/users?id=eq.1"])
+    {reply2, _} = Dispatcher.dispatch(state, ["PGRST.QUERY", "/users?id=eq.2"])
+
+    wire1 = IO.iodata_to_binary(reply1)
+    wire2 = IO.iodata_to_binary(reply2)
+
+    refute wire1 == wire2
+
+    [key_str1] = Regex.run(~r/pgrst:[^\r\n]+/, wire1)
+    [key_str2] = Regex.run(~r/pgrst:[^\r\n]+/, wire2)
+
+    {:ok, key1} = Key.decode(key_str1)
+    {:ok, key2} = Key.decode(key_str2)
+
+    {:ok, value1} = Cache.peek(@tenant_id, key1)
+    {:ok, value2} = Cache.peek(@tenant_id, key2)
+
+    assert value1 == [%{"query" => "id=eq.1"}]
+    assert value2 == [%{"query" => "id=eq.2"}]
   end
 end
