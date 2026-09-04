@@ -74,6 +74,31 @@ INSERT INTO tenant_table_config (
 )
 ON CONFLICT (tenant_id, schema, table_name) DO UPDATE SET mode = EXCLUDED.mode;
 
+-- A second table, read only through a subquery, for the `field IN
+-- (subquery) AND ...` conformance scenario (ELECTRIC_PRD.md Phase 6 item 1,
+-- extended for AND/OR). RestdisElectric.SubqueryTracker needs its own
+-- tenant_table_config row to receive WAL changes at all, exactly like any
+-- other tracked table.
+DROP TABLE IF EXISTS conformance_subquery_source;
+
+CREATE TABLE conformance_subquery_source (
+  id integer PRIMARY KEY,
+  enabled boolean NOT NULL
+);
+
+ALTER TABLE conformance_subquery_source REPLICA IDENTITY FULL;
+
+INSERT INTO conformance_subquery_source (id, enabled) VALUES
+  (90, true),
+  (91, false);
+
+INSERT INTO tenant_table_config (
+  tenant_id, schema, table_name, mode, pk_column, inserted_at, updated_at
+) VALUES (
+  'conformance-tenant', 'public', 'conformance_subquery_source', 'replication', 'id', now(), now()
+)
+ON CONFLICT (tenant_id, schema, table_name) DO UPDATE SET mode = EXCLUDED.mode;
+
 -- A gatekeeper-mode tenant (ELECTRIC_PRD.md Phase 7): the client sends only
 -- a `shape` name and protocol parameters; `table`/`where`/`columns` are
 -- resolved server-side from `shape_definitions` and rejected if the client

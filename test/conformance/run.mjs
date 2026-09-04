@@ -8,14 +8,15 @@
 // old_value, resuming from a handle/offset, must-refetch (409 + rotation),
 // the `Shape` materialised-view API, and the documented error responses.
 //
-// One documented behaviour — combining a subquery with AND/OR in `where`
-// (RestdisElectric.Eval's moduledoc) — is not implemented yet. That scenario
-// is marked `export const xfail = "reason"` and is expected to fail; the
-// runner reports it as XFAIL rather than FAIL, but flags XPASS as a failure
-// so an unexpectedly-passing xfail — the day the gap closes — gets noticed
-// and the marker removed. Gatekeeper mode and open mode's shared secret
-// (also documented in ELECTRIC_PRD.md's Authentication section) shipped in
-// Phase 7 and are exercised as ordinary, non-xfail scenarios.
+// Every scenario here now exercises an implemented behaviour: gatekeeper
+// mode and open mode's shared secret (ELECTRIC_PRD.md's Authentication
+// section) shipped in Phase 7, and a subquery combined with one
+// subquery-free predicate over AND/OR (ELECTRIC_PRD.md Phase 6 item 1,
+// extended) is tracked by RestdisElectric.SubqueryTracker. A scenario for a
+// documented behaviour that is not implemented yet can be marked `export
+// const xfail = "reason"`; the runner reports it as XFAIL rather than FAIL,
+// but flags an unexpectedly-passing xfail (XPASS) as a failure so the day a
+// gap closes gets noticed and the marker removed.
 //
 // This does not replace Restdis's own ExUnit suite (see
 // apps/restdis_server/test/http/electric_test.exs for status-code-level
