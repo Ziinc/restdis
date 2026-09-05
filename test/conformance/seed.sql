@@ -125,6 +125,12 @@ INSERT INTO tenant_table_config (
 )
 ON CONFLICT (tenant_id, schema, table_name) DO UPDATE SET mode = EXCLUDED.mode;
 
+-- `shape_definitions` has no primary key (see its migration), so its
+-- default replica identity is NOTHING: the `ON CONFLICT DO UPDATE` below
+-- would otherwise fail with "cannot update table ... because it does not
+-- have a replica identity and publishes updates" under wal_level=logical.
+ALTER TABLE shape_definitions REPLICA IDENTITY FULL;
+
 INSERT INTO shape_definitions (
   tenant_id, name, "table", "where", replica, inserted_at, updated_at
 ) VALUES (
