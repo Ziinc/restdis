@@ -229,7 +229,10 @@ defmodule RestdisElectric.SubqueryTrackerPostgresTest do
        %{parents: parents, children: children} do
     tenant_id = TestUtils.tenant_id()
 
-    SQL.query!(TestRepo, "ALTER TABLE #{children} ADD COLUMN active boolean NOT NULL DEFAULT true")
+    SQL.query!(
+      TestRepo,
+      "ALTER TABLE #{children} ADD COLUMN active boolean NOT NULL DEFAULT true"
+    )
 
     TestUtils.put_table("public.#{children}", %{
       columns: ["id", "parent_id", "active"],
@@ -254,13 +257,11 @@ defmodule RestdisElectric.SubqueryTrackerPostgresTest do
                "where" => where
              })
 
-    # Only the active child matches the combined clause; the inactive one
-    # never appears even though it satisfies the subquery half.
+    # Only the active child matches the combined clause; the inactive one never appears.
     assert Enum.map(subscribed.messages, & &1.value["id"]) == [10]
     assert subscribed.up_to_date
 
-    # Archiving the parent flips both children's subquery membership, but
-    # only the active one (where "rest" already held) produces a delete.
+    # Archiving flips both children's subquery membership, but only the active one reacts.
     update!(parents, 1, archived: true)
 
     :ok =

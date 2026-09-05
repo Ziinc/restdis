@@ -246,7 +246,10 @@ defmodule RestdisElectric.EvalTest do
 
     test "combined_subquery/1 rejects more than one subquery" do
       {:ok, compiled} =
-        Eval.compile("id IN (SELECT id FROM parents) AND id IN (SELECT id FROM grandparents)", %{})
+        Eval.compile(
+          "id IN (SELECT id FROM parents) AND id IN (SELECT id FROM grandparents)",
+          %{}
+        )
 
       assert Eval.combined_subquery(compiled) == :error
     end

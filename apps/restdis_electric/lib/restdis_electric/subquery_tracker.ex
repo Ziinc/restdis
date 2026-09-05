@@ -250,13 +250,11 @@ defmodule RestdisElectric.SubqueryTracker do
     end
   end
 
-  # Whether a row whose subquery membership just flipped could also flip the
-  # shape's whole clause. `AND` needs "rest" already true — otherwise the
-  # clause was and stays false regardless of the subquery. `OR` needs "rest"
-  # already false — otherwise the clause was and stays true regardless.
-  # `:none` (the bare form) has no "rest" to check.
+  # Only a row where "rest" already holds (AND) or does not hold (OR) can have its whole clause flip.
   defp combinator_allows?(%{combinator: :none}, _row), do: true
-  defp combinator_allows?(%{combinator: :and, rest_filter: rest}, row), do: Eval.matches?(rest, row)
+
+  defp combinator_allows?(%{combinator: :and, rest_filter: rest}, row),
+    do: Eval.matches?(rest, row)
 
   defp combinator_allows?(%{combinator: :or, rest_filter: rest}, row),
     do: not Eval.matches?(rest, row)
