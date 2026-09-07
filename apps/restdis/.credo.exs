@@ -6,7 +6,7 @@
         included: ["mix.exs", "config/", "lib/", "test/"],
         excluded: [~r"/_build/", ~r"/deps/"]
       },
-      plugins: [],
+      plugins: [{ExSlop, []}, {ExDNA.Credo, []}],
       requires: [".credo/checks/module_file_path.ex"],
       strict: true,
       parse_timeout: 5000,
@@ -102,7 +102,8 @@
           {Credo.Check.Warning.UnusedStringOperation, []},
           {Credo.Check.Warning.UnusedTupleOperation, []},
           {Credo.Check.Warning.WrongTestFileExtension, []}
-        ],
+          {ExDNA.Credo, [paths: ["lib/", "test/"]]}
+        ] ++ Enum.map(ExSlop.recommended_checks(), &{&1, []}),
         disabled: [
           {Credo.Check.Readability.Specs, []},
           {Credo.Check.Readability.StrictModuleLayout, []},

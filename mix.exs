@@ -36,7 +36,9 @@ defmodule RestdisUmbrella.MixProject do
     [
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
       {:dialyxir, "~> 1.4", only: [:dev, :test], runtime: false},
-      {:sobelow, "~> 0.13", only: [:dev, :test], runtime: false}
+      {:sobelow, "~> 0.13", only: [:dev, :test], runtime: false},
+      {:ex_slop, "~> 0.4", only: [:dev, :test], runtime: false},
+      {:ex_dna, "~> 1.5", only: [:dev, :test], runtime: false}
     ]
   end
 
@@ -47,11 +49,13 @@ defmodule RestdisUmbrella.MixProject do
         "check.format",
         "check.lint",
         "check.dialyzer",
-        "check.sobelow"
+        "check.sobelow",
+        "check.dna"
       ],
       "check.compile": ["compile --force --warnings-as-errors"],
       "check.format": ["format --check-formatted"],
       "check.lint": ["credo --strict", "check.ast_grep"],
+      "check.dna": ["ex_dna"],
       "check.ast_grep": &ast_grep/1,
       "check.dialyzer": ["dialyzer"],
       "check.sobelow": ["sobelow --exit"]
