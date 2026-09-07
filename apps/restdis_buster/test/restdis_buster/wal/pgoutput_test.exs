@@ -243,6 +243,50 @@ defmodule RestdisBuster.WAL.PgoutputTest do
     assert events == []
   end
 
+  test "Update for unknown OID produces no events" do
+    col_values = text_col("1")
+    {count, _} = count_col_values(col_values, 0)
+    frame = <<?U, 999::32, ?N, count::16, col_values::binary>>
+    {events, _} = Pgoutput.decode(frame, RelationCache.new())
+    assert events == []
+  end
+
+  test "Delete for unknown OID produces no events" do
+    col_values = text_col("1")
+    {count, _} = count_col_values(col_values, 0)
+    frame = <<?D, 999::32, ?K, count::16, col_values::binary>>
+    {events, _} = Pgoutput.decode(frame, RelationCache.new())
+    assert events == []
+  end
+
+  test "Update frame with O old tuple emits :update with both rows" do
+    {_cols, cache} = with_relation(10, "public", "products", ["id", "name"])
+
+    old_values = <<text_col("1")::binary, text_col("Old")::binary>>
+    {old_count, _} = count_col_values(old_values, 0)
+    new_values = <<text_col("1")::binary, text_col("New")::binary>>
+    {new_count, _} = count_col_values(new_values, 0)
+
+    frame =
+      <<?U, 10::32, ?O, old_count::16, old_values::binary, ?N, new_count::16, new_values::binary>>
+
+    {[event], _} = Pgoutput.decode(frame, cache)
+    assert event.op == :update
+    assert event.old_row["name"] == "Old"
+    assert event.new_row["name"] == "New"
+  end
+
+  test "Insert frame with an unchanged (toast) column omits it from the row map" do
+    {_cols, cache} = with_relation(10, "public", "products", ["id", "name"])
+
+    col_values = <<text_col("5")::binary, ?u>>
+    frame = insert_frame(10, col_values)
+
+    {[event], _} = Pgoutput.decode(frame, cache)
+    assert event.new_row["id"] == "5"
+    refute Map.has_key?(event.new_row, "name")
+  end
+
   property "Relation then Insert always produces exactly one :insert event" do
     check all(
             oid <- positive_integer(),

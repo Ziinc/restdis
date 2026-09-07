@@ -82,4 +82,26 @@ defmodule RestdisBuster.DispatcherTest do
     :syn.leave(:wal_fanout, {:az, other_az}, remote)
     Process.exit(remote, :kill)
   end
+
+  test "dispatch/1 falls back to the local AZ when no fanout groups exist" do
+    az = Application.get_env(:restdis_buster, :az, "test")
+    # This test's own `setup` joined `self()` under `az`, and the real
+    # `RestdisBuster.FanoutSubscriber` (started by the application) is also
+    # a member of that same group. Leave both so `:wal_fanout` has zero
+    # registered groups, forcing `known_azs/0` to fall back to
+    # `SlotConfig.az()`; rejoin both afterwards.
+    real_subscriber = Process.whereis(RestdisBuster.FanoutSubscriber)
+    :syn.leave(:wal_fanout, {:az, az}, self())
+    if real_subscriber, do: :syn.leave(:wal_fanout, {:az, az}, real_subscriber)
+
+    on_exit(fn ->
+      :syn.join(:wal_fanout, {:az, az}, self())
+      if real_subscriber, do: :syn.join(:wal_fanout, {:az, az}, real_subscriber)
+    end)
+
+    assert :syn.group_names(:wal_fanout) == []
+
+    event = TestUtils.insert_event("fallback_table")
+    assert :ok = Dispatcher.dispatch(event)
+  end
 end
