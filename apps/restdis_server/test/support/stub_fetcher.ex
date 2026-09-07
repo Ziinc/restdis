@@ -10,7 +10,13 @@ defmodule RestdisServer.StubFetcher do
       agent -> Agent.update(agent, fn n -> n + 1 end)
     end
 
-    body = Application.get_env(:restdis_server, :stub_fetcher_body, [%{"stub" => true}])
-    {:ok, body}
+    case Application.get_env(:restdis_server, :stub_fetcher_error) do
+      nil ->
+        body = Application.get_env(:restdis_server, :stub_fetcher_body, [%{"stub" => true}])
+        {:ok, body}
+
+      reason ->
+        {:error, reason}
+    end
   end
 end

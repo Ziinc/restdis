@@ -189,6 +189,62 @@ defmodule RestdisServer.Rewarm.SchedulerTest do
     assert query_string == "id=eq.1"
   end
 
+  test "(h) a fetch failure emits a rewarm error telemetry event" do
+    attach_telemetry([:restdis_server, :rewarm, :error])
+    Application.put_env(:restdis_server, :stub_fetcher_error, :timeout)
+    on_exit(fn -> Application.delete_env(:restdis_server, :stub_fetcher_error) end)
+
+    key = Key.build(:table, "erroring_items", %{})
+    wire_key = Key.encode(key)
+    Restdis.Cache.put(@tenant_id, key, [%{"id" => 1}], ttl_ms: 60_000)
+
+    PolicyStore.put(@tenant_id, wire_key, %{rewarm_s: 1, persist: false})
+    Rewarm.touch(@tenant_id, wire_key, key)
+
+    assert_receive {:telemetry, [:restdis_server, :rewarm, :error], _, meta}, 1500
+    assert meta.reason == :timeout
+  end
+
+  test "(i) touching an already-tracked key updates its policy instead of resetting it" do
+    key = Key.build(:table, "retouched_items", %{})
+    wire_key = Key.encode(key)
+    Restdis.Cache.put(@tenant_id, key, [%{"id" => 1}], ttl_ms: 60_000)
+
+    pid = ensure_scheduler()
+    Scheduler.upsert(pid, wire_key, key, %{rewarm_s: 60, persist: false})
+    Scheduler.upsert(pid, wire_key, key, %{rewarm_s: 60, persist: true})
+
+    table = :sys.get_state(pid).table
+    assert [{^wire_key, entry}] = :ets.lookup(table, wire_key)
+    assert entry.persist == true
+  end
+
+  test "(j) policy_changed on an already-tracked key updates its policy in place" do
+    key = Key.build(:table, "policy_retouched_items", %{})
+    wire_key = Key.encode(key)
+
+    pid = ensure_scheduler()
+    Scheduler.upsert(pid, wire_key, key, %{rewarm_s: 60, persist: false})
+    :ok = Scheduler.policy_changed(pid, wire_key, key, %{rewarm_s: 90, persist: true})
+
+    table = :sys.get_state(pid).table
+    assert [{^wire_key, entry}] = :ets.lookup(table, wire_key)
+    assert entry.rewarm_s == 90
+    assert entry.persist == true
+  end
+
+  test "(k) policy_changed on an untracked key with a rewarm interval starts tracking it" do
+    key = Key.build(:table, "brand_new_policy_items", %{})
+    wire_key = Key.encode(key)
+
+    pid = ensure_scheduler()
+    :ok = Scheduler.policy_changed(pid, wire_key, key, %{rewarm_s: 45, persist: false})
+
+    table = :sys.get_state(pid).table
+    assert [{^wire_key, entry}] = :ets.lookup(table, wire_key)
+    assert entry.rewarm_s == 45
+  end
+
   defp ensure_scheduler do
     case Registry.lookup(RestdisServer.Rewarm.Registry, @tenant_id) do
       [{pid, _}] ->
