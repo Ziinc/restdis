@@ -231,7 +231,7 @@ defmodule RestdisServer.HTTP.Electric do
 
         :timeout ->
           # Keeps the connection, and any proxy in front, alive without telling the client anything new.
-          continue(chunk(conn, ": keepalive\n\n"), shape, offset, deadline)
+          keepalive(conn, shape, offset, deadline)
 
         # The 200 status and SSE headers are already sent, so a limit hit here can only end the stream.
         {:error, _reason} ->
@@ -245,6 +245,14 @@ defmodule RestdisServer.HTTP.Electric do
 
   # The client has gone. Nothing to clean up: the wait is already over.
   defp continue({:error, conn}, _shape, _offset, _deadline), do: conn
+
+  defp keepalive(conn, shape, offset, deadline) do
+    case chunk(conn, ": keepalive\n\n") do
+      {:ok, conn} -> sse_loop(conn, shape, offset, deadline)
+      # The client has gone. Nothing to clean up: the write already failed.
+      {:error, _reason} -> conn
+    end
+  end
 
   defp send_events(conn, events) do
     Enum.reduce_while(events, {:ok, conn}, fn event, {:ok, conn} ->
