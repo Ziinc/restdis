@@ -75,6 +75,22 @@ defmodule RestdisElectric.FilterTest do
       {:ok, compiled} = Eval.compile("org_id = $1", %{"1" => "4"})
       assert {:indexed, [{:scalar, "org_id", "n:4"}]} = Filter.index_keys(compiled)
     end
+
+    test "a boolean constant is indexed" do
+      assert {:indexed, [{:scalar, "flag", "b:true"}]} = keys("flag = true")
+    end
+
+    test "array containment with a non-constant item is unindexed" do
+      assert :unindexed = keys("tags @> ARRAY[name]")
+    end
+
+    test "constant = ANY(array) with a non-constant left side is unindexed" do
+      assert :unindexed = keys("name = ANY(tags)")
+    end
+
+    test "an IN list with a non-constant item is unindexed" do
+      assert :unindexed = keys("org_id IN (name, 2)")
+    end
   end
 
   describe "normalise/1" do
@@ -89,6 +105,15 @@ defmodule RestdisElectric.FilterTest do
       assert Filter.normalise(nil) == :error
       assert Filter.normalise(:null) == :error
       assert Filter.normalise(["a"]) == :error
+    end
+
+    test "booleans normalise to their own stable key" do
+      assert Filter.normalise(true) == {:ok, "b:true"}
+      assert Filter.normalise(false) == {:ok, "b:false"}
+    end
+
+    test "a float with a fractional part keeps its decimal form" do
+      assert Filter.normalise(4.5) == {:ok, "n:4.5"}
     end
   end
 
@@ -130,6 +155,14 @@ defmodule RestdisElectric.FilterTest do
                ["red"]
 
       assert Filter.candidates(tenant_id, "public", "things", [%{"tags" => ["blue"]}]) == []
+    end
+
+    test "a non-list value in an array-indexed column contributes no candidates", %{
+      tenant_id: tenant_id
+    } do
+      add(tenant_id, "red", "tags @> ARRAY['red']")
+
+      assert Filter.candidates(tenant_id, "public", "things", [%{"tags" => nil}]) == []
     end
 
     test "re-adding a handle does not duplicate it", %{tenant_id: tenant_id} do

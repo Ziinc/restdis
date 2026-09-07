@@ -313,6 +313,103 @@ defmodule RestdisElectric.DefinitionTest do
              Definition.new("t1", %{"table" => "widgets", "retention" => "0"})
   end
 
+  test "rejects an empty table string the same as a missing one" do
+    assert {:error, {:missing_table, nil}} = Definition.new("t1", %{"table" => ""})
+  end
+
+  test "treats an empty columns string as no column list" do
+    assert {:ok, %Definition{columns: nil}} =
+             Definition.new("t1", %{"table" => "widgets", "columns" => ""})
+  end
+
+  test "accepts an explicit replica=default" do
+    assert {:ok, %{replica: :default}} =
+             Definition.new("t1", %{"table" => "widgets", "replica" => "default"})
+  end
+
+  test "accepts an explicit log=full" do
+    assert {:ok, %{log_mode: :full}} =
+             Definition.new("t1", %{"table" => "widgets", "log" => "full"})
+  end
+
+  test "treats an empty where string as no filter" do
+    assert {:ok, %{where: nil, filter: nil}} =
+             Definition.new("t1", %{"table" => "widgets", "where" => ""})
+  end
+
+  test "treats an empty retention string as no retention" do
+    assert {:ok, %{retention: nil}} =
+             Definition.new("t1", %{"table" => "widgets", "retention" => ""})
+  end
+
+  test "treats an empty params string as no params" do
+    assert {:ok, %{params: %{}}} =
+             Definition.new("t1", %{"table" => "widgets", "params" => ""})
+  end
+
+  test "canonical_columns/1 joins an explicit column list" do
+    {:ok, definition} = Definition.new("t1", %{"table" => "widgets", "columns" => "id,name"})
+    assert Definition.canonical(definition) =~ "columns=id,name"
+  end
+
+  test "rejects a schema-qualified table name with an empty table part" do
+    assert {:error, {:missing_table, nil}} = Definition.new("t1", %{"table" => "public."})
+  end
+
+  test "rejects a non-string table value" do
+    assert {:error, {:missing_table, nil}} = Definition.new("t1", %{"table" => 123})
+  end
+
+  test "accepts columns already given as a list" do
+    assert {:ok, %Definition{columns: ["id", "name"]}} =
+             Definition.new("t1", %{"table" => "widgets", "columns" => ["id", "name"]})
+  end
+
+  test "rejects a non-string where value" do
+    assert {:error, {:invalid_where, message}} =
+             Definition.new("t1", %{"table" => "widgets", "where" => 123})
+
+    assert message =~ "must be text"
+  end
+
+  test "rejects a non-string retention value" do
+    assert {:error, {:invalid_retention, "123"}} =
+             Definition.new("t1", %{"table" => "widgets", "retention" => 123})
+  end
+
+  test "rejects params given as invalid JSON" do
+    assert {:error, {:invalid_where, message}} =
+             Definition.new("t1", %{
+               "table" => "widgets",
+               "where" => "id = $1",
+               "params" => "not json"
+             })
+
+    assert message =~ "JSON object"
+  end
+
+  test "rejects params given as a JSON array instead of an object" do
+    assert {:error, {:invalid_where, message}} =
+             Definition.new("t1", %{
+               "table" => "widgets",
+               "where" => "id = $1",
+               "params" => "[1,2,3]"
+             })
+
+    assert message =~ "JSON object"
+  end
+
+  test "rejects params given as a non-map, non-string value" do
+    assert {:error, {:invalid_where, message}} =
+             Definition.new("t1", %{
+               "table" => "widgets",
+               "where" => "id = $1",
+               "params" => 123
+             })
+
+    assert message =~ "JSON object"
+  end
+
   test "canonical/1 is stable for equal definitions and differs for different ones" do
     {:ok, a} = Definition.new("t1", %{"table" => "widgets"})
     {:ok, b} = Definition.new("t1", %{"table" => "widgets"})

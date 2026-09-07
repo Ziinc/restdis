@@ -262,6 +262,144 @@ defmodule RestdisElectric.EvalTest do
     end
   end
 
+  describe "edge cases in normalisation and rejection" do
+    test "columns/1 and tree_columns/1 return an empty list for absent clauses" do
+      assert Eval.columns(nil) == []
+      assert Eval.tree_columns(:none) == []
+    end
+
+    test "params given as a non-map value is rejected" do
+      assert {:error, {:invalid_where, message}} = Eval.compile("id = 1", "not a map")
+      assert message =~ "must be a map"
+    end
+
+    test "a param key that is not a positive-integer string is rejected" do
+      assert {:error, {:invalid_where, message}} = Eval.compile("id = $1", %{"abc" => "7"})
+      assert message =~ "abc"
+    end
+
+    test "a param key that is neither an integer nor a binary is rejected" do
+      assert {:error, {:invalid_where, message}} = Eval.compile("id = $1", %{[1, 2] => "7"})
+      assert message =~ "invalid parameter name"
+    end
+
+    test "an unsupported unary operator is rejected" do
+      assert {:error, {:unsupported_where, message}} = Eval.compile("~id = 1", %{})
+      assert message =~ "~"
+    end
+  end
+
+  describe "operators against mismatched or NULL operands" do
+    test "IN against a NULL left-hand value is NULL, so it never matches" do
+      refute matches?("email IN (1, 2)")
+    end
+
+    test "ALL against a NULL left-hand value is NULL, so it never matches" do
+      refute matches?("email > ALL(ARRAY[1, 2])")
+    end
+
+    test "LIKE with a NULL pattern is NULL" do
+      refute matches?("name LIKE email")
+    end
+
+    test "LIKE against a non-text value is NULL" do
+      refute matches?("id LIKE '7'")
+    end
+
+    test "arithmetic between a number and non-numeric text is NULL" do
+      refute matches?("id + name = 8")
+    end
+
+    test "bitwise between an integer and non-integer text is NULL" do
+      refute matches?("id & name = 1")
+    end
+
+    test "an array operator against a non-array runtime value is NULL" do
+      refute matches?("name @> ARRAY['x']")
+    end
+
+    test "comparing lists in full (not via an array operator)" do
+      assert matches?("tags = ARRAY['red', 'blue']")
+      refute matches?("tags = ARRAY['red']")
+      refute matches?("tags = ARRAY['red', 'blue', 'green']")
+      refute matches?("tags = ARRAY['blue', 'red']")
+    end
+
+    test "comparing text to a number that does not parse coerces to NULL" do
+      refute matches?("name = 1")
+    end
+
+    test "comparing a number to text that does not parse coerces to NULL" do
+      refute matches?("id = 'seven'")
+    end
+
+    test "comparing text to a boolean coerces the text" do
+      assert matches?("active = 'true'")
+      assert matches?("'true' = active")
+    end
+
+    test "lower/upper against a non-text value is NULL" do
+      {:ok, compiled} = Eval.compile("lower(id)", %{})
+      assert Eval.evaluate(compiled, @row) == :null
+    end
+
+    test "lower() of a NULL value is NULL" do
+      assert matches?("lower(email) IS NULL")
+    end
+
+    test "unary plus is a no-op" do
+      assert matches?("+id = 7")
+    end
+
+    test "unary minus against a non-numeric value is NULL" do
+      assert matches?("-name IS NULL")
+    end
+
+    test "ANY/ALL against a non-array runtime value is NULL" do
+      refute matches?("id = ANY(name)")
+      refute matches?("id > ALL(name)")
+    end
+
+    test "reading a column absent from the row is NULL" do
+      refute matches?("nonexistent_field = 1")
+    end
+
+    test "a bound placeholder whose value is nil is NULL" do
+      {:ok, compiled} = Eval.compile("$1 IS NULL", %{"1" => nil})
+      assert Eval.matches?(compiled, @row)
+    end
+
+    test "coercing text that parses as a float" do
+      assert matches?("'4.5' = score")
+    end
+
+    test "coercing text to boolean, the false case" do
+      refute matches?("active = 'false'")
+    end
+
+    test "coercing unparseable text to boolean is NULL" do
+      refute matches?("active = 'maybe'")
+    end
+
+    test "integer division and modulo by zero are NULL" do
+      refute matches?("id / 0 = 1")
+      refute matches?("id % 0 = 1")
+    end
+
+    test "float division and modulo" do
+      assert matches?("score / 2 = 2.25")
+      assert matches?("score % 2 = 0.5")
+    end
+
+    test "a live subquery resolver returning :null propagates NULL" do
+      {:ok, compiled} =
+        Eval.compile("id IN (SELECT id FROM parents WHERE archived = false)", %{})
+
+      resolver = fn _table, _column, _value -> :null end
+      refute Eval.matches?(compiled, @row, resolver)
+    end
+  end
+
   describe "matches?/2" do
     test "a nil clause matches every row but never a missing row" do
       assert Eval.matches?(nil, @row)

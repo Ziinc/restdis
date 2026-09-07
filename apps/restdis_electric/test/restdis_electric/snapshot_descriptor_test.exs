@@ -17,6 +17,20 @@ defmodule RestdisElectric.SnapshotDescriptorTest do
     test "rejects malformed text" do
       assert :error = SnapshotDescriptor.parse("not-a-snapshot")
     end
+
+    test "rejects a non-binary value" do
+      assert :error = SnapshotDescriptor.parse(123)
+      assert :error = SnapshotDescriptor.parse(nil)
+    end
+
+    test "rejects an xip_list with a non-integer element" do
+      assert :error = SnapshotDescriptor.parse("10:20:12,abc")
+    end
+
+    test "rejects a non-integer xmin or xmax" do
+      assert :error = SnapshotDescriptor.parse("abc:20:")
+      assert :error = SnapshotDescriptor.parse("10:abc:")
+    end
   end
 
   describe "visible?/2" do

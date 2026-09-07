@@ -2,6 +2,13 @@ defmodule RestdisElectric.Snapshotter.PostgREST do
   @moduledoc """
   Snapshot reader that pages through PostgREST with `limit`/`offset`,
   ordered by the table's primary key so pages never overlap or skip rows.
+
+  `tenant_config` may carry a `:req_options` keyword list, merged into the
+  options passed to `Req.new/1` (a request option given here overrides the
+  default of the same name). This exists purely as a testability seam — it
+  lets tests point requests at a `Req.Test` stub or a local plug instead of
+  a real PostgREST origin, without this module needing any test-only
+  branch.
   """
 
   @behaviour RestdisElectric.Snapshotter
@@ -54,9 +61,12 @@ defmodule RestdisElectric.Snapshotter.PostgREST do
 
     http_req =
       Req.new(
-        base_url: base_url,
-        headers: [{"apikey", tenant_config.pgrst_api_key}],
-        retry: false
+        [
+          base_url: base_url,
+          headers: [{"apikey", tenant_config.pgrst_api_key}],
+          retry: false
+        ]
+        |> Keyword.merge(tenant_config[:req_options] || [])
       )
 
     case Req.get(http_req, url: path, params: query) do
