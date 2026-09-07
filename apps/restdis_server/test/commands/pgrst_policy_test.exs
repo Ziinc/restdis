@@ -75,6 +75,27 @@ defmodule RestdisServer.Commands.PgrstPolicyTest do
     assert entry.persist == true
   end
 
+  test "PGRST.POLICY PERSIST refuses past the tenant's persist cap", %{state: state} do
+    # A fresh, not-yet-persisted key, so `existing_policy.persist` (false)
+    # differs from the requested policy and `Restdis.Cache.set_persist/4`
+    # actually runs instead of short-circuiting as a no-op.
+    key = Key.build(:table, "products", %{"id" => "eq.2"})
+    wire_key = Key.encode(key)
+    Restdis.Cache.put(@tenant_id, key, [%{"id" => 2}], ttl_ms: 60_000)
+
+    # Restdis.Cache's persist cap (50,000, defined in apps/restdis) is not
+    # configurable via opts on this code path, so driving it for real would
+    # mean persisting 50,000 entries. Instead, prime the same `:counters` ref
+    # `Restdis.Cache.set_persist/4` reads so the next persist attempt is the
+    # one that tips it over — exercising the real cap-exceeded branch without
+    # touching another app or looping 50,000 times.
+    ref = :persistent_term.get({:sc_persist, @tenant_id})
+    :counters.add(ref, 1, 50_000)
+
+    {reply, _} = Dispatcher.dispatch(state, ["PGRST.POLICY", wire_key, "PERSIST"])
+    assert IO.iodata_to_binary(reply) == "-ERR persist cap reached\r\n"
+  end
+
   defp fetch_scheduler_pid(tenant_id) do
     case Registry.lookup(RestdisServer.Rewarm.Registry, tenant_id) do
       [{pid, _}] -> {:ok, pid}
