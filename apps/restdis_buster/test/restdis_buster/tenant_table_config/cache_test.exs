@@ -1,6 +1,5 @@
 defmodule RestdisBuster.TenantTableConfig.CacheTest do
-  # Exercises the DB-backed read-through path, so it can't run concurrently
-  # with other tests that touch the same cache/table rows.
+  # Exercises the DB-backed read-through path, so it can't run concurrently with other tests touching the same rows.
   use ExUnit.Case, async: false
 
   import Ecto.Query

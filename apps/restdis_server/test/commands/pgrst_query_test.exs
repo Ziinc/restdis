@@ -260,9 +260,7 @@ defmodule RestdisServer.Commands.PgrstQueryTest do
     key1 = Key.build(:table, "widgets", %{"id" => "eq.1"})
     key2 = Key.build(:table, "widgets", %{"id" => "eq.2"})
 
-    # Declaring PERSIST before the first fetch is enough to record the policy
-    # even though the key isn't cached yet (`Restdis.Cache.set_persist`
-    # returns `{:error, :not_found}`, which `PgrstPolicy` treats as a no-op).
+    # Declaring PERSIST records the policy before the first fetch, since a missing cache entry is a no-op.
     Dispatcher.dispatch(state, ["PGRST.POLICY", Key.encode(key1), "PERSIST"])
     Dispatcher.dispatch(state, ["PGRST.POLICY", Key.encode(key2), "PERSIST"])
 

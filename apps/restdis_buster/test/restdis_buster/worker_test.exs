@@ -294,9 +294,7 @@ defmodule RestdisBuster.WorkerTest do
       end
     end
 
-    # The file-level `setup` above already registers the test process as
-    # `:worker_test`; reuse that name here rather than registering a second
-    # one (a process can only hold a single registered name at a time).
+    # Reuse the file-level `setup`'s `:worker_test` registration; a process can only hold one registered name at a time.
     setup do
       Application.put_env(:restdis_buster, :wal_handler, DdlStubHandler)
       on_exit(fn -> Application.delete_env(:restdis_buster, :wal_handler) end)

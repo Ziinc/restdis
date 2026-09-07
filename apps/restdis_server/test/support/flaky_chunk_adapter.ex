@@ -75,8 +75,7 @@ defmodule RestdisServer.Test.FlakyChunkAdapter do
   def get_http_protocol({real_adapter, payload, _allowed}),
     do: real_adapter.get_http_protocol(payload)
 
-  # Calls `real_adapter.fun(real_payload, args...)` and re-wraps whatever new
-  # payload comes back so subsequent calls still flow through this module.
+  # Calls `real_adapter.fun(real_payload, args...)` and re-wraps the resulting payload so subsequent calls still flow through this module.
   defp rewrap({real_adapter, payload, allowed}, fun, args, opts \\ []) do
     case apply(real_adapter, fun, [payload | args]) do
       {:error, _} = error ->

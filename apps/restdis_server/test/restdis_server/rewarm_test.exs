@@ -50,13 +50,7 @@ defmodule RestdisServer.RewarmTest do
     wire_key = Key.encode(key)
     PolicyStore.put(tenant_id, wire_key, %{rewarm_s: 30, persist: false})
 
-    # Every task's `ensure_scheduler` sees no registered scheduler yet (none
-    # has started) and calls `DynamicSupervisor.start_child/2`.
-    # `DynamicSupervisor` itself is a GenServer and processes those calls one
-    # at a time, so only the first actually starts and registers the
-    # scheduler; every other task's `start_child` call attempts to register
-    # the same tenant name and deterministically gets back
-    # `{:error, {:already_started, pid}}` — the race this test exercises.
+    # `DynamicSupervisor` serializes `start_child/2`; only the first task starts, the rest hit `:already_started`.
     tasks =
       for _ <- 1..25 do
         Task.async(fn -> Rewarm.touch(tenant_id, wire_key, key) end)

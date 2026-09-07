@@ -14,8 +14,7 @@ defmodule RestdisBuster.FanoutSubscriberTest do
     az = Application.get_env(:restdis_buster, :az, "test")
     assert {:ok, %{az: ^az}} = FanoutSubscriber.init([])
 
-    # `init/1` was invoked directly (not via `start_link`), so `self()` is
-    # this test process; leave the group it just joined.
+    # `init/1` ran directly (not via `start_link`), so `self()` is this test process; leave the joined group.
     on_exit(fn -> :syn.leave(:wal_fanout, {:az, az}, self()) end)
   end
 

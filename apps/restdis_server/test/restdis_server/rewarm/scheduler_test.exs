@@ -250,8 +250,7 @@ defmodule RestdisServer.Rewarm.SchedulerTest do
   test "(l) a :refetch_ok cast for a key no longer tracked is a no-op" do
     pid = ensure_scheduler()
 
-    # Nothing was ever inserted under this wire_key, so the ETS lookup inside
-    # `handle_cast({:refetch_ok, ...})` misses; the scheduler must not crash.
+    # Nothing was inserted under this wire_key, so the ETS lookup misses; the scheduler must not crash.
     GenServer.cast(pid, {:refetch_ok, "pgrst:t:untracked:none", [%{"id" => 1}], 0})
 
     assert Process.alive?(pid)
@@ -265,9 +264,7 @@ defmodule RestdisServer.Rewarm.SchedulerTest do
     pid = ensure_scheduler()
     Scheduler.upsert(pid, wire_key, key, %{rewarm_s: 60, persist: false})
 
-    # `TenantConfig.lookup_by_tenant_id/1` now fails for this tenant, without
-    # stopping its already-running scheduler, so the next `:refetch_ok`
-    # delivered to it exercises the "config lookup failed" fallback branch.
+    # Config lookup now fails without stopping the scheduler, so the next `:refetch_ok` exercises the fallback branch.
     InMemory.clear()
     TenantConfig.invalidate(@tenant_id)
 
@@ -292,9 +289,7 @@ defmodule RestdisServer.Rewarm.SchedulerTest do
     table = :sys.get_state(pid).table
     assert :ets.info(table) != :undefined
 
-    # Unlike `DynamicSupervisor.terminate_child/2` (an uncooperative
-    # `:shutdown` exit the GenServer doesn't trap), `GenServer.stop/1` asks
-    # the process to stop cooperatively, which runs `terminate/2`.
+    # Unlike an uncooperative `:shutdown` exit, `GenServer.stop/1` asks the process to stop cooperatively, which runs `terminate/2`.
     :ok = GenServer.stop(pid)
 
     refute Process.alive?(pid)
