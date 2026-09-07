@@ -61,6 +61,43 @@ jobs:
           DEMO_DIRECT_PG_URL: postgres://postgres:postgres@localhost:5433/postgres
           DEMO_AUTH_URL: http://localhost:9999
 
+      - name: Run the supabase-js wrapper demo
+        working-directory: demo/client
+        run: |
+          npm install
+          node demo.mjs
+        env:
+          DEMO_PGRST_URL: http://localhost:3000
+          RESTDIS_URL: http://localhost:4041
+          DEMO_API_KEY: sk_demo
+
+      - name: Wait for Prometheus and Grafana to become healthy
+        run: |
+          for _ in $(seq 1 30); do
+            curl -fsS http://localhost:9090/-/ready > /dev/null 2>&1 && break
+            sleep 2
+          done
+          for _ in $(seq 1 30); do
+            curl -fsS http://localhost:3001/api/health > /dev/null 2>&1 && exit 0
+            sleep 2
+          done
+          echo "Prometheus/Grafana never became healthy" >&2
+          exit 1
+
+      - name: Confirm the demo dashboard is provisioned
+        run: |
+          curl -fsS http://localhost:3001/api/dashboards/uid/restdis-demo | grep -q '"title":"Restdis Demo: live internals"'
+
+      - name: Run the load test (short duration, proves the many-tenants path)
+        working-directory: demo
+        run: node scripts/load-test.mjs
+        env:
+          RESTDIS_URL: http://localhost:4041
+          DEMO_DIRECT_PG_URL: postgres://postgres:postgres@localhost:5433/postgres
+          LOAD_TENANTS: "5"
+          LOAD_CONCURRENCY: "10"
+          LOAD_DURATION_S: "5"
+
       - name: Dump service logs
         if: always()
         working-directory: demo

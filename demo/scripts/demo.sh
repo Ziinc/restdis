@@ -14,6 +14,7 @@ API_KEY="${DEMO_API_KEY:-sk_demo}"
 DIRECT_PG_URL="${DEMO_DIRECT_PG_URL:-postgres://postgres:postgres@localhost:5433/postgres}"
 AUTH_URL="${DEMO_AUTH_URL:-http://localhost:9999}"
 PGRST_URL="${DEMO_PGRST_URL:-http://localhost:3000}"
+GRAFANA_URL="${DEMO_GRAFANA_URL:-http://localhost:3001}"
 
 bold() { printf '\033[1m%s\033[0m\n' "$1"; }
 step() { printf '\n\033[1;36m▶ %s\033[0m\n' "$1"; }
@@ -55,6 +56,13 @@ note "restdis:  $RESTDIS_URL"
 note "postgrest: $PGRST_URL (Restdis's cache origin)"
 note "auth:     $AUTH_URL (real GoTrue, wired for future Auth caching work)"
 note "postgres: $DIRECT_PG_URL"
+note "grafana:  $GRAFANA_URL (single-page dashboard, 1s refresh - open this now"
+note "          in a browser pane on the left before continuing)"
+if command -v open > /dev/null 2>&1; then
+  open "$GRAFANA_URL/d/restdis-demo" 2> /dev/null || true
+elif command -v xdg-open > /dev/null 2>&1; then
+  xdg-open "$GRAFANA_URL/d/restdis-demo" 2> /dev/null || true
+fi
 pause
 
 step "1. The origin: querying PostgREST directly, no cache involved"
@@ -109,6 +117,13 @@ note "curl $AUTH_URL/health"
 curl -sS "$AUTH_URL/health"
 echo
 note "(SUPABASE_INTEGRATION_PRD.md: Auth caching is planned, not yet proxied by Restdis)"
+pause
+
+step "8. Load test: many tenants, many requests, high speed"
+note "scripts/load-test.mjs seeds ${LOAD_TENANTS:-10} tenants sharing the widgets table, then"
+note "fires ${LOAD_CONCURRENCY:-50} concurrent workers against them for ${LOAD_DURATION_S:-15}s"
+note "watch the Grafana dashboard: this is the moment to point at it live"
+RESTDIS_URL="$RESTDIS_URL" DEMO_DIRECT_PG_URL="$DIRECT_PG_URL" node scripts/load-test.mjs
 pause
 
 step "Done. Tearing down is optional:"

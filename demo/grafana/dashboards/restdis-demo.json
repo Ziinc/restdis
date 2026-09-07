@@ -1,0 +1,153 @@
+{
+  "id": null,
+  "uid": "restdis-demo",
+  "title": "Restdis Demo: live internals",
+  "description": "Single-page, fast-polling view of what's happening inside Restdis during the demo walkthrough (demo/scripts/demo.sh): a write lands, the WAL tailer ingests it, the reverse index resolves which cached entry it busts, and the bust's end-to-end latency. Meant to sit next to a terminal, not to be scrolled - every panel that matters fits on one screen. For the full operational dashboard (cluster, rewarm, disk cache, VM, Electric shapes) see grafana/restdis-dashboard.json at the repo root.",
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "editable": false,
+  "graphTooltip": 1,
+  "refresh": "1s",
+  "time": { "from": "now-5m", "to": "now" },
+  "timepicker": { "refresh_intervals": ["1s", "2s", "5s", "10s"] },
+  "templating": { "list": [] },
+  "annotations": { "list": [] },
+  "panels": [
+    {
+      "id": 1,
+      "type": "timeseries",
+      "title": "WAL ingest throughput",
+      "description": "restdis_buster.wal.received.bytes - spikes the moment the demo's `insert into widgets` commits and Restdis's logical replication slot streams it in.",
+      "gridPos": { "h": 9, "w": 8, "x": 0, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "restdis-demo-prometheus" },
+      "fieldConfig": {
+        "defaults": { "unit": "Bps", "custom": { "drawStyle": "line", "fillOpacity": 15, "pointSize": 4 } },
+        "overrides": []
+      },
+      "options": { "legend": { "displayMode": "list", "placement": "bottom" }, "tooltip": { "mode": "single" } },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(rate(restdis_buster_wal_received_bytes_sum[10s]))",
+          "legendFormat": "WAL bytes/sec"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "type": "timeseries",
+      "title": "WAL events processed",
+      "description": "restdis_buster.event.processed.count by operation/table - the insert from the demo script shows up here as op=\"insert\", table=\"widgets\".",
+      "gridPos": { "h": 9, "w": 8, "x": 8, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "restdis-demo-prometheus" },
+      "fieldConfig": {
+        "defaults": { "unit": "reqps", "custom": { "drawStyle": "bars", "fillOpacity": 40, "pointSize": 4 } },
+        "overrides": []
+      },
+      "options": { "legend": { "displayMode": "list", "placement": "bottom" }, "tooltip": { "mode": "multi" } },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (op, table) (rate(restdis_buster_event_processed_count[10s]))",
+          "legendFormat": "{{op}} {{table}}"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "type": "timeseries",
+      "title": "WAL tailer lag",
+      "description": "restdis_buster.tailer.lag.lag_us - how far behind Postgres's write-ahead log Restdis's tailer is. Should stay near zero throughout the demo; a sustained climb means the tailer can't keep up.",
+      "gridPos": { "h": 9, "w": 8, "x": 16, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "restdis-demo-prometheus" },
+      "fieldConfig": {
+        "defaults": { "unit": "µs", "custom": { "drawStyle": "line", "fillOpacity": 10, "pointSize": 4 } },
+        "overrides": []
+      },
+      "options": { "legend": { "displayMode": "list", "placement": "bottom" }, "tooltip": { "mode": "single" } },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "restdis_buster_tailer_lag_lag_us",
+          "legendFormat": "tailer lag"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "type": "timeseries",
+      "title": "Invalidation latency (write -> bust)",
+      "description": "restdis_buster.invalidation.latency.duration_us - the headline number for the demo: elapsed time from a WAL event landing to the matching cache entry being busted, at p50/p95/p99.",
+      "gridPos": { "h": 9, "w": 8, "x": 0, "y": 9 },
+      "datasource": { "type": "prometheus", "uid": "restdis-demo-prometheus" },
+      "fieldConfig": {
+        "defaults": { "unit": "µs", "custom": { "drawStyle": "line", "fillOpacity": 10, "pointSize": 4 } },
+        "overrides": []
+      },
+      "options": { "legend": { "displayMode": "list", "placement": "bottom" }, "tooltip": { "mode": "multi" } },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "histogram_quantile(0.5, sum by (le) (rate(restdis_buster_invalidation_latency_duration_us_bucket[30s])))",
+          "legendFormat": "p50"
+        },
+        {
+          "refId": "B",
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(restdis_buster_invalidation_latency_duration_us_bucket[30s])))",
+          "legendFormat": "p95"
+        },
+        {
+          "refId": "C",
+          "expr": "histogram_quantile(0.99, sum by (le) (rate(restdis_buster_invalidation_latency_duration_us_bucket[30s])))",
+          "legendFormat": "p99"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "Reverse index hit vs miss",
+      "description": "restdis_buster.reverse_index.hit/miss - whether a WAL event found a cached entry to invalidate. A hit on \"widgets\" right after the insert is the reverse index doing its job; misses are WAL events for keys nothing has cached yet.",
+      "gridPos": { "h": 9, "w": 8, "x": 8, "y": 9 },
+      "datasource": { "type": "prometheus", "uid": "restdis-demo-prometheus" },
+      "fieldConfig": {
+        "defaults": { "unit": "reqps", "custom": { "drawStyle": "bars", "fillOpacity": 40, "pointSize": 4 } },
+        "overrides": []
+      },
+      "options": { "legend": { "displayMode": "list", "placement": "bottom" }, "tooltip": { "mode": "multi" } },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (table) (rate(restdis_buster_reverse_index_hit_keys_sum[10s]))",
+          "legendFormat": "hit {{table}}"
+        },
+        {
+          "refId": "B",
+          "expr": "sum by (table) (rate(restdis_buster_reverse_index_miss_count[10s]))",
+          "legendFormat": "miss {{table}}"
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "Persisted cache entries, across all tenants",
+      "description": "restdis.persist.count.count summed across every tenant - one line per tenant during the single-tenant walkthrough (demo-tenant), then a burst of load-tenant-0..N lines during the load test (scripts/load-test.mjs), each holding flat once its first request warms the cache.",
+      "gridPos": { "h": 9, "w": 8, "x": 16, "y": 9 },
+      "datasource": { "type": "prometheus", "uid": "restdis-demo-prometheus" },
+      "fieldConfig": {
+        "defaults": { "unit": "short", "custom": { "drawStyle": "line", "fillOpacity": 20, "pointSize": 5, "stacking": { "mode": "none" } } },
+        "overrides": []
+      },
+      "options": { "legend": { "displayMode": "list", "placement": "bottom" }, "tooltip": { "mode": "multi" } },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "restdis_persist_count_count",
+          "legendFormat": "{{tenant_id}}"
+        }
+      ]
+    }
+  ]
+}

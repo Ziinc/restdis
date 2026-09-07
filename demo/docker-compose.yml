@@ -54,7 +54,10 @@ services:
       GOTRUE_DB_DRIVER: postgres
       GOTRUE_DB_DATABASE_URL: postgres://postgres:postgres@db:5432/postgres?search_path=auth
       GOTRUE_SITE_URL: http://localhost:9999
-      GOTRUE_API_EXTERNAL_URL: http://localhost:9999
+      # GoTrue's envconfig tag for this field is the bare "API_EXTERNAL_URL",
+      # not "GOTRUE_API_EXTERNAL_URL" - confirmed by extracting the binary's
+      # struct tags (`envconfig:"API_EXTERNAL_URL"`) and testing directly.
+      API_EXTERNAL_URL: http://localhost:9999
       GOTRUE_JWT_SECRET: demo-supabase-jwt-secret-demo-supabase-jwt-secret
       GOTRUE_JWT_EXP: "3600"
       GOTRUE_DISABLE_SIGNUP: "false"
@@ -79,3 +82,33 @@ services:
     ports:
       - "4041:4040"
       - "6381:6380"
+
+  # Scrapes Restdis's /metrics endpoint on a fast interval so the Grafana
+  # dashboard reacts quickly enough to be watched live during the demo.
+  prometheus:
+    image: prom/prometheus:v2.55.1
+    depends_on:
+      - restdis
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    ports:
+      - "9090:9090"
+
+  # Single-page dashboard (grafana/dashboards/restdis-demo.json) provisioned
+  # automatically on boot - open http://localhost:3001 alongside a terminal
+  # running demo/scripts/demo.sh.
+  grafana:
+    image: grafana/grafana:11.3.1
+    depends_on:
+      - prometheus
+    environment:
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+      GF_AUTH_DISABLE_LOGIN_FORM: "true"
+      GF_DEFAULT_APP_MODE: development
+      GF_DASHBOARDS_MIN_REFRESH_INTERVAL: 1s
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+    ports:
+      - "3001:3000"
