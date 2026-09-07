@@ -11,6 +11,7 @@ const GATEKEEPER_API_KEY = "sk_conformance_gatekeeper";
 
 async function shapeRequest(params) {
   const url = new URL(`${BASE_URL}/v1/shape`);
+  url.searchParams.set("offset", "-1");
   for (const [key, value] of Object.entries(params)) url.searchParams.set(key, value);
   return fetch(url, { headers: { authorization: `Bearer ${GATEKEEPER_API_KEY}` } });
 }

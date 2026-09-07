@@ -13,6 +13,7 @@ const CORRECT_SECRET = "conformance-shape-secret";
 async function shapeRequest(params) {
   const url = new URL(`${BASE_URL}/v1/shape`);
   url.searchParams.set("table", "conformance_items");
+  url.searchParams.set("offset", "-1");
   for (const [key, value] of Object.entries(params)) url.searchParams.set(key, value);
   return fetch(url, { headers: { authorization: `Bearer ${SECRET_API_KEY}` } });
 }

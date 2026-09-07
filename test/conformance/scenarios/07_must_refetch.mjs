@@ -3,9 +3,18 @@
 // valid (electric.ex's send_must_refetch/2). Exercised two ways: the raw
 // documented HTTP contract, and proof the real client self-heals from it.
 
-import { BASE_URL, API_KEY, newStream, collect, waitUntil, assert } from "../lib/helpers.mjs";
+import { BASE_URL, API_KEY, newStream, collect, waitUntil, assert, pgQuery } from "../lib/helpers.mjs";
 
 export default async function run() {
+  // A shape with an empty match never writes a log entry, so its offset
+  // would stay "-1" — and resuming from "-1" always resnapshots regardless
+  // of handle validity, defeating this test. Seed a matching row first so
+  // there is a real, non-"-1" offset to resume from.
+  await pgQuery(
+    "INSERT INTO conformance_items (id, name, status, price) VALUES ($1, $2, $3, $4)",
+    [70, "must-refetch-seed", "active", 1]
+  );
+
   const stream = newStream({ table: "conformance_items", where: "id >= 70 AND id < 80" });
   const { seen, unsubscribe } = collect(stream);
   await waitUntil(() => stream.isUpToDate);
