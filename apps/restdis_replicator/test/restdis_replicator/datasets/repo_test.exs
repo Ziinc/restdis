@@ -1,14 +1,15 @@
 defmodule RestdisReplicator.Datasets.RepoTest do
   use ExUnit.Case, async: false
 
+  alias Ecto.Adapters.SQL.Sandbox
   alias RestdisReplicator.Dataset
   alias RestdisReplicator.Datasets.Repo, as: DatasetsRepo
   alias RestdisRepo.TenantTableConfig
 
   setup do
-    :ok = Ecto.Adapters.SQL.Sandbox.checkout(RestdisRepo)
-    Ecto.Adapters.SQL.Sandbox.mode(RestdisRepo, {:shared, self()})
-    on_exit(fn -> Ecto.Adapters.SQL.Sandbox.checkin(RestdisRepo) end)
+    :ok = Sandbox.checkout(RestdisRepo)
+    Sandbox.mode(RestdisRepo, {:shared, self()})
+    on_exit(fn -> Sandbox.checkin(RestdisRepo) end)
     :ok
   end
 

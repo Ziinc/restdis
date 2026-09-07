@@ -89,7 +89,7 @@ defmodule RestdisElectric.Snapshotter.PostgRESTTest do
 
     assert_received {:page, first}
     assert_received {:page, second}
-    assert length(first) == 1000
+    assert Enum.count(first) == 1000
     assert second == [%{"id" => 1001}]
   end
 

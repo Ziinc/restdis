@@ -31,7 +31,7 @@ defmodule RestdisReplicator.Subscription.SupervisorTest do
       |> Enum.map(fn {:ok, pid} -> pid end)
       |> Enum.uniq()
 
-    assert length(pids) == 1
+    assert match?([_pid], pids)
     assert Enum.all?(results, &match?({:ok, _pid}, &1))
   end
 end
