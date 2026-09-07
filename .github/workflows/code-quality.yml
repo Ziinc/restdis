@@ -156,9 +156,9 @@ jobs:
       # multiple test paths at once). `apps/restdis` is deliberately excluded
       # here: it is tested independently, with its own deps/mix.lock, by the
       # `restdis` job above. There is no `--minimum-coverage` CLI flag in
-      # excoveralls; each app's `coveralls.json` (`minimum_coverage: 95`)
+      # excoveralls; each app's `coveralls.json` (`minimum_coverage: 90`)
       # is what makes the corresponding invocation below exit non-zero, and
-      # thus fail this job, if that app's coverage drops below 95%.
+      # thus fail this job, if that app's coverage drops below 90%.
       - run: mix coveralls apps/restdis_repo/test
       - run: mix coveralls apps/restdis_replicator/test
       - run: mix coveralls apps/restdis_electric/test
