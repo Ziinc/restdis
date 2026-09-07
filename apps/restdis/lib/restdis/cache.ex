@@ -142,6 +142,16 @@ defmodule Restdis.Cache do
   end
 
   @doc """
+  Returns the number of keys held in the tenant's disk cache.
+  """
+  @spec size(tenant_id()) :: non_neg_integer()
+  def size(tenant_id) do
+    TenantId.cast!(tenant_id)
+    TenantSupervisor.ensure_started(tenant_id)
+    DiskCache.count(tenant_id)
+  end
+
+  @doc """
   Returns the number of persisted entries held for the tenant.
   """
   @spec persist_count(tenant_id()) :: non_neg_integer()
