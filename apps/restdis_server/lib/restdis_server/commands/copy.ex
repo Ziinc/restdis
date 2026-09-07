@@ -25,29 +25,29 @@ defmodule RestdisServer.Commands.Copy do
   defp do_run(state, src_wire_key, dst_wire_key, replace?) do
     with {:ok, src} <- Support.decode_raw_key(src_wire_key),
          {:ok, dst} <- Support.decode_raw_key(dst_wire_key) do
-      copy(state, src, dst, replace?)
+      copy(state, {src, dst}, replace?)
     else
       {:error, reply} -> {reply, state}
     end
   end
 
-  defp copy(state, src, dst, replace?) do
+  defp copy(state, {src, _dst} = keys, replace?) do
     case Router.get(state.tenant_id, src) do
-      {:ok, value} -> maybe_write(state, src, dst, value, replace?)
+      {:ok, value} -> maybe_write(state, keys, value, replace?)
       :miss -> {Encoder.integer(0), state}
       {:error, :unreachable} -> {Encoder.error("ERR cache node unreachable"), state}
     end
   end
 
-  defp maybe_write(state, src, dst, value, replace?) do
+  defp maybe_write(state, {_src, dst} = keys, value, replace?) do
     case Router.get(state.tenant_id, dst) do
       {:ok, _existing} when not replace? -> {Encoder.integer(0), state}
       {:error, :unreachable} -> {Encoder.error("ERR cache node unreachable"), state}
-      _ -> write(state, src, dst, value)
+      _ -> write(state, keys, value)
     end
   end
 
-  defp write(state, src, dst, value) do
+  defp write(state, {src, dst}, value) do
     ttl_ms = Support.remaining_ttl_ms(state.tenant_id, src)
     opts = if is_integer(ttl_ms), do: [ttl_ms: ttl_ms], else: []
 

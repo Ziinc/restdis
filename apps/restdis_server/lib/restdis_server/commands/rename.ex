@@ -12,13 +12,9 @@ defmodule RestdisServer.Commands.Rename do
   """
   @spec run(map(), [binary()]) :: {iodata(), map()}
   def run(state, [src_wire_key, dst_wire_key]) do
-    Renaming.move(
-      state,
-      src_wire_key,
-      dst_wire_key,
-      true,
-      &{Encoder.simple_string("OK"), &1},
-      nil
+    Renaming.move(state, src_wire_key, dst_wire_key,
+      overwrite?: true,
+      on_success: &{Encoder.simple_string("OK"), &1}
     )
   end
 
