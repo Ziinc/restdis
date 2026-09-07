@@ -110,4 +110,54 @@ jobs:
           restore-keys: ${{ runner.os }}-restdis-${{ env.OTP_VERSION }}-${{ env.ELIXIR_VERSION }}-
       - run: mix deps.get
       - run: mix check
-      - run: mix test
+      - run: mix coveralls
+
+  coverage:
+    name: Umbrella coverage
+    runs-on: ubuntu-latest
+    env:
+      POSTGRES_HOSTNAME: localhost
+    steps:
+      - uses: actions/checkout@v4
+      - uses: erlef/setup-beam@v1
+        with:
+          elixir-version: ${{ env.ELIXIR_VERSION }}
+          otp-version: ${{ env.OTP_VERSION }}
+      - uses: actions/cache@v4
+        with:
+          path: |
+            deps
+            _build
+          key: ${{ runner.os }}-mix-${{ env.OTP_VERSION }}-${{ env.ELIXIR_VERSION }}-${{ hashFiles('mix.lock') }}
+          restore-keys: ${{ runner.os }}-mix-${{ env.OTP_VERSION }}-${{ env.ELIXIR_VERSION }}-
+      # Started with `docker run`, not the `services:` block, because
+      # restdis_buster's WAL tailer needs a real logical replication slot
+      # (`wal_level=logical`), which `services:` has no way to pass to the
+      # Postgres entrypoint. Mirrors `docker-compose.yml`'s `db` service.
+      - name: Start Postgres (wal_level=logical)
+        run: |
+          docker run -d --name pg \
+            -e POSTGRES_USER=postgres -e POSTGRES_PASSWORD=postgres \
+            -e POSTGRES_INITDB_ARGS="--locale=C.UTF-8" \
+            -p 5432:5432 \
+            postgres:16 postgres -c wal_level=logical
+          for _ in $(seq 1 30); do
+            docker exec pg pg_isready -U postgres && exit 0
+            sleep 2
+          done
+          echo "Postgres never became healthy" >&2
+          docker logs pg >&2
+          exit 1
+      - run: mix deps.get
+      - run: mix ecto.create --quiet
+      - run: mix ecto.migrate --quiet
+      # Each umbrella app is measured with its own `mix coveralls` invocation
+      # (excoveralls only reports a single sub-app's table when given
+      # multiple test paths at once). `apps/restdis` is deliberately excluded
+      # here: it is tested independently, with its own deps/mix.lock, by the
+      # `restdis` job above.
+      - run: mix coveralls apps/restdis_repo/test
+      - run: mix coveralls apps/restdis_replicator/test
+      - run: mix coveralls apps/restdis_electric/test
+      - run: mix coveralls apps/restdis_server/test
+      - run: mix coveralls apps/restdis_buster/test
