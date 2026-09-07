@@ -110,7 +110,7 @@ jobs:
           restore-keys: ${{ runner.os }}-restdis-${{ env.OTP_VERSION }}-${{ env.ELIXIR_VERSION }}-
       - run: mix deps.get
       - run: mix check
-      - run: mix coveralls --minimum-coverage 95
+      - run: mix coveralls
 
   coverage:
     name: Umbrella coverage
@@ -155,11 +155,12 @@ jobs:
       # (excoveralls only reports a single sub-app's table when given
       # multiple test paths at once). `apps/restdis` is deliberately excluded
       # here: it is tested independently, with its own deps/mix.lock, by the
-      # `restdis` job above. `--minimum-coverage 95` fails the job (and thus
-      # CI) if any app's coverage drops below 95%, regardless of the
-      # `coveralls.json` default.
-      - run: mix coveralls apps/restdis_repo/test --minimum-coverage 95
-      - run: mix coveralls apps/restdis_replicator/test --minimum-coverage 95
-      - run: mix coveralls apps/restdis_electric/test --minimum-coverage 95
-      - run: mix coveralls apps/restdis_server/test --minimum-coverage 95
-      - run: mix coveralls apps/restdis_buster/test --minimum-coverage 95
+      # `restdis` job above. There is no `--minimum-coverage` CLI flag in
+      # excoveralls; each app's `coveralls.json` (`minimum_coverage: 95`)
+      # is what makes the corresponding invocation below exit non-zero, and
+      # thus fail this job, if that app's coverage drops below 95%.
+      - run: mix coveralls apps/restdis_repo/test
+      - run: mix coveralls apps/restdis_replicator/test
+      - run: mix coveralls apps/restdis_electric/test
+      - run: mix coveralls apps/restdis_server/test
+      - run: mix coveralls apps/restdis_buster/test
