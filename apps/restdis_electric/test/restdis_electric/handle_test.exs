@@ -48,6 +48,18 @@ defmodule RestdisElectric.HandleTest do
     refute Handle.matches?(Handle.new(b), a)
   end
 
+  test "hash_of/1 rejects a non-binary handle" do
+    assert Handle.hash_of(nil) == :error
+    assert Handle.hash_of(123) == :error
+  end
+
+  test "hash_of/1 rejects a handle missing either half" do
+    assert Handle.hash_of("") == :error
+    assert Handle.hash_of("no-dash-missing") |> elem(0) == :ok
+    assert Handle.hash_of("-123") == :error
+    assert Handle.hash_of("abc-") == :error
+  end
+
   property "two definitions that produce the same canonical form always hash the same" do
     check all(tenant_id <- StreamData.string(:alphanumeric, min_length: 1, max_length: 10)) do
       {:ok, a} = Definition.new(tenant_id, %{"table" => "widgets"})

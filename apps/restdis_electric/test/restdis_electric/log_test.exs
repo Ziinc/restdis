@@ -15,6 +15,39 @@ defmodule RestdisElectric.LogTest do
     assert :error = Log.read(tenant_id, "unknown-handle", Offset.beginning())
   end
 
+  test "append/3 with an empty message list is a no-op" do
+    tenant_id = TestUtils.tenant_id()
+    assert :ok = Log.append(tenant_id, "empty-handle", [])
+    assert :error = Log.read(tenant_id, "empty-handle", Offset.beginning())
+  end
+
+  test "last_offset/2 is :beginning for a handle with no persisted state" do
+    tenant_id = TestUtils.tenant_id()
+    assert Log.last_offset(tenant_id, "unknown-handle") == Offset.beginning()
+  end
+
+  test "last_offset/2 reflects the last appended message's offset" do
+    tenant_id = TestUtils.tenant_id()
+    handle = "last-offset-handle"
+    message = Message.change({1, 1}, :insert, "1", %{"id" => 1})
+
+    :ok = Log.append(tenant_id, handle, [message])
+
+    assert Log.last_offset(tenant_id, handle) == message.offset
+  end
+
+  test "disk_bytes_by_tenant/0 sums the bytes of every active log per tenant" do
+    tenant_id = TestUtils.tenant_id()
+    message = Message.change({1, 1}, :insert, "1", %{"id" => 1})
+
+    :ok = Log.append(tenant_id, "bytes-handle-1", [message])
+    :ok = Log.append(tenant_id, "bytes-handle-2", [message])
+
+    totals = Log.disk_bytes_by_tenant()
+    assert {^tenant_id, bytes} = List.keyfind(totals, tenant_id, 0)
+    assert bytes > 0
+  end
+
   test "append/3 then read/3 from beginning returns every message in order" do
     tenant_id = TestUtils.tenant_id()
     handle = "h1"

@@ -53,4 +53,62 @@ defmodule RestdisElectric.WALTest do
     assert :ok = WAL.ingest(%{tenant_id: nil, lsn: 1})
     assert :ok = WAL.ingest(%{tenant_id: "t", lsn: nil})
   end
+
+  test "ingest/1 falls through to a no-op for a shape it cannot decode" do
+    assert :ok = WAL.ingest(%{tenant_id: "t", lsn: 1, op: :truncate})
+
+    assert :ok =
+             WAL.ingest(%{tenant_id: 123, schema: "s", table: "t", op: :insert, pk: 1, lsn: 1})
+  end
+
+  test "ingest/1 logs a delete when a row leaves a shape" do
+    tenant_id = TestUtils.tenant_id()
+    :ok = ShapeRegistry.register(tenant_id, "public", "widgets", "h_delete")
+
+    :ok =
+      WAL.ingest(%{
+        tenant_id: tenant_id,
+        schema: "public",
+        table: "widgets",
+        op: :delete,
+        pk: 1,
+        new_row: nil,
+        old_row: %{"id" => 1, "name" => "a"},
+        lsn: 1
+      })
+
+    assert {:ok, [message], _} = Log.read(tenant_id, "h_delete", Offset.beginning())
+    assert message.operation == :delete
+    assert message.value == %{"id" => 1, "name" => "a"}
+  end
+
+  test "ingest/1 logs an update and carries the old value for a replica=full shape" do
+    tenant_id = TestUtils.tenant_id()
+
+    definition = %RestdisElectric.Definition{
+      tenant_id: tenant_id,
+      schema: "public",
+      table: "widgets",
+      replica: :full
+    }
+
+    :ok = ShapeRegistry.register(tenant_id, definition, "h_full")
+
+    :ok =
+      WAL.ingest(%{
+        tenant_id: tenant_id,
+        schema: "public",
+        table: "widgets",
+        op: :update,
+        pk: 1,
+        new_row: %{"id" => 1, "name" => "b"},
+        old_row: %{"id" => 1, "name" => "a"},
+        lsn: 1
+      })
+
+    assert {:ok, [message], _} = Log.read(tenant_id, "h_full", Offset.beginning())
+    assert message.operation == :update
+    assert message.value == %{"id" => 1, "name" => "b"}
+    assert message.old_value == %{"id" => 1, "name" => "a"}
+  end
 end
