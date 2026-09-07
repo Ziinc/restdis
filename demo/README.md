@@ -29,6 +29,24 @@ docker compose -f ../docker-compose.yml down -v
 These are offset from the root `docker-compose.yml`'s ports (4040, 6380,
 5432) so both stacks can run side by side.
 
+## supabase-js wrapper
+
+`client/restdis-supabase.mjs` wraps the real `@supabase/supabase-js` client.
+`.from(table).select(columns)` behaves exactly like the real client normally
+would. Add `{ cache: '30s' }` to `select()`'s options and the request is
+rerouted through Restdis's `/pgrst/query` cache instead of going straight to
+PostgREST - the point being to show the interception happening from an
+application's normal call shape, not a bespoke test client.
+
+```sh
+cd demo/client
+npm install
+node demo.mjs
+```
+
+Not shipped code - it's the minimum needed to demonstrate the cache option
+against a real client for the demo script and screen recording below.
+
 ## Screen-recording walkthrough
 
 `scripts/demo.sh` is a narrated, pause-between-steps script for recording a

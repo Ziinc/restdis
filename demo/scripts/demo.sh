@@ -94,7 +94,17 @@ pgrst_query "widgets?select=id,name&order=id"
 note "no manual cache invalidation, no TTL wait: the WAL event drove the bust"
 pause
 
-step "6. GoTrue is wired into the same stack, ready for the Auth caching phase"
+step "6. The same thing from real application code: a supabase-js wrapper"
+note "client/restdis-supabase.mjs wraps @supabase/supabase-js; select(cols, { cache: '30s' })"
+note "reroutes through Restdis instead of the real client - see client/demo.mjs"
+if [ ! -d client/node_modules ]; then
+  note "installing client dependencies (first run only)..."
+  (cd client && npm install --silent)
+fi
+(cd client && node demo.mjs)
+pause
+
+step "7. GoTrue is wired into the same stack, ready for the Auth caching phase"
 note "curl $AUTH_URL/health"
 curl -sS "$AUTH_URL/health"
 echo

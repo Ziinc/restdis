@@ -1,0 +1,13 @@
+{
+  "name": "restdis-demo-supabase-js-wrapper",
+  "private": true,
+  "version": "0.0.0",
+  "description": "Thin wrapper around @supabase/supabase-js that routes select() calls through Restdis's PGRST cache when a `cache` option is given. Demo only, not shipped code.",
+  "type": "module",
+  "scripts": {
+    "demo": "node demo.mjs"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "2.48.1"
+  }
+}
