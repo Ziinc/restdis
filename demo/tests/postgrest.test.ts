@@ -7,7 +7,8 @@ const DIRECT_PG_URL =
   process.env.DEMO_DIRECT_PG_URL ?? "postgres://postgres:postgres@localhost:5433/postgres";
 
 function fetchWidgets() {
-  return fetch(`${RESTDIS_URL}/rest/v1/widgets?select=id,name&order=id`, {
+  const path = encodeURIComponent("widgets?select=id,name&order=id");
+  return fetch(`${RESTDIS_URL}/pgrst/query?path=${path}`, {
     headers: { authorization: `Bearer ${API_KEY}` },
   });
 }
