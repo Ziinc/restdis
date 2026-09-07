@@ -33,7 +33,7 @@ defmodule RestdisElectricTest do
                "offset" => "-1"
              })
 
-    assert length(result.messages) == 2
+    assert Enum.count(result.messages) == 2
     assert Enum.all?(result.messages, &(&1.operation == :insert))
     assert result.up_to_date
     assert is_binary(result.handle)
@@ -208,7 +208,7 @@ defmodule RestdisElectricTest do
                "offset" => RestdisElectric.Offset.encode(resume_offset)
              })
 
-    assert length(resumed.messages) == 5
+    assert Enum.count(resumed.messages) == 5
   end
 
   describe "settled reads" do
@@ -531,7 +531,7 @@ defmodule RestdisElectricTest do
                  "offset" => "-1"
                })
 
-      assert length(result.messages) == 2
+      assert Enum.count(result.messages) == 2
       assert Enum.all?(result.messages, &(&1.operation == :insert))
     end
   end

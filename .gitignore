@@ -11,3 +11,4 @@ test_cache_data/
 .elixir_ls/
 /priv/plts/
 test/conformance/node_modules/
+.ex_dna_cache

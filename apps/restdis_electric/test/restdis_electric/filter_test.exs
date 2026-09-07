@@ -52,7 +52,7 @@ defmodule RestdisElectric.FilterTest do
 
     test "an OR needs both branches indexed" do
       assert {:indexed, keys} = keys("org_id = 1 OR org_id = 2")
-      assert length(keys) == 2
+      assert Enum.count(keys) == 2
       assert :unindexed = keys("org_id = 1 OR name LIKE 'a%'")
     end
 
@@ -197,7 +197,8 @@ defmodule RestdisElectric.FilterTest do
 
       for i <- 1..200, do: Filter.add(tenant_id, definition, "scan#{i}")
 
-      assert length(Filter.candidates(tenant_id, "public", "things", [%{"org_id" => 1}])) == 200
+      assert Enum.count(Filter.candidates(tenant_id, "public", "things", [%{"org_id" => 1}])) ==
+               200
     end
 
     defp measure_lookup(count) do

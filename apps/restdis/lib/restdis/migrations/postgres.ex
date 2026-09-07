@@ -8,6 +8,8 @@ defmodule Restdis.Migrations.Postgres do
 
   import Ecto.Migration
 
+  alias Restdis.Migrations.SqlQuoting
+
   @versions %{
     1 => Restdis.Migrations.Postgres.V01
   }
@@ -31,7 +33,7 @@ defmodule Restdis.Migrations.Postgres do
     create_schema = Keyword.get(opts, :create_schema, true)
 
     if create_schema do
-      execute("CREATE SCHEMA IF NOT EXISTS #{quote_ident(prefix)}")
+      execute("CREATE SCHEMA IF NOT EXISTS #{SqlQuoting.quote_ident(prefix)}")
       flush()
     end
 
@@ -103,7 +105,9 @@ defmodule Restdis.Migrations.Postgres do
   defp record_version(prefix, version) do
     comment = @comment_prefix <> Integer.to_string(version)
 
-    execute("COMMENT ON TABLE #{quote_ident(prefix)}.tenants IS #{quote_literal(comment)}")
+    execute(
+      "COMMENT ON TABLE #{SqlQuoting.quote_ident(prefix)}.tenants IS #{SqlQuoting.quote_literal(comment)}"
+    )
   end
 
   defp parse_version(@comment_prefix <> rest) do
@@ -135,8 +139,4 @@ defmodule Restdis.Migrations.Postgres do
   end
 
   defp running_migration?, do: Process.get(:ecto_migration) != nil
-
-  defp quote_ident(ident), do: ~s("#{String.replace(ident, "\"", "\"\"")}")
-
-  defp quote_literal(value), do: "'#{String.replace(value, "'", "''")}'"
 end
