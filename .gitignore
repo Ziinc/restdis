@@ -5,6 +5,7 @@ apps/restdis/deps/
 *.beam
 erl_crash.dump
 /cover/
+apps/*/cover/
 cache_data/
 test_cache_data/
 /tmp/
