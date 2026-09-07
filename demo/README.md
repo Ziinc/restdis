@@ -65,11 +65,11 @@ resolving what to bust, and the resulting invalidation latency:
 
 | Panel | Metric | What to watch for |
 | --- | --- | --- |
-| WAL ingest throughput | `restdis_buster.wal.received.bytes` | spikes the instant the demo's `insert into widgets` commits |
-| WAL events processed | `restdis_buster.event.processed.count` | shows up as `op="insert" table="widgets"` |
+| WAL ingest throughput | `restdis_buster.wal.received.bytes` | spikes the instant the demo's `update widgets ... where id = 1` commits |
+| WAL events processed | `restdis_buster.event.processed.count` | shows up as `op="update" table="widgets"` |
 | WAL tailer lag | `restdis_buster.tailer.lag.lag_us` | should stay near zero throughout |
 | Invalidation latency | `restdis_buster.invalidation.latency.duration_us` | the headline number: write-to-bust time, p50/p95/p99 |
-| Reverse index hit/miss | `restdis_buster.reverse_index.{hit,miss}` | a hit on `widgets` right after the insert is the reverse index doing its job |
+| Reverse index hit/miss | `restdis_buster.reverse_index.{hit,miss}` | a hit on `widgets` right after the update is the reverse index doing its job |
 | Persisted cache entries, all tenants | `restdis.persist.count.count` | one line per tenant; a burst of new lines during the load test below |
 
 This is a demo-scoped subset, not a replacement for the full operational

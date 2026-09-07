@@ -18,7 +18,7 @@
       "id": 1,
       "type": "timeseries",
       "title": "WAL ingest throughput",
-      "description": "restdis_buster.wal.received.bytes - spikes the moment the demo's `insert into widgets` commits and Restdis's logical replication slot streams it in.",
+      "description": "restdis_buster.wal.received.bytes - spikes the moment the demo's `update widgets ... where id = 1` commits and Restdis's logical replication slot streams it in.",
       "gridPos": { "h": 9, "w": 8, "x": 0, "y": 0 },
       "datasource": { "type": "prometheus", "uid": "restdis-demo-prometheus" },
       "fieldConfig": {
@@ -38,7 +38,7 @@
       "id": 2,
       "type": "timeseries",
       "title": "WAL events processed",
-      "description": "restdis_buster.event.processed.count by operation/table - the insert from the demo script shows up here as op=\"insert\", table=\"widgets\".",
+      "description": "restdis_buster.event.processed.count by operation/table - the update from the demo script shows up here as op=\"update\", table=\"widgets\".",
       "gridPos": { "h": 9, "w": 8, "x": 8, "y": 0 },
       "datasource": { "type": "prometheus", "uid": "restdis-demo-prometheus" },
       "fieldConfig": {
@@ -108,7 +108,7 @@
       "id": 5,
       "type": "timeseries",
       "title": "Reverse index hit vs miss",
-      "description": "restdis_buster.reverse_index.hit/miss - whether a WAL event found a cached entry to invalidate. A hit on \"widgets\" right after the insert is the reverse index doing its job; misses are WAL events for keys nothing has cached yet.",
+      "description": "restdis_buster.reverse_index.hit/miss - whether a WAL event found a cached entry to invalidate. A hit on \"widgets\" right after the update is the reverse index doing its job; misses are WAL events for pks nothing has cached yet (e.g. a brand-new row's insert - see PRD.md, \"Reverse Index\").",
       "gridPos": { "h": 9, "w": 8, "x": 8, "y": 9 },
       "datasource": { "type": "prometheus", "uid": "restdis-demo-prometheus" },
       "fieldConfig": {

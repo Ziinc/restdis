@@ -43,19 +43,27 @@ describe("PostgREST caching (real PostgREST origin)", () => {
   });
 
   it("busts the cached entry on a WAL-visible write", async () => {
-    const before = await fetchWidgets();
-    expect(await before.json()).not.toEqual(
-      expect.arrayContaining([{ id: 3, name: "third widget" }])
+    // Restdis's reverse index maps (table, primary_key) -> cache keys, populated
+    // from the primary keys actually present in a cached response (PRD.md,
+    // "Reverse Index"). A brand-new row's pk was never indexed, so inserting one
+    // cannot bust a cached list query - only a write to an *already-cached* pk
+    // can. Warm the cache on id=1, then update id=1: that pk is indexed, so the
+    // WAL event resolves back to this cache key and busts it.
+    const warm = await fetchWidgets();
+    expect(await warm.json()).toEqual(
+      expect.arrayContaining([{ id: 1, name: "first widget" }])
     );
 
-    await client.query("INSERT INTO widgets (id, name) VALUES (3, 'third widget')");
+    await client.query("UPDATE widgets SET name = 'updated widget' WHERE id = 1");
 
     await expect
       .poll(
         async () => {
           const res = await fetchWidgets();
           const rows = await res.json();
-          return rows.some((row: { id: number }) => row.id === 3);
+          return rows.some(
+            (row: { id: number; name: string }) => row.id === 1 && row.name === "updated widget"
+          );
         },
         { timeout: 15_000, interval: 500 }
       )

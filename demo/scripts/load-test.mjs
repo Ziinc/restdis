@@ -44,7 +44,7 @@ ON CONFLICT (api_key) DO UPDATE SET tenant_id = EXCLUDED.tenant_id;
 
 INSERT INTO tenant_table_config (
   tenant_id, schema, table_name, mode, pk_column, inserted_at, updated_at
-) VALUES ('${t.tenantId}', 'public', 'widgets', 'replication', 'id', now(), now())
+) VALUES ('${t.tenantId}', 'public', 'widgets', 'ttl', 'id', now(), now())
 ON CONFLICT (tenant_id, schema, table_name) DO UPDATE SET mode = EXCLUDED.mode;`
     )
     .join("\n");

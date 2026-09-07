@@ -33,7 +33,7 @@ export default async function setup() {
     await client.query(
       `INSERT INTO tenant_table_config (
          tenant_id, schema, table_name, mode, pk_column, inserted_at, updated_at
-       ) VALUES ('demo-tenant', 'public', 'widgets', 'replication', 'id', now(), now())
+       ) VALUES ('demo-tenant', 'public', 'widgets', 'ttl', 'id', now(), now())
        ON CONFLICT (tenant_id, schema, table_name) DO UPDATE SET mode = EXCLUDED.mode`
     );
   } finally {

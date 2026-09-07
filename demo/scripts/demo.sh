@@ -81,20 +81,23 @@ pgrst_query "widgets?select=id,name&order=id"
 note "same data, and it came back straight from Restdis's in-memory cache"
 pause
 
-step "4. Prove it: write a new row directly against Postgres"
-note "insert into widgets (id, name) values (3, 'third widget')"
-psql_demo "insert into widgets (id, name) values (3, 'third widget') on conflict (id) do nothing;" > /dev/null
+step "4. Prove it: update a row that's already in the cached result"
+note "Restdis's reverse index maps (table, primary key) -> cache keys, populated"
+note "from the pks actually present in a cached response - so busting works on a"
+note "row already in the cache (id=1), not on a brand-new row (see PRD.md)"
+note "update widgets set name = 'updated widget' where id = 1"
+psql_demo "update widgets set name = 'updated widget' where id = 1;" > /dev/null
 note "Restdis is still serving the OLD cached result for a moment..."
 pgrst_query "widgets?select=id,name&order=id"
 pause
 
 step "5. Restdis's WAL tailer sees the write and busts the cache automatically"
-note "polling the same endpoint until the third widget shows up..."
+note "polling the same endpoint until the updated name shows up..."
 for _ in $(seq 1 15); do
   body="$(curl -sS -H "authorization: Bearer $API_KEY" \
     "$RESTDIS_URL/pgrst/query?path=widgets%3Fselect=id,name%26order=id")"
   case "$body" in
-    *"third widget"*) break ;;
+    *"updated widget"*) break ;;
   esac
   sleep 1
 done
