@@ -1,0 +1,72 @@
+name: Supabase integration
+
+on:
+  push:
+    branches: [main]
+    paths-ignore: &docs
+      - "**/*.md"
+      - "docs/**"
+      - "LICENSE"
+  pull_request:
+    paths-ignore: *docs
+
+concurrency:
+  group: supabase-integration-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  integration:
+    name: Restdis against a real Supabase stack (demo/docker-compose.yml)
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Build and start the demo Supabase stack
+        working-directory: demo
+        run: docker compose up -d --build
+
+      - name: Wait for Restdis to become healthy
+        run: |
+          for _ in $(seq 1 30); do
+            curl -fsS http://localhost:4041/health > /dev/null 2>&1 && exit 0
+            sleep 2
+          done
+          echo "Restdis never became healthy" >&2
+          exit 1
+
+      - name: Wait for PostgREST to become healthy
+        run: |
+          for _ in $(seq 1 30); do
+            curl -fsS http://localhost:3000/ > /dev/null 2>&1 && exit 0
+            sleep 2
+          done
+          echo "PostgREST never became healthy" >&2
+          exit 1
+
+      - name: Install dependencies and run the integration suite
+        working-directory: demo/tests
+        run: |
+          npm install
+          npm test
+        env:
+          RESTDIS_URL: http://localhost:4041
+          DEMO_API_KEY: sk_demo
+          DEMO_DIRECT_PG_URL: postgres://postgres:postgres@localhost:5433/postgres
+          DEMO_AUTH_URL: http://localhost:9999
+
+      - name: Dump service logs
+        if: always()
+        working-directory: demo
+        run: docker compose logs
+
+      - name: Tear down
+        if: always()
+        working-directory: demo
+        run: docker compose down -v

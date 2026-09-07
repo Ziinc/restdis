@@ -1,0 +1,16 @@
+{
+  "name": "restdis-demo-supabase-integration",
+  "private": true,
+  "version": "0.0.0",
+  "description": "Integration suite exercising Restdis against a real Supabase-shaped stack (PostgREST, GoTrue) via demo/docker-compose.yml. See SUPABASE_INTEGRATION_PRD.md.",
+  "type": "module",
+  "scripts": {
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "vitest": "2.1.9"
+  },
+  "dependencies": {
+    "pg": "8.13.1"
+  }
+}
