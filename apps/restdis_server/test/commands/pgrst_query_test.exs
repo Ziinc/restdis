@@ -182,4 +182,67 @@ defmodule RestdisServer.Commands.PgrstQueryTest do
     assert value1 == [%{"query" => "id=eq.1"}]
     assert value2 == [%{"query" => "id=eq.2"}]
   end
+
+  test "PGRST.QUERY with no arguments replies with an error", %{state: state} do
+    {reply, _} = Dispatcher.dispatch(state, ["PGRST.QUERY"])
+    assert IO.iodata_to_binary(reply) =~ "wrong number of arguments"
+  end
+
+  test "PGRST.QUERY with an unparseable path replies with an error", %{state: state} do
+    {reply, _} = Dispatcher.dispatch(state, ["PGRST.QUERY", "/"])
+    assert IO.iodata_to_binary(reply) =~ "ERR"
+  end
+
+  test "PGRST.QUERY surfaces a non-2xx upstream status as an error", %{state: state} do
+    Req.Test.stub(RestdisServer.Finch, fn conn ->
+      Plug.Conn.send_resp(conn, 500, Jason.encode!(%{message: "boom"}))
+    end)
+
+    {reply, _} = Dispatcher.dispatch(state, ["PGRST.QUERY", "/broken_table"])
+    assert IO.iodata_to_binary(reply) =~ "ERR PostgREST returned 500"
+  end
+
+  test "PGRST.QUERY surfaces an outright fetch failure as an error", %{state: state} do
+    Req.Test.stub(RestdisServer.Finch, fn conn ->
+      Req.Test.transport_error(conn, :timeout)
+    end)
+
+    {reply, _} = Dispatcher.dispatch(state, ["PGRST.QUERY", "/exploding_table"])
+    assert IO.iodata_to_binary(reply) =~ "ERR fetch failed"
+  end
+
+  test "PGRST.QUERY ignores unrecognized trailing options", %{state: state} do
+    body = [%{"id" => 6}]
+
+    Req.Test.stub(RestdisServer.Finch, fn conn ->
+      Req.Test.json(conn, body)
+    end)
+
+    {reply, _} = Dispatcher.dispatch(state, ["PGRST.QUERY", "/users?id=eq.6", "NOTANOPT", "1"])
+    assert IO.iodata_to_binary(reply) =~ "pgrst:t:users:"
+  end
+
+  test "PGRST.QUERY ignores a trailing option with no value", %{state: state} do
+    body = [%{"id" => 8}]
+
+    Req.Test.stub(RestdisServer.Finch, fn conn ->
+      Req.Test.json(conn, body)
+    end)
+
+    {reply, _} = Dispatcher.dispatch(state, ["PGRST.QUERY", "/users?id=eq.8", "TTL"])
+    assert IO.iodata_to_binary(reply) =~ "pgrst:t:users:"
+  end
+
+  test "PGRST.QUERY ignores a malformed TTL/REWARM numeric value", %{state: state} do
+    body = [%{"id" => 7}]
+
+    Req.Test.stub(RestdisServer.Finch, fn conn ->
+      Req.Test.json(conn, body)
+    end)
+
+    {reply, _} =
+      Dispatcher.dispatch(state, ["PGRST.QUERY", "/users?id=eq.7", "TTL", "notanumber"])
+
+    assert IO.iodata_to_binary(reply) =~ "pgrst:t:users:"
+  end
 end

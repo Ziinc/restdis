@@ -86,6 +86,56 @@ defmodule RestdisServer.ClusterFallbackTest do
     assert resp.body == body
   end
 
+  test "GET surfaces a fallback fetch failure as an error", %{
+    state: state,
+    tenant_id: tenant_id
+  } do
+    Req.Test.stub(RestdisServer.Finch, fn conn -> Req.Test.transport_error(conn, :timeout) end)
+
+    assert Cluster.owner(tenant_id) == @ghost
+    wire_key = Key.encode(Key.build(:table, "users", %{"id" => "eq.7"}))
+
+    {reply, _state} = Dispatcher.dispatch(state, ["GET", wire_key])
+
+    assert IO.iodata_to_binary(reply) =~ "ERR origin unavailable"
+  end
+
+  test "the HTTP endpoint surfaces a fallback status error", %{tenant_id: tenant_id} do
+    Req.Test.stub(RestdisServer.Finch, fn conn ->
+      Plug.Conn.send_resp(conn, 404, Jason.encode!(%{message: "not found"}))
+    end)
+
+    assert Cluster.owner(tenant_id) == @ghost
+
+    {:ok, resp} =
+      Req.get(Req.new(plug: RestdisServer.HTTP.Endpoint),
+        url: "/pgrst/query?path=/users",
+        headers: [{"authorization", "Bearer sk_cluster"}],
+        retry: false
+      )
+
+    assert resp.status == 404
+    assert Jason.decode!(resp.body) == %{"error" => "upstream error"}
+  end
+
+  test "the HTTP endpoint surfaces an outright fallback fetch failure as a 502", %{
+    tenant_id: tenant_id
+  } do
+    Req.Test.stub(RestdisServer.Finch, fn conn -> Req.Test.transport_error(conn, :timeout) end)
+
+    assert Cluster.owner(tenant_id) == @ghost
+
+    {:ok, resp} =
+      Req.get(Req.new(plug: RestdisServer.HTTP.Endpoint),
+        url: "/pgrst/query?path=/users",
+        headers: [{"authorization", "Bearer sk_cluster"}],
+        retry: false
+      )
+
+    assert resp.status == 502
+    assert %{"error" => _} = Jason.decode!(resp.body)
+  end
+
   defp remote_tenant do
     send(Cluster, {:nodeup, @ghost})
     :ok = Cluster.sync()

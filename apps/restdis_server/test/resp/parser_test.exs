@@ -69,4 +69,16 @@ defmodule RestdisServer.RESP.ParserTest do
       end
     end
   end
+
+  describe "malformed input" do
+    test "a bulk item that isn't $-prefixed is a protocol error" do
+      data = "*1\r\n:not-a-dollar\r\n"
+      assert {:error, :expected_bulk_string} = Parser.parse(data)
+    end
+
+    test "a non-numeric bulk length is a protocol error" do
+      data = "*1\r\n$notanumber\r\n"
+      assert {:error, {:bad_integer, "notanumber"}} = Parser.parse(data)
+    end
+  end
 end

@@ -48,6 +48,11 @@ defmodule RestdisServer.PostgREST.FetcherTest do
       assert Fetcher.path_for(key, "") == "/users"
     end
 
+    test "omits query string when nil" do
+      key = %Key{scope: :table, ident: "users"}
+      assert Fetcher.path_for(key, nil) == "/users"
+    end
+
     test "rpc scope includes query string when present" do
       key = %Key{scope: :rpc, ident: "get_user"}
       assert Fetcher.path_for(key, "id=1") == "/rpc/get_user?id=1"

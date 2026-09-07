@@ -81,4 +81,38 @@ defmodule RestdisServer.Commands.PgrstPolicyTest do
       [] -> :error
     end
   end
+
+  test "PGRST.POLICY with no arguments replies with an error", %{state: state} do
+    {reply, _} = Dispatcher.dispatch(state, ["PGRST.POLICY"])
+    assert IO.iodata_to_binary(reply) =~ "wrong number of arguments"
+  end
+
+  test "PGRST.POLICY with an undecodable key replies with an error", %{state: state} do
+    {reply, _} = Dispatcher.dispatch(state, ["PGRST.POLICY", "bad:scheme:key"])
+    assert IO.iodata_to_binary(reply) == "-ERR invalid cache key\r\n"
+  end
+
+  test "PGRST.POLICY TTL on a key with no cached value still succeeds", %{state: state} do
+    key = Key.build(:table, "uncached_table", %{"id" => "eq.99"})
+    wire_key = Key.encode(key)
+
+    {reply, _} = Dispatcher.dispatch(state, ["PGRST.POLICY", wire_key, "TTL", "60"])
+    assert IO.iodata_to_binary(reply) == "+OK\r\n"
+  end
+
+  test "PGRST.POLICY ignores an unrecognized trailing single option", %{
+    state: state,
+    wire_key: wire_key
+  } do
+    {reply, _} = Dispatcher.dispatch(state, ["PGRST.POLICY", wire_key, "NOTANOPT"])
+    assert IO.iodata_to_binary(reply) == "+OK\r\n"
+  end
+
+  test "PGRST.POLICY ignores an unrecognized key/value pair option", %{
+    state: state,
+    wire_key: wire_key
+  } do
+    {reply, _} = Dispatcher.dispatch(state, ["PGRST.POLICY", wire_key, "NOTANOPT", "1"])
+    assert IO.iodata_to_binary(reply) == "+OK\r\n"
+  end
 end

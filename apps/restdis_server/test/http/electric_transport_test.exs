@@ -281,6 +281,25 @@ defmodule RestdisServer.HTTP.ElectricTransportTest do
       assert header(conn, "content-type") == nil
       assert Jason.decode!(conn.resp_body)["error"]
     end
+
+    test "a message arriving mid-stream is delivered over the same SSE connection" do
+      {handle, _} = snapshot()
+
+      task =
+        Task.async(fn ->
+          request("/v1/shape?table=gadgets&offset=0_inf&handle=#{handle}&live_sse=true")
+        end)
+
+      # Give the SSE loop time to start awaiting before the change lands, so it
+      # is delivered from within `sse_loop`, not the initial `send_events` call.
+      Process.sleep(10)
+      append_change(50, %{"id" => 4, "name" => "d"})
+
+      conn = Task.await(task, 1000)
+
+      events = sse_events(conn.resp_body)
+      assert Enum.any?(events, &(&1["value"] == %{"id" => 4, "name" => "d"}))
+    end
   end
 
   describe "replica=full over HTTP" do
