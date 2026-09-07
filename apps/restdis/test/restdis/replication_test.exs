@@ -105,6 +105,15 @@ defmodule Restdis.Cache.ReplicationTest do
 
       refute_receive {:replicated, _}, 100
     end
+
+    test "RecordingTransport is a no-op when nothing is capturing", %{tenant_id: tenant_id} do
+      TestUtils.stop_capturing_replication()
+      key = Key.build(:table, "widgets", %{})
+
+      assert :ok = Restdis.Cache.put(tenant_id, key, "v", persist: true)
+
+      refute_receive {:replicated, _}, 100
+    end
   end
 
   describe "apply_replicated on the receiving node" do
@@ -199,6 +208,11 @@ defmodule Restdis.Cache.ReplicationTest do
       :ok = GenServer.call(Replication.Receiver, :sync)
 
       assert {:ok, ^value} = Restdis.Cache.peek(tenant_id, key)
+    end
+
+    test "ignores an unrecognized cast message" do
+      GenServer.cast(Replication.Receiver, :some_unknown_message)
+      assert :ok = GenServer.call(Replication.Receiver, :sync)
     end
   end
 

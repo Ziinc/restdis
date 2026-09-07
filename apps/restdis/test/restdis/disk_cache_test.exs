@@ -39,4 +39,45 @@ defmodule Restdis.Cache.DiskCacheTest do
     DiskCache.put(tenant_id, key, value)
     assert {:ok, ^value} = DiskCache.get(tenant_id, key)
   end
+
+  test "persisted_entries/1 returns [] when the disk cache is not running" do
+    tenant_id = "dc_never_started_#{System.unique_integer([:positive])}"
+    assert DiskCache.persisted_entries(tenant_id) == []
+  end
+
+  test "persisted_entries/1 returns only entries flagged persist: true", %{
+    tenant_id: tenant_id
+  } do
+    persisted_key = Key.build(:table, "persisted", %{})
+    plain_key = Key.build(:table, "plain", %{})
+
+    DiskCache.put(tenant_id, persisted_key, "persisted-value", persist: true)
+    DiskCache.put(tenant_id, plain_key, "plain-value")
+
+    assert [{^persisted_key, "persisted-value"}] = DiskCache.persisted_entries(tenant_id)
+  end
+
+  test "set_persist/3 returns :not_found for a missing key", %{tenant_id: tenant_id} do
+    key = Key.build(:table, "missing", %{})
+    assert :not_found = DiskCache.set_persist(tenant_id, key, true)
+  end
+
+  test "over-cap put with nothing evictable keeps every persisted entry", %{
+    tenant_id: tenant_id
+  } do
+    key1 = Key.build(:table, "cap1", %{})
+    key2 = Key.build(:table, "cap2", %{})
+    value = String.duplicate("z", 500)
+
+    DiskCache.put(tenant_id, key1, value, persist: true)
+    size_after_one = DiskCache.disk_size_bytes(tenant_id)
+
+    Application.put_env(:restdis, :cubdb_cap_bytes, size_after_one)
+    on_exit(fn -> Application.delete_env(:restdis, :cubdb_cap_bytes) end)
+
+    DiskCache.put(tenant_id, key2, value, persist: true)
+
+    assert {:ok, ^value} = DiskCache.get(tenant_id, key1)
+    assert {:ok, ^value} = DiskCache.get(tenant_id, key2)
+  end
 end

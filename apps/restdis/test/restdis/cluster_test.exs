@@ -59,4 +59,9 @@ defmodule Restdis.Cache.ClusterTest do
 
     assert_receive {:rebalance, %{nodes: 2}, %{change: :join, node: @ghost}}
   end
+
+  test "ignores an unrecognized info message" do
+    send(Restdis.Cache.Cluster, :some_unknown_message)
+    assert :ok = GenServer.call(Restdis.Cache.Cluster, :sync)
+  end
 end
