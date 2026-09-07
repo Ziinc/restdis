@@ -9,15 +9,23 @@ defmodule RestdisElectric.SubqueryTracker do
   ## Scope
 
   A shape's *entire* filter must be exactly one bare `column IN (subquery)`
-  (or `NOT IN`) clause for this to track it —
-  `RestdisElectric.Eval.bare_subquery/1` is the single gate both this module
-  and `RestdisElectric.Definition.check_subqueries/3` use to decide that.
-  Anything else (the subquery combined with `AND`/`OR`, or more than one
-  subquery) is still rejected at subscribe time: this module's live set *is*
-  the shape's matching set in the bare form, which keeps "what changed"
-  unambiguous. A future extension that decides a whole `AND`/`OR` tree
-  against a row whose subquery membership changed, without the row itself
-  changing, is a separate, larger piece of work.
+  (or `NOT IN`) clause, or that clause combined with exactly one
+  subquery-free predicate over a top-level `AND` or `OR`, for this to track
+  it — `RestdisElectric.Eval.combined_subquery/1` is the single gate both
+  this module and `RestdisElectric.Definition.check_subqueries/3` use to
+  decide that. Anything else (more than one subquery, or a subquery under a
+  top-level `NOT` alongside another predicate) is still rejected at
+  subscribe time.
+
+  For the combined form, this module's tracked set is still exactly the
+  subquery's own matching set, not the shape's — the "rest" predicate is
+  evaluated separately (see `combinator_allows?/2`) against each row a
+  membership flip could affect, since it needs no live tracking of its own:
+  it depends only on the outer row, which every insert/update/delete
+  already carries. `AND` means only rows where "rest" already holds can
+  change when the subquery flips (if "rest" is false the whole clause stays
+  false regardless); `OR` means only rows where "rest" does not hold can
+  change (if "rest" is true the whole clause stays true regardless).
 
   ## Why it needs a direct Postgres pool
 
@@ -73,9 +81,9 @@ defmodule RestdisElectric.SubqueryTracker do
   end
 
   @doc """
-  Registers `handle`'s subquery clause, if `definition.filter` has one in
-  the bare form `RestdisElectric.Eval.bare_subquery/1` accepts, and computes
-  its initial matching set by reading the inner table directly. A no-op,
+  Registers `handle`'s subquery clause, if `definition.filter` has one in a
+  form `RestdisElectric.Eval.combined_subquery/1` accepts, and computes its
+  initial matching set by reading the inner table directly. A no-op,
   returning `:ok`, for a definition with no subquery.
 
   Idempotent: calling it again for the same shape recomputes the matching
@@ -83,7 +91,7 @@ defmodule RestdisElectric.SubqueryTracker do
   """
   @spec register_shape(String.t(), map(), Definition.t(), String.t()) :: :ok | {:error, term()}
   def register_shape(tenant_id, tenant_config, %Definition{filter: filter} = definition, handle) do
-    case Eval.bare_subquery(filter) do
+    case Eval.combined_subquery(filter) do
       :error ->
         :ok
 
@@ -98,6 +106,8 @@ defmodule RestdisElectric.SubqueryTracker do
     info = %{
       outer_column: pieces.column,
       negated: pieces.negated,
+      combinator: pieces.combinator,
+      rest_filter: build_rest_filter(pieces.rest, definition.filter.params),
       inner_schema: inner_schema,
       inner_table: inner_table,
       inner_column: pieces.inner_column,
@@ -231,15 +241,23 @@ defmodule RestdisElectric.SubqueryTracker do
 
     case outer_rows(info, value) do
       {:ok, rows} ->
-        Enum.each(
-          rows,
-          &append_message({tenant_id, handle}, info.definition, {operation, &1, lsn})
-        )
+        rows
+        |> Enum.filter(&combinator_allows?(info, &1))
+        |> Enum.each(&append_message({tenant_id, handle}, info.definition, {operation, &1, lsn}))
 
       {:error, _reason} ->
         :ok
     end
   end
+
+  # Only a row where "rest" already holds (AND) or does not hold (OR) can have its whole clause flip.
+  defp combinator_allows?(%{combinator: :none}, _row), do: true
+
+  defp combinator_allows?(%{combinator: :and, rest_filter: rest}, row),
+    do: Eval.matches?(rest, row)
+
+  defp combinator_allows?(%{combinator: :or, rest_filter: rest}, row),
+    do: not Eval.matches?(rest, row)
 
   defp append_message({tenant_id, handle}, definition, {operation, row, lsn}) do
     case TableInfo.fetch(definition.schema, definition.table) do
@@ -305,6 +323,12 @@ defmodule RestdisElectric.SubqueryTracker do
 
   defp build_inner_filter(selection, params) do
     %Eval{source: "", tree: selection, params: params, columns: Eval.tree_columns(selection)}
+  end
+
+  defp build_rest_filter(nil, _params), do: nil
+
+  defp build_rest_filter(rest, params) do
+    %Eval{source: "", tree: rest, params: params, columns: Eval.tree_columns(rest)}
   end
 
   defp split_table(table) do

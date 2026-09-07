@@ -207,6 +207,59 @@ defmodule RestdisElectric.EvalTest do
 
       assert message =~ "one column"
     end
+
+    test "bare_subquery/1 accepts only the clause with nothing else" do
+      {:ok, compiled} = Eval.compile("id IN (SELECT id FROM parents WHERE archived = false)", %{})
+      assert {:ok, %{column: "id"}} = Eval.bare_subquery(compiled)
+
+      {:ok, combined} = Eval.compile("id IN (SELECT id FROM parents) AND name = 'x'", %{})
+      assert Eval.bare_subquery(combined) == :error
+    end
+
+    test "combined_subquery/1 accepts the bare form with combinator :none and no rest" do
+      {:ok, compiled} = Eval.compile("id IN (SELECT id FROM parents WHERE archived = false)", %{})
+
+      assert {:ok, %{combinator: :none, rest: nil, column: "id"}} =
+               Eval.combined_subquery(compiled)
+    end
+
+    test "combined_subquery/1 accepts the subquery combined with one predicate over AND or OR, either order" do
+      for {where, expected_combinator} <- [
+            {"id IN (SELECT id FROM parents) AND name = 'x'", :and},
+            {"name = 'x' AND id IN (SELECT id FROM parents)", :and},
+            {"id IN (SELECT id FROM parents) OR name = 'x'", :or},
+            {"name = 'x' OR id IN (SELECT id FROM parents)", :or}
+          ] do
+        {:ok, compiled} = Eval.compile(where, %{})
+
+        assert {:ok, %{combinator: ^expected_combinator, rest: rest, table: "parents"}} =
+                 Eval.combined_subquery(compiled)
+
+        assert rest != nil
+      end
+    end
+
+    test "combined_subquery/1 rejects a subquery under a top-level NOT" do
+      {:ok, compiled} = Eval.compile("NOT (id IN (SELECT id FROM parents))", %{})
+      assert Eval.combined_subquery(compiled) == :error
+    end
+
+    test "combined_subquery/1 rejects more than one subquery" do
+      {:ok, compiled} =
+        Eval.compile(
+          "id IN (SELECT id FROM parents) AND id IN (SELECT id FROM grandparents)",
+          %{}
+        )
+
+      assert Eval.combined_subquery(compiled) == :error
+    end
+
+    test "combined_subquery/1 rejects a subquery nested deeper than directly under the top-level AND/OR" do
+      {:ok, compiled} =
+        Eval.compile("name = 'x' AND (id IN (SELECT id FROM parents) OR price > 0)", %{})
+
+      assert Eval.combined_subquery(compiled) == :error
+    end
   end
 
   describe "matches?/2" do

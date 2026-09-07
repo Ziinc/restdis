@@ -231,17 +231,46 @@ defmodule RestdisElectric.DefinitionTest do
                })
     end
 
-    test "supports being combined with AND, OR, and NOT" do
+    test "accepts a subquery combined with one subquery-free predicate over AND or OR" do
       for where <- [
             "id IN (SELECT id FROM parents WHERE archived = false) AND name = 'x'",
+            "name = 'x' AND id IN (SELECT id FROM parents WHERE archived = false)",
             "id IN (SELECT id FROM parents WHERE archived = false) OR name = 'x'",
-            "NOT (id IN (SELECT id FROM parents WHERE archived = false))"
+            "name = 'x' OR id IN (SELECT id FROM parents WHERE archived = false)"
           ] do
-        assert {:error, {:unsupported_where, message}} =
+        assert {:ok, %{filter: filter}} =
                  Definition.new("t1", %{"table" => "widgets", "where" => where})
 
-        assert message =~ "not supported yet"
+        assert {:ok, _pieces} = RestdisElectric.Eval.combined_subquery(filter)
       end
+    end
+
+    test "rejects a subquery under a top-level NOT" do
+      assert {:error, {:unsupported_where, message}} =
+               Definition.new("t1", %{
+                 "table" => "widgets",
+                 "where" => "NOT (id IN (SELECT id FROM parents WHERE archived = false))"
+               })
+
+      assert message =~ "not supported yet"
+    end
+
+    test "rejects more than one subquery in a clause" do
+      TestUtils.put_table("public.grandparents", %{
+        columns: ["id"],
+        primary_key: ["id"],
+        replica_identity: :full
+      })
+
+      assert {:error, {:unsupported_where, message}} =
+               Definition.new("t1", %{
+                 "table" => "widgets",
+                 "where" =>
+                   "id IN (SELECT id FROM parents WHERE archived = false) AND " <>
+                     "id IN (SELECT id FROM grandparents)"
+               })
+
+      assert message =~ "not supported yet"
     end
   end
 

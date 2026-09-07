@@ -224,4 +224,67 @@ defmodule RestdisElectric.SubqueryTrackerPostgresTest do
 
     assert Enum.map(resumed.messages, &{&1.operation, &1.value["id"]}) == [{:insert, 10}]
   end
+
+  test "a subquery combined with AND only reacts for rows where the rest of the clause already holds",
+       %{parents: parents, children: children} do
+    tenant_id = TestUtils.tenant_id()
+
+    SQL.query!(
+      TestRepo,
+      "ALTER TABLE #{children} ADD COLUMN active boolean NOT NULL DEFAULT true"
+    )
+
+    TestUtils.put_table("public.#{children}", %{
+      columns: ["id", "parent_id", "active"],
+      primary_key: ["id"],
+      replica_identity: :full
+    })
+
+    seed(parents, [%{id: 1, archived: false}])
+
+    seed(children, [
+      %{id: 10, parent_id: 1, active: true},
+      %{id: 11, parent_id: 1, active: false}
+    ])
+
+    tenant_config = %{direct_pg_url: @direct_pg_url}
+    where = "parent_id IN (SELECT id FROM #{parents} WHERE archived = false) AND active = true"
+
+    assert {:ok, subscribed} =
+             RestdisElectric.subscribe(tenant_id, tenant_config, %{
+               "table" => children,
+               "offset" => "-1",
+               "where" => where
+             })
+
+    # Only the active child matches the combined clause; the inactive one never appears.
+    assert Enum.map(subscribed.messages, & &1.value["id"]) == [10]
+    assert subscribed.up_to_date
+
+    # Archiving flips both children's subquery membership, but only the active one reacts.
+    update!(parents, 1, archived: true)
+
+    :ok =
+      WAL.ingest(%{
+        tenant_id: tenant_id,
+        schema: "public",
+        table: parents,
+        op: :update,
+        pk: 1,
+        new_row: %{"id" => 1, "archived" => true},
+        old_row: %{"id" => 1, "archived" => false},
+        lsn: 300
+      })
+
+    assert {:ok, resumed} =
+             RestdisElectric.subscribe(tenant_id, tenant_config, %{
+               "table" => children,
+               "handle" => subscribed.handle,
+               "offset" => RestdisElectric.Offset.encode(subscribed.offset),
+               "where" => where
+             })
+
+    assert Enum.map(resumed.messages, &{&1.operation, &1.value["id"]}) == [{:delete, 10}]
+    refute Enum.any?(resumed.messages, &(&1.control == :must_refetch))
+  end
 end

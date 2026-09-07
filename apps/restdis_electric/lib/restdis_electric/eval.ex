@@ -23,10 +23,13 @@ defmodule RestdisElectric.Eval do
   `matches?/3` accepts a `t:subquery_resolver/0` that decides it instead;
   `RestdisElectric.SubqueryTracker` supplies one backed by a live-maintained
   result set for the bare form `RestdisElectric.Definition` accepts (see
-  `bare_subquery/1` and `RestdisElectric.SubqueryTracker`'s moduledoc for the
-  scope: a subquery combined with `AND`/`OR` is still rejected, because that
-  would require this module to also decide the surrounding clause against
-  a partially-invalidated row, which it does not yet do).
+  `bare_subquery/1`), or for the bare form combined with one subquery-free
+  predicate over `AND` or `OR` (see `combined_subquery/1` and
+  `RestdisElectric.SubqueryTracker`'s moduledoc for the scope: a clause with
+  more than one subquery, or a subquery under a top-level `NOT` alongside
+  another predicate, is still rejected, because deciding those against a row
+  whose subquery membership just changed needs more than one flipped value's
+  outer rows re-checked against the rest of the clause).
 
   Values follow Postgres's three-valued logic. `:null` is SQL `NULL`, and a
   row matches only when the clause evaluates to exactly `true`, which is what
@@ -156,6 +159,79 @@ defmodule RestdisElectric.Eval do
   end
 
   def bare_subquery(_filter), do: :error
+
+  @doc """
+  Like `bare_subquery/1`, but also accepts the bare form combined with
+  exactly one subquery-free predicate over a top-level `AND` or `OR` — e.g.
+  `status = 'active' AND id IN (SELECT ...)`. Returns the same pieces as
+  `bare_subquery/1`, plus `combinator` (`:none` for the bare form) and `rest`
+  (the other side's tree, or `nil` for the bare form).
+
+  Rejects anything with more than one subquery, or a subquery nested any
+  deeper than directly under the top-level `AND`/`OR` (so `a AND (b OR
+  subquery)` is rejected, but left-associative parsing of `a AND b AND
+  subquery` — which is `(a AND b) AND subquery` — is accepted, with `rest`
+  being `a AND b`). `RestdisElectric.SubqueryTracker` is what makes the
+  accepted forms live; see its moduledoc for exactly how it decides the rest
+  of the clause against a row whose subquery membership just changed.
+  """
+  @spec combined_subquery(t() | nil) ::
+          {:ok,
+           %{
+             column: String.t(),
+             table: String.t(),
+             inner_column: String.t(),
+             selection: SqlParser.tree() | :none,
+             negated: boolean(),
+             combinator: :none | :and | :or,
+             rest: SqlParser.tree() | nil
+           }}
+          | :error
+  def combined_subquery(filter) do
+    case bare_subquery(filter) do
+      {:ok, pieces} -> {:ok, Map.merge(pieces, %{combinator: :none, rest: nil})}
+      :error -> combined_subquery_tree(filter)
+    end
+  end
+
+  defp combined_subquery_tree(%__MODULE__{tree: {:binop, op, left, right}})
+       when op in ["AND", "OR"] do
+    combinator = if op == "AND", do: :and, else: :or
+
+    cond do
+      subquery_node?(left) and no_subqueries?(right) -> with_rest(left, right, combinator)
+      subquery_node?(right) and no_subqueries?(left) -> with_rest(right, left, combinator)
+      true -> :error
+    end
+  end
+
+  defp combined_subquery_tree(_filter), do: :error
+
+  defp subquery_node?(
+         {:in_subquery, {:ident, _column}, _negated, _table, _inner_column, _selection}
+       ),
+       do: true
+
+  defp subquery_node?(_node), do: false
+
+  defp no_subqueries?(tree), do: collect_subqueries(tree, []) == []
+
+  defp with_rest(
+         {:in_subquery, {:ident, column}, negated, table, inner_column, selection},
+         rest,
+         combinator
+       ) do
+    {:ok,
+     %{
+       column: column,
+       table: table,
+       inner_column: inner_column,
+       selection: selection,
+       negated: negated,
+       combinator: combinator,
+       rest: rest
+     }}
+  end
 
   @doc """
   Returns the column names the clause references.

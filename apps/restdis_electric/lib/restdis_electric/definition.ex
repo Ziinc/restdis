@@ -18,15 +18,16 @@ defmodule RestdisElectric.Definition do
   `{:error, {:correlated_subquery, column}}`; any other name not found on
   the subquery's table produces `{:error, {:unknown_columns, [column]}}`.
 
-  A subquery that passes all of that is accepted only when it is the shape's
-  *entire* filter — `Eval.bare_subquery/1` — because that is what
-  `RestdisElectric.SubqueryTracker` incrementally tracks (ELECTRIC_PRD Phase
-  6 item 1): it maintains the subquery's live result set and keeps the
-  shape's log in sync as the subquery's own table changes. A subquery
-  combined with `AND`/`OR` is still rejected with
-  `{:error, {:unsupported_where, _}}`, because nothing yet decides the rest
-  of such a clause against a row whose subquery membership just changed
-  without the row itself changing.
+  A subquery that passes all of that is accepted when it is the shape's
+  *entire* filter, or combined with exactly one subquery-free predicate over
+  a top-level `AND` or `OR` — `Eval.combined_subquery/1` — because that is
+  what `RestdisElectric.SubqueryTracker` incrementally tracks (ELECTRIC_PRD
+  Phase 6 item 1, extended for `AND`/`OR`): it maintains the subquery's live
+  result set and keeps the shape's log in sync as the subquery's own table
+  changes, deciding the rest of the clause against each row whose subquery
+  membership just changed. More than one subquery in a clause, or a subquery
+  under a top-level `NOT` alongside another predicate, is still rejected
+  with `{:error, {:unsupported_where, _}}`.
   """
 
   alias RestdisElectric.Eval
@@ -283,19 +284,19 @@ defmodule RestdisElectric.Definition do
     end)
   end
 
-  # Validated in full, then accepted only in the bare form RestdisElectric.SubqueryTracker tracks.
+  # Validated in full, then accepted only in a form RestdisElectric.SubqueryTracker tracks.
   defp check_subqueries(definition, filter, outer_info) do
     subqueries = Eval.subqueries(filter)
 
     case Enum.find_value(subqueries, &subquery_error(definition, &1, outer_info)) do
       nil when subqueries == [] -> :ok
-      nil -> check_bare_subquery(filter)
+      nil -> check_subquery_combination(filter)
       error -> error
     end
   end
 
-  defp check_bare_subquery(filter) do
-    case Eval.bare_subquery(filter) do
+  defp check_subquery_combination(filter) do
+    case Eval.combined_subquery(filter) do
       {:ok, _pieces} -> :ok
       :error -> unsupported_subquery_combination()
     end
@@ -336,9 +337,8 @@ defmodule RestdisElectric.Definition do
   defp unsupported_subquery_combination do
     {:error,
      {:unsupported_where,
-      "field IN (subquery) is only supported as the shape's entire where clause: " <>
-        "combining it with AND/OR/NOT alongside other predicates is not supported yet, " <>
-        "since deciding the rest of such a clause against a row whose subquery membership " <>
-        "just changed, without the row itself changing, is not implemented"}}
+      "field IN (subquery) is only supported as the shape's entire where clause, or combined " <>
+        "with exactly one other predicate over a top-level AND or OR: more than one subquery, " <>
+        "or a subquery under a top-level NOT alongside another predicate, is not supported yet"}}
   end
 end

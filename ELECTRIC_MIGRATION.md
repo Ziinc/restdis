@@ -73,18 +73,21 @@ created.
 **Not yet implemented on this branch** (see "Every entry below is verified
 against the code," further down, for how this was checked):
 
-- **`where` clauses combining a subquery with `AND`/`OR`/`NOT` alongside
-  another predicate** (`ELECTRIC_PRD.md` Phase 6 item 1). The bare form —
-  `field IN (subquery)` or `field NOT IN (subquery)` as the shape's *entire*
-  filter — is supported and incrementally tracked (see
-  `RestdisElectric.SubqueryTracker`); combined with anything else, it is
-  still rejected; see the compatibility table.
+- **`where` clauses combining more than one subquery, or a subquery under a
+  top-level `NOT` alongside another predicate** (`ELECTRIC_PRD.md` Phase 6
+  item 1). The bare form — `field IN (subquery)` or `field NOT IN
+  (subquery)` as the shape's *entire* filter — and that same clause combined
+  with exactly one subquery-free predicate over a top-level `AND` or `OR`
+  are supported and incrementally tracked (see
+  `RestdisElectric.SubqueryTracker`); anything else is still rejected; see
+  the compatibility table.
 
 As of this branch, gatekeeper mode, the `secret` query parameter, log
 truncation (with a per-shape `retention` override on top of the tenant-level
 `max_log_operations` default), the `electric-schema` response header, and
-bare-form `field IN (subquery)` tracking are all implemented; see
-"Authentication" and the compatibility table below for how each behaves.
+`field IN (subquery)` tracking — bare, or combined with one predicate over
+`AND`/`OR` — are all implemented; see "Authentication" and the compatibility
+table below for how each behaves.
 
 ---
 
@@ -137,8 +140,8 @@ Verified directly against `RestdisElectric.Eval.compile/2` and its `@comparison`
 | `ANY` / `ALL` with a comparison operator | Supported |
 | `lower`, `upper`, `coalesce`, `greatest`, `least` | Supported |
 | `$1`-style placeholders bound from `params` | Supported |
-| **`field IN (subquery)`, `field NOT IN (subquery)`** as the shape's entire filter (`ELECTRIC_PRD.md` Phase 6 item 1) | **Supported** — `RestdisElectric.SubqueryTracker` incrementally tracks the subquery's table and emits `insert`/`delete` when a value's membership flips, even though the outer row itself did not change. Requires the tenant's `direct_pg_url`, like `log=changes_only`. |
-| A subquery combined with `AND`/`OR`/`NOT` alongside another predicate | **Not supported** — rejected as an unsupported construct at `400`. Deciding the rest of such a clause against a row whose subquery membership just changed, without the row itself changing, is not implemented. |
+| **`field IN (subquery)`, `field NOT IN (subquery)`** as the shape's entire filter, or combined with exactly one subquery-free predicate over a top-level `AND` or `OR` (`ELECTRIC_PRD.md` Phase 6 item 1) | **Supported** — `RestdisElectric.SubqueryTracker` incrementally tracks the subquery's table and emits `insert`/`delete` when a value's membership flips, even though the outer row itself did not change; when combined, the rest of the clause is re-checked against the affected row before emitting. Requires the tenant's `direct_pg_url`, like `log=changes_only`. |
+| More than one subquery in a clause, or a subquery under a top-level `NOT` alongside another predicate | **Not supported** — rejected as an unsupported construct at `400`. |
 | JSONB operators, full-text search, geometric/network types, range operators, casts, volatile functions (`now()`, etc.) | Not supported, and never will be: `ELECTRIC_PRD.md` scopes Restdis to exactly Electric's documented subset on purpose, so a shape that works on Restdis and fails on Electric would make the migration one-way. |
 
 ### Client libraries
