@@ -2,6 +2,7 @@ defmodule RestdisServer.RewarmTest do
   use ExUnit.Case, async: false
 
   alias Restdis.Cache.Key
+  alias RestdisServer.PolicyStore
   alias RestdisServer.Rewarm
 
   setup do
@@ -41,5 +42,30 @@ defmodule RestdisServer.RewarmTest do
 
     assert :ok =
              Rewarm.policy_changed(tenant_id, wire_key, key, %{rewarm_s: nil, persist: false})
+  end
+
+  test "concurrent touches of a brand-new tenant race to start its scheduler, and every caller still gets a live pid",
+       %{tenant_id: tenant_id} do
+    key = Key.build(:table, "products", %{})
+    wire_key = Key.encode(key)
+    PolicyStore.put(tenant_id, wire_key, %{rewarm_s: 30, persist: false})
+
+    # Every task's `ensure_scheduler` sees no registered scheduler yet (none
+    # has started) and calls `DynamicSupervisor.start_child/2`.
+    # `DynamicSupervisor` itself is a GenServer and processes those calls one
+    # at a time, so only the first actually starts and registers the
+    # scheduler; every other task's `start_child` call attempts to register
+    # the same tenant name and deterministically gets back
+    # `{:error, {:already_started, pid}}` — the race this test exercises.
+    tasks =
+      for _ <- 1..25 do
+        Task.async(fn -> Rewarm.touch(tenant_id, wire_key, key) end)
+      end
+
+    results = Task.await_many(tasks, 5_000)
+    assert Enum.all?(results, &(&1 == :ok))
+
+    assert [{pid, _}] = Registry.lookup(RestdisServer.Rewarm.Registry, tenant_id)
+    assert Process.alive?(pid)
   end
 end

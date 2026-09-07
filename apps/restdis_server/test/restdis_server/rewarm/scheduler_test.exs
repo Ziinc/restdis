@@ -5,7 +5,9 @@ defmodule RestdisServer.Rewarm.SchedulerTest do
   alias RestdisServer.PolicyStore
   alias RestdisServer.QueryStore
   alias RestdisServer.Rewarm
+  alias RestdisServer.Rewarm.DynamicSupervisor, as: RewarmDynamicSupervisor
   alias RestdisServer.Rewarm.Scheduler
+  alias RestdisServer.TenantConfig
   alias RestdisServer.TenantStore.InMemory
 
   @tenant_id "rewarm-scheduler-test-tenant"
@@ -243,6 +245,60 @@ defmodule RestdisServer.Rewarm.SchedulerTest do
     table = :sys.get_state(pid).table
     assert [{^wire_key, entry}] = :ets.lookup(table, wire_key)
     assert entry.rewarm_s == 45
+  end
+
+  test "(l) a :refetch_ok cast for a key no longer tracked is a no-op" do
+    pid = ensure_scheduler()
+
+    # Nothing was ever inserted under this wire_key, so the ETS lookup inside
+    # `handle_cast({:refetch_ok, ...})` misses; the scheduler must not crash.
+    GenServer.cast(pid, {:refetch_ok, "pgrst:t:untracked:none", [%{"id" => 1}], 0})
+
+    assert Process.alive?(pid)
+  end
+
+  test "(m) a rewarm refetch for a tenant whose config has disappeared falls back to a 60s TTL" do
+    key = Key.build(:table, "vanished_tenant_items", %{})
+    wire_key = Key.encode(key)
+    Restdis.Cache.put(@tenant_id, key, [%{"id" => 1}], ttl_ms: 1000)
+
+    pid = ensure_scheduler()
+    Scheduler.upsert(pid, wire_key, key, %{rewarm_s: 60, persist: false})
+
+    # `TenantConfig.lookup_by_tenant_id/1` now fails for this tenant, without
+    # stopping its already-running scheduler, so the next `:refetch_ok`
+    # delivered to it exercises the "config lookup failed" fallback branch.
+    InMemory.clear()
+    TenantConfig.invalidate(@tenant_id)
+
+    GenServer.cast(pid, {:refetch_ok, wire_key, [%{"id" => 1, "rewarmed" => true}], 0})
+
+    table = :sys.get_state(pid).table
+    assert [{^wire_key, entry}] = :ets.lookup(table, wire_key)
+    assert entry.last_rewarm_ms != nil
+    assert {:ok, [%{"id" => 1, "rewarmed" => true}]} = Restdis.Cache.peek(@tenant_id, key)
+  end
+
+  test "(n) terminate/2 removes the scheduler's ETS table on a clean stop" do
+    tenant_id = "rewarm-scheduler-terminate-tenant"
+    on_exit(fn -> Rewarm.stop_tenant(tenant_id) end)
+
+    {:ok, pid} =
+      DynamicSupervisor.start_child(
+        RewarmDynamicSupervisor,
+        {Scheduler, tenant_id: tenant_id}
+      )
+
+    table = :sys.get_state(pid).table
+    assert :ets.info(table) != :undefined
+
+    # Unlike `DynamicSupervisor.terminate_child/2` (an uncooperative
+    # `:shutdown` exit the GenServer doesn't trap), `GenServer.stop/1` asks
+    # the process to stop cooperatively, which runs `terminate/2`.
+    :ok = GenServer.stop(pid)
+
+    refute Process.alive?(pid)
+    assert :ets.info(table) == :undefined
   end
 
   defp ensure_scheduler do
