@@ -21,4 +21,12 @@ defmodule Restdis.Wal.Handler do
   Invalidates every cache entry that depends on `table`.
   """
   @callback flush_table(tenant_id(), table :: String.t()) :: :ok
+
+  @doc """
+  Invalidates every list-scoped cache entry for `table`.
+
+  Called on row insert, since a newly inserted row's primary key was never
+  indexed and so can't be purged via `invalidate_by_row/3`.
+  """
+  @callback invalidate_lists(tenant_id(), table :: String.t()) :: :ok
 end

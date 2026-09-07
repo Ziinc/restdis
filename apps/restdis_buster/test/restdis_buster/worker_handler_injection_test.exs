@@ -24,6 +24,12 @@ defmodule RestdisBuster.WorkerHandlerInjectionTest do
       send(:handler_injection_test, {:flush_table, tenant_id, table})
       :ok
     end
+
+    @impl Restdis.Wal.Handler
+    def invalidate_lists(tenant_id, table) do
+      send(:handler_injection_test, {:invalidate_lists, tenant_id, table})
+      :ok
+    end
   end
 
   setup do
@@ -62,6 +68,24 @@ defmodule RestdisBuster.WorkerHandlerInjectionTest do
     Worker.run(event)
 
     assert_receive {:invalidate_by_row, "tenant_stub", "products", 42}, 200
+  end
+
+  test "an insert event dispatches to the configured handler's invalidate_lists/2" do
+    config = %{
+      tenant_id: "tenant_stub",
+      schema: "public",
+      table_name: "products",
+      pk_column: "id",
+      mode: "ttl"
+    }
+
+    seed_config("public", "products", config)
+    on_exit(&clear_config/0)
+
+    event = TestUtils.insert_event("products", "public", %{"id" => "42"})
+    Worker.run(event)
+
+    assert_receive {:invalidate_lists, "tenant_stub", "products"}, 200
   end
 
   test "a truncate event dispatches to the configured handler's flush_table/2" do

@@ -18,4 +18,9 @@ defmodule RestdisBuster.CacheHandler do
   def flush_table(tenant_id, table) do
     Restdis.Cache.flush_table(tenant_id, table)
   end
+
+  @impl Restdis.Wal.Handler
+  def invalidate_lists(tenant_id, table) do
+    Restdis.Cache.invalidate_lists(tenant_id, table)
+  end
 end

@@ -61,6 +61,8 @@ Same architecture proven in Logflare:
 
 Maps `(table, primary_key) -> [cache_keys]`. Covers both single-row primary key queries and array results. For array results, every object's primary key in the response is extracted and indexed. This means a response with 500 objects creates 500 reverse index entries. Performance degrades linearly with array size. This trade-off is accepted and documented: WAL invalidation correctness applies universally, at the cost of higher write-path overhead for large array responses.
 
+A second, smaller index tracks which cache keys hold an array (list) response per table, independent of any particular primary key. An INSERT introduces a primary key that was never cached, so it cannot be found via `(table, primary_key)` lookup; instead, an INSERT invalidates every list-scoped cache entry for that table via this index, leaving single-row cache entries untouched. An UPDATE or DELETE still invalidates only the cache entries (list or single-row) that actually held the affected row's primary key.
+
 ### Two Invalidation Modes
 
 | Mode                    | WAL event behavior                                                      | TTL behavior                                    |
@@ -195,7 +197,7 @@ Delivers automatic cache busting when tenant data changes. Queries are invalidat
 4. Connect to Postgres logical replication slot. Parse WAL events: table name, operation, old/new row data.
 5. Extract primary key from WAL row data.
 6. Broadcast WAL events to peers via `:syn.publish(:wal_fanout, {:az, az_name}, msg)`. One subscriber per AZ receives the event and re-broadcasts locally; bounds cross-AZ traffic to one message per AZ per event.
-7. On DML event (INSERT, UPDATE, DELETE), look up reverse index for `(table, primary_key)`. Delete matching cache entries from ETS and CubDB.
+7. On UPDATE/DELETE, look up reverse index for `(table, primary_key)`. Delete matching cache entries from ETS and CubDB. On INSERT, the row's primary key was never indexed, so instead invalidate every list-scoped (array response) cache entry for the table; single-row cache entries are left untouched since an insert cannot affect them.
 8. On DDL event (DROP TABLE), flush all cache entries for the affected table.
 9. Implement failover via `:syn` process monitoring. On WAL tailer exit, `:syn` emits an unregister event; idle candidates on other nodes race to re-register under `:wal` / `:wal_tailer`. The new owner reconnects to the replication slot from the last confirmed LSN persisted in Postgres.
 10. Cache tenant config locally on each node. Implement config change listener that flushes affected table caches on config update.
