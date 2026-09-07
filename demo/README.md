@@ -29,6 +29,22 @@ docker compose -f ../docker-compose.yml down -v
 These are offset from the root `docker-compose.yml`'s ports (4040, 6380,
 5432) so both stacks can run side by side.
 
+## Screen-recording walkthrough
+
+`scripts/demo.sh` is a narrated, pause-between-steps script for recording a
+demo: origin PostgREST query → cache miss through Restdis → cache hit →
+direct write to Postgres → WAL-driven cache bust → GoTrue reachability.
+
+```sh
+cd demo
+./scripts/demo.sh              # brings the stack up, then walks through it,
+                                # pausing for enter between steps
+./scripts/demo.sh --no-up      # stack already running, skip straight to the walkthrough
+DEMO_AUTOPLAY=1 ./scripts/demo.sh   # no keypresses; sleeps between steps instead
+```
+
+Requires `curl`, `psql`, and `docker compose` on `PATH`.
+
 ## CI
 
 `.github/workflows/supabase-integration.yml` builds this stack and runs
