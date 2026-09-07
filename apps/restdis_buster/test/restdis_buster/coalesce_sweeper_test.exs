@@ -52,4 +52,35 @@ defmodule RestdisBuster.Worker.CoalesceSweeperTest do
 
     assert_receive {:flush_table, "tenant_stub", "products"}, 200
   end
+
+  test "sweep/0 skips entries with a zero or negative coalesced count" do
+    table = WorkerSupervisor.coalesce_table()
+    key = {"tenant_zero", "orders"}
+    :ets.insert(table, {key, 0})
+
+    on_exit(fn -> :ets.delete(table, key) end)
+
+    CoalesceSweeper.sweep()
+
+    refute_receive {:flush_table, "tenant_zero", "orders"}, 100
+    assert :ets.lookup(table, key) == [{key, 0}]
+  end
+
+  test "init/1 schedules the periodic sweep and returns interval state" do
+    # A long interval so the scheduled `:timer.send_interval` message doesn't
+    # actually land in this (short-lived) test process's mailbox.
+    assert {:ok, %{interval_ms: 3_600_000}} = CoalesceSweeper.init(interval_ms: 3_600_000)
+  end
+
+  test "handle_info(:sweep) runs a sweep pass" do
+    table = WorkerSupervisor.coalesce_table()
+    key = {"tenant_sweep", "widgets"}
+    :ets.insert(table, {key, 2})
+    on_exit(fn -> :ets.delete(table, key) end)
+
+    assert {:noreply, %{interval_ms: 1_000}} =
+             CoalesceSweeper.handle_info(:sweep, %{interval_ms: 1_000})
+
+    assert_receive {:flush_table, "tenant_sweep", "widgets"}, 200
+  end
 end
