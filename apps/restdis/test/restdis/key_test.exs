@@ -23,6 +23,17 @@ defmodule Restdis.Cache.KeyTest do
       key = Key.build(:table, "my-table_2", %{})
       assert {:ok, ^key} = key |> Key.encode() |> Key.decode()
     end
+
+    test "shape scope" do
+      key = Key.build(:shape, "orders", %{})
+      assert {:ok, ^key} = key |> Key.encode() |> Key.decode()
+    end
+
+    test "raw key encodes as its bare ident and decodes back to a :raw key" do
+      key = %Key{scope: :raw, ident: "my-raw-key", params_hash: 0}
+      assert Key.encode(key) == "my-raw-key"
+      assert {:ok, ^key} = key |> Key.encode() |> Key.decode()
+    end
   end
 
   describe "decode error cases" do
@@ -40,6 +51,14 @@ defmodule Restdis.Cache.KeyTest do
 
     test "non-integer hash" do
       assert :error = Key.decode("pgrst:t:users:notanumber")
+    end
+
+    test "empty string" do
+      assert :error = Key.decode("")
+    end
+
+    test "non-binary input" do
+      assert :error = Key.decode(nil)
     end
   end
 

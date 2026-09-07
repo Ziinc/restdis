@@ -84,4 +84,12 @@ defmodule Restdis.Cache.ReadThroughTest do
     assert {:ok, 2} = ReadThrough.fetch(other, "k", fn -> {:ok, 2} end)
     assert {:ok, 1} = ReadThrough.fetch(name, "k", fn -> flunk("loader ran") end)
   end
+
+  test "operating on a cache that was never started raises" do
+    name = :"rt_never_started_#{System.unique_integer([:positive])}"
+
+    assert_raise ArgumentError, ~r/is not started/, fn ->
+      ReadThrough.fetch(name, "k", fn -> {:ok, 1} end)
+    end
+  end
 end
