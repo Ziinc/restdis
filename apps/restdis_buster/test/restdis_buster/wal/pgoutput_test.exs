@@ -258,7 +258,7 @@ defmodule RestdisBuster.WAL.PgoutputTest do
       ins_frame = <<?I, oid::32, ?N, count::16, col_values::binary>>
       {events, _} = Pgoutput.decode(ins_frame, cache)
 
-      assert length(events) == 1
+      assert Enum.count(events) == 1
       assert hd(events).op == :insert
       assert hd(events).schema == schema
       assert hd(events).table == table

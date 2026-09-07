@@ -22,6 +22,7 @@ defmodule Restdis.Migration do
   import Ecto.Migration, only: [execute: 1]
 
   alias Restdis.Migrations.Postgres
+  alias Restdis.Migrations.SqlQuoting
 
   @default_prefix "restdis"
 
@@ -96,8 +97,8 @@ defmodule Restdis.Migration do
     execute("""
     DO $$
     BEGIN
-      IF NOT EXISTS (SELECT 1 FROM pg_publication WHERE pubname = #{quote_literal(name)}) THEN
-        CREATE PUBLICATION #{quote_ident(name)} #{target};
+      IF NOT EXISTS (SELECT 1 FROM pg_publication WHERE pubname = #{SqlQuoting.quote_literal(name)}) THEN
+        CREATE PUBLICATION #{SqlQuoting.quote_ident(name)} #{target};
       END IF;
     END
     $$;
@@ -110,10 +111,7 @@ defmodule Restdis.Migration do
   @spec drop_publication(keyword()) :: :ok
   def drop_publication(opts \\ []) do
     name = Keyword.get(opts, :name, "restdis_pub")
-    execute("DROP PUBLICATION IF EXISTS #{quote_ident(name)}")
+    execute("DROP PUBLICATION IF EXISTS #{SqlQuoting.quote_ident(name)}")
     :ok
   end
-
-  defp quote_ident(ident), do: ~s("#{String.replace(ident, "\"", "\"\"")}")
-  defp quote_literal(value), do: "'#{String.replace(value, "'", "''")}'"
 end

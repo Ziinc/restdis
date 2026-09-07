@@ -102,7 +102,7 @@
           {Credo.Check.Warning.UnusedRegexOperation, []},
           {Credo.Check.Warning.UnusedStringOperation, []},
           {Credo.Check.Warning.UnusedTupleOperation, []},
-          {Credo.Check.Warning.WrongTestFileExtension, []}
+          {Credo.Check.Warning.WrongTestFileExtension, []},
           {ExDNA.Credo, [paths: ["mix.exs", "config/", "apps/*/lib/", "apps/*/test/"]]}
         ] ++ Enum.map(ExSlop.recommended_checks(), &{&1, []}),
         disabled: [

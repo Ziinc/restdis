@@ -96,21 +96,15 @@ defmodule RestdisElectric.Snapshotter.DirectPostgres do
   end
 
   defp do_snapshot_descriptor(conn) do
-    result =
-      Postgrex.transaction(
-        conn,
-        fn tx ->
-          Postgrex.query!(tx, "SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY", [])
-          {:ok, descriptor} = read_descriptor(tx)
-          descriptor
-        end,
-        []
-      )
-
-    case result do
-      {:ok, descriptor} -> {:ok, descriptor}
-      {:error, reason} -> {:error, reason}
-    end
+    Postgrex.transaction(
+      conn,
+      fn tx ->
+        Postgrex.query!(tx, "SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY", [])
+        {:ok, descriptor} = read_descriptor(tx)
+        descriptor
+      end,
+      []
+    )
   end
 
   defp run(tenant_config, definition, info, page_fun) do
@@ -126,33 +120,27 @@ defmodule RestdisElectric.Snapshotter.DirectPostgres do
   end
 
   defp do_snapshot(conn, definition, info, page_fun) do
-    result =
-      Postgrex.transaction(
-        conn,
-        fn tx ->
-          Postgrex.query!(tx, "SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY", [])
+    Postgrex.transaction(
+      conn,
+      fn tx ->
+        Postgrex.query!(tx, "SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY", [])
 
-          {:ok, descriptor} = read_descriptor(tx)
+        {:ok, descriptor} = read_descriptor(tx)
 
-          req = %{
-            tx: tx,
-            table: "#{definition.schema}.#{definition.table}",
-            select: select_clause(definition.columns),
-            order: Enum.join(info.primary_key, ","),
-            columns: definition.columns
-          }
+        req = %{
+          tx: tx,
+          table: "#{definition.schema}.#{definition.table}",
+          select: select_clause(definition.columns),
+          order: Enum.join(info.primary_key, ","),
+          columns: definition.columns
+        }
 
-          page(req, 0, page_fun)
+        page(req, 0, page_fun)
 
-          descriptor
-        end,
-        []
-      )
-
-    case result do
-      {:ok, descriptor} -> {:ok, descriptor}
-      {:error, reason} -> {:error, reason}
-    end
+        descriptor
+      end,
+      []
+    )
   end
 
   defp read_descriptor(tx) do

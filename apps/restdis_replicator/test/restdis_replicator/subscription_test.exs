@@ -40,7 +40,7 @@ defmodule RestdisReplicator.SubscriptionTest do
 
     {:ok, _} = RestdisReplicator.subscribe(dataset)
 
-    assert length(Subscription.primary_keys(dataset)) == 10_000
+    assert Enum.count(Subscription.primary_keys(dataset)) == 10_000
 
     assert {:ok, %{"name" => "row-10000"}} =
              RestdisReplicator.get(dataset.tenant_id, dataset.table, 10_000)

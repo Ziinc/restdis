@@ -32,6 +32,8 @@ defmodule Restdis.MixProject do
       {:ecto_sql, "~> 3.13"},
       {:postgrex, "~> 0.22"},
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
+      {:ex_slop, "~> 0.4", only: [:dev, :test], runtime: false},
+      {:ex_dna, "~> 1.5", only: [:dev, :test], runtime: false},
       {:stream_data, "~> 1.1", only: :test},
       {:benchee, "~> 1.3", only: :dev, runtime: false}
     ]

@@ -49,13 +49,11 @@ defmodule RestdisUmbrella.MixProject do
         "check.format",
         "check.lint",
         "check.dialyzer",
-        "check.sobelow",
-        "check.dna"
+        "check.sobelow"
       ],
       "check.compile": ["compile --force --warnings-as-errors"],
       "check.format": ["format --check-formatted"],
       "check.lint": ["credo --strict", "check.ast_grep"],
-      "check.dna": ["ex_dna"],
       "check.ast_grep": &ast_grep/1,
       "check.dialyzer": ["dialyzer"],
       "check.sobelow": ["sobelow --exit"]

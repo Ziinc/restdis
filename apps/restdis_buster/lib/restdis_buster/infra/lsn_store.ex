@@ -107,10 +107,7 @@ defmodule RestdisBuster.Infra.LsnStore do
   end
 
   defp ref do
-    case :persistent_term.get(@ref_key, nil) do
-      nil -> nil
-      ref -> ref
-    end
+    :persistent_term.get(@ref_key, nil)
   end
 
   defp ensure_row_and_read(slot) do
