@@ -108,8 +108,7 @@ defmodule RestdisServer.Commands.Set do
     end
   end
 
-  # Threads the tenant's configured `persist_cap` through to `Restdis.Cache`,
-  # whose own default (50,000) only applies when the caller passes none.
+  # Threads the tenant's configured persist_cap to Restdis.Cache (its default, 50,000, only applies when none is passed).
   defp persist_cap_opt(tenant_id) do
     case TenantConfig.lookup_by_tenant_id(tenant_id) do
       {:ok, %{persist_cap: persist_cap}} when is_integer(persist_cap) ->
