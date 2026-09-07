@@ -5,7 +5,7 @@ message: Do not use "skip_files" in coveralls.json to exclude files from coverag
 note: |
   Excluding files from coverage measurement (e.g. test/support/ helpers)
   hides real gaps instead of closing them and can silently erode the
-  95% minimum_coverage floor's meaning over time. Write tests for the
+  90% minimum_coverage floor's meaning over time. Write tests for the
   file instead of skipping it, or delete genuinely dead code.
 files:
   - "**/coveralls.json"
