@@ -233,6 +233,46 @@ defmodule RestdisServer.Commands.PgrstQueryTest do
     assert IO.iodata_to_binary(reply) =~ "pgrst:t:users:"
   end
 
+  test "PGRST.QUERY refuses to cache past the tenant's persist_cap", %{} do
+    tenant_id = "test-pgrst-tenant-persist-cap"
+
+    InMemory.seed([
+      %{
+        api_key: "sk_pgrst_persist_cap",
+        tenant_id: tenant_id,
+        default_ttl_s: 60,
+        persist_cap: 1,
+        pgrst_base_url: "http://localhost:3001",
+        pgrst_api_key: "svc_key",
+        replica_url: nil
+      }
+    ])
+
+    Restdis.Cache.flush_tenant(tenant_id)
+    on_exit(fn -> InMemory.clear() end)
+
+    state = %{authenticated?: true, tenant_id: tenant_id, buffer: <<>>}
+
+    Req.Test.stub(RestdisServer.Finch, fn conn ->
+      Req.Test.json(conn, [%{"ok" => true}])
+    end)
+
+    key1 = Key.build(:table, "widgets", %{"id" => "eq.1"})
+    key2 = Key.build(:table, "widgets", %{"id" => "eq.2"})
+
+    # Declaring PERSIST before the first fetch is enough to record the policy
+    # even though the key isn't cached yet (`Restdis.Cache.set_persist`
+    # returns `{:error, :not_found}`, which `PgrstPolicy` treats as a no-op).
+    Dispatcher.dispatch(state, ["PGRST.POLICY", Key.encode(key1), "PERSIST"])
+    Dispatcher.dispatch(state, ["PGRST.POLICY", Key.encode(key2), "PERSIST"])
+
+    {reply1, _} = Dispatcher.dispatch(state, ["PGRST.QUERY", "/widgets?id=eq.1"])
+    assert IO.iodata_to_binary(reply1) =~ "pgrst:t:widgets:"
+
+    {reply2, _} = Dispatcher.dispatch(state, ["PGRST.QUERY", "/widgets?id=eq.2"])
+    assert IO.iodata_to_binary(reply2) =~ "ERR persist cap reached"
+  end
+
   test "PGRST.QUERY ignores a malformed TTL/REWARM numeric value", %{state: state} do
     body = [%{"id" => 7}]
 
