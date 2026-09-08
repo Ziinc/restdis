@@ -41,6 +41,7 @@ defmodule RestdisBuster.WorkerTest do
   end
 
   setup do
+    TestUtils.checkout_shared_repo!()
     Process.register(self(), :worker_test)
 
     on_exit(fn ->

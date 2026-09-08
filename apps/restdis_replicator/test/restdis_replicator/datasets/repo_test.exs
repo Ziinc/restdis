@@ -7,9 +7,8 @@ defmodule RestdisReplicator.Datasets.RepoTest do
   alias RestdisRepo.TenantTableConfig
 
   setup do
-    :ok = Sandbox.checkout(RestdisRepo)
-    Sandbox.mode(RestdisRepo, {:shared, self()})
-    on_exit(fn -> Sandbox.checkin(RestdisRepo) end)
+    owner = Sandbox.start_owner!(RestdisRepo, shared: true)
+    on_exit(fn -> Sandbox.stop_owner(owner) end)
     :ok
   end
 

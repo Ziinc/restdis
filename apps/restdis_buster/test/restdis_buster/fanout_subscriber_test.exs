@@ -2,7 +2,13 @@ defmodule RestdisBuster.FanoutSubscriberTest do
   use ExUnit.Case, async: false
 
   alias RestdisBuster.FanoutSubscriber
+  alias RestdisBuster.TestUtils
   alias RestdisBuster.WAL.Event
+
+  setup do
+    TestUtils.checkout_shared_repo!()
+    :ok
+  end
 
   test "init/1 joins the :wal_fanout group for this node's AZ" do
     az = Application.get_env(:restdis_buster, :az, "test")

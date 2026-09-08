@@ -6,6 +6,7 @@ defmodule RestdisBuster.Worker.SupervisorTest do
   alias RestdisBuster.Worker.Supervisor, as: WorkerSupervisor
 
   setup do
+    TestUtils.checkout_shared_repo!()
     Process.register(self(), :worker_supervisor_test)
 
     on_exit(fn ->
