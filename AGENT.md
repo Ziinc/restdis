@@ -150,7 +150,7 @@ socket = if connected?(socket), do: assign(socket, :val, val), else: socket
 `docker-compose.yml` provides a local dev stack, alongside the `db`/`restdis` services used to smoke-test the production release image:
 
 - `db` — Postgres 16 with `wal_level=logical` enabled (required for `restdis_buster`'s WAL tailer), exposed on `5432`, database `restdis_dev`.
-- `app` — the umbrella app running under `mix` (not the release build), with `deps`/`_build`/`mix`/`hex` cached in named volumes so `mix deps.get` isn't re-run from scratch on every rebuild. Sets `POSTGRES_HOSTNAME=db` so `config/dev.exs` connects to the compose service instead of `localhost` (used when running `mix` directly on the host with a local Postgres), and `RESP_LISTEN_IP=0.0.0.0` so the RESP port is reachable from the host (`config/dev.exs` otherwise binds to `127.0.0.1` only).
+- `app` — the umbrella app running under `mix` (not the release build), with `deps`/`_build`/`mix`/`hex` cached in named volumes so `mix deps.get` isn't re-run from scratch on every rebuild. Sets `RESTDIS_POSTGRES_HOSTNAME=db` so `config/dev.exs` connects to the compose service instead of `localhost` (used when running `mix` directly on the host with a local Postgres), and `RESTDIS_RESP_LISTEN_IP=0.0.0.0` so the RESP port is reachable from the host (`config/dev.exs` otherwise binds to `127.0.0.1` only).
 
 Usage:
 
@@ -160,4 +160,4 @@ docker compose run --rm app mix test
 docker compose exec app mix check
 ```
 
-`mix test` needs the `restdis_test` database created and migrated first (`MIX_ENV=test POSTGRES_HOSTNAME=db mix ecto.create && mix ecto.migrate`, run inside the `app` container) since it isn't provisioned automatically.
+`mix test` needs the `restdis_test` database created and migrated first (`MIX_ENV=test RESTDIS_POSTGRES_HOSTNAME=db mix ecto.create && mix ecto.migrate`, run inside the `app` container) since it isn't provisioned automatically.

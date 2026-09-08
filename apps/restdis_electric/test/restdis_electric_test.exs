@@ -458,7 +458,7 @@ defmodule RestdisElectricTest do
   end
 
   describe "log=changes_only" do
-    @direct_pg_url "postgres://postgres:postgres@#{System.get_env("POSTGRES_HOSTNAME", "localhost")}:5432/restdis_test"
+    @direct_pg_url "postgres://postgres:postgres@#{System.get_env("RESTDIS_POSTGRES_HOSTNAME", "localhost")}:5432/restdis_test"
 
     setup do
       {:ok, conn} =

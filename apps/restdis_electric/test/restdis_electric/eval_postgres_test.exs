@@ -51,7 +51,7 @@ defmodule RestdisElectric.EvalPostgresTest do
 
   setup_all do
     opts = [
-      hostname: System.get_env("POSTGRES_HOSTNAME", "localhost"),
+      hostname: System.get_env("RESTDIS_POSTGRES_HOSTNAME", "localhost"),
       username: "postgres",
       password: "postgres",
       database: "restdis_test"

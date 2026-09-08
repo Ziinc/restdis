@@ -22,7 +22,7 @@ defmodule RestdisElectric.SubqueryTrackerPostgresTest do
   alias RestdisElectric.TestUtils
   alias RestdisElectric.WAL
 
-  @hostname System.get_env("POSTGRES_HOSTNAME", "localhost")
+  @hostname System.get_env("RESTDIS_POSTGRES_HOSTNAME", "localhost")
   @direct_pg_url "postgres://postgres:postgres@#{@hostname}:5432/restdis_test"
 
   defmodule TestRepo do

@@ -28,7 +28,7 @@ defmodule RestdisElectric.SchemaWatcherPostgresTest do
   setup do
     {:ok, _pid} =
       TestRepo.start_link(
-        hostname: System.get_env("POSTGRES_HOSTNAME", "localhost"),
+        hostname: System.get_env("RESTDIS_POSTGRES_HOSTNAME", "localhost"),
         username: System.get_env("POSTGRES_USER", "postgres"),
         password: System.get_env("POSTGRES_PASSWORD", "postgres"),
         database: System.get_env("POSTGRES_DB", "restdis_test"),

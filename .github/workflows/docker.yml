@@ -53,7 +53,7 @@ jobs:
       - name: Start the release
         run: |
           docker run -d --name restdis --network restdis-ci \
-            -e DATABASE_URL=ecto://postgres:postgres@restdis-db/restdis_dev \
+            -e RESTDIS_DATABASE_URL=ecto://postgres:postgres@restdis-db/restdis_dev \
             -e RELEASE_COOKIE=ci_cookie \
             -p 4040:4040 -p 6380:6380 \
             restdis:ci
