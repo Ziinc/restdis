@@ -31,7 +31,7 @@ to it and use it exactly as it would use Redis, with no code changes.
   that stay current via WAL refresh, for latency-critical reads.
 - **Multi-node clustering** — a consistent hash ring places each tenant on one owning node,
   with automatic forwarding and PostgREST fallback if that node is unreachable.
-- **Electric-compatible shape API [WIP]** — serve ElectricSQL's `GET /v1/shape` protocol
+- **Electric-compatible shape API** — serve ElectricSQL's `GET /v1/shape` protocol
   directly from Restdis, so apps using an Electric client library work unchanged. See
   [`ELECTRIC_PRD.md`](ELECTRIC_PRD.md).
 - **Caching across the rest of the Supabase stack [WIP]** — extend the same cache-and-invalidate
