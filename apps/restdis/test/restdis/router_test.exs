@@ -1,6 +1,7 @@
 defmodule Restdis.Cache.RouterTest do
   use ExUnit.Case, async: false
 
+  alias Restdis.Cache.HotCache
   alias Restdis.Cache.Key
   alias Restdis.Cache.Router
   alias Restdis.Cache.TestUtils
@@ -8,7 +9,11 @@ defmodule Restdis.Cache.RouterTest do
   @ghost :"ghost@127.0.0.1"
 
   setup do
-    on_exit(fn -> TestUtils.remove_cluster_node(@ghost) end)
+    on_exit(fn ->
+      TestUtils.remove_cluster_node(@ghost)
+      HotCache.flush()
+    end)
+
     :ok
   end
 
@@ -34,6 +39,15 @@ defmodule Restdis.Cache.RouterTest do
 
       assert :ok = Router.delete(tenant_id, key)
       assert :miss = Router.peek(tenant_id, key)
+    end
+
+    test "a hot-cache hit short-circuits before touching the owner-routed cache", %{
+      tenant_id: tenant_id
+    } do
+      key = Key.build(:table, "widgets", %{})
+      assert :ok = HotCache.apply_gossip_put(tenant_id, key, "hot value", 5_000)
+
+      assert {:ok, "hot value"} = Router.get(tenant_id, key)
     end
   end
 

@@ -33,6 +33,8 @@ defmodule Restdis.Cache.Supervisor do
       {Registry, keys: :unique, name: Restdis.Cache.TenantRegistry},
       Restdis.Cache.TenantSupervisor,
       Restdis.Cache.Replication.Receiver,
+      Restdis.Cache.HotCache,
+      Restdis.Cache.HotCache.Receiver,
       Restdis.Cache.Cluster
     ]
 
