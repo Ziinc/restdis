@@ -8,8 +8,8 @@ defmodule RestdisServer.TenantStore.RepoTest do
   alias RestdisServer.TenantStore.Repo, as: TenantStoreRepo
 
   setup do
-    :ok = Sandbox.checkout(RestdisRepo)
-    Sandbox.mode(RestdisRepo, {:shared, self()})
+    owner = Sandbox.start_owner!(RestdisRepo, shared: true)
+    on_exit(fn -> Sandbox.stop_owner(owner) end)
     :ok
   end
 

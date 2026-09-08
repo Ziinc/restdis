@@ -6,9 +6,12 @@ defmodule RestdisBuster.TenantTableConfig.CacheTest do
   import Ecto.Query
 
   alias RestdisBuster.TenantTableConfig.Cache
+  alias RestdisBuster.TestUtils
   alias RestdisRepo.TenantTableConfig, as: Schema
 
   setup do
+    TestUtils.checkout_shared_repo!()
+
     on_exit(fn ->
       RestdisRepo.delete_all(
         from(t in Schema, where: t.schema == "public" and t.table_name == "cache_test")

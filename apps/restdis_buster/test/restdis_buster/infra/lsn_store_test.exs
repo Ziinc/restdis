@@ -3,8 +3,11 @@ defmodule RestdisBuster.Infra.LsnStoreTest do
   use ExUnit.Case, async: false
 
   alias RestdisBuster.Infra.LsnStore
+  alias RestdisBuster.TestUtils
 
   setup do
+    TestUtils.checkout_shared_repo!()
+
     # The application starts LsnStore; start a fresh one if the DB was degraded.
     case Process.whereis(LsnStore) do
       nil ->

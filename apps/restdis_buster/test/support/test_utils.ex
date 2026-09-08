@@ -1,6 +1,7 @@
 defmodule RestdisBuster.TestUtils do
   @moduledoc false
 
+  alias Ecto.Adapters.SQL.Sandbox
   alias Restdis.Cache.ReadThrough
   alias RestdisBuster.TenantTableConfig
   alias RestdisBuster.WAL.Event
@@ -66,5 +67,22 @@ defmodule RestdisBuster.TestUtils do
   @spec truncate_event(String.t(), String.t()) :: Event.t()
   def truncate_event(table, schema \\ "public") do
     %Event{op: :truncate, schema: schema, table: table}
+  end
+
+  @doc """
+  Checks out a shared sandbox connection for RestdisRepo so async workers
+  spawned during the test (e.g. via WorkerSupervisor.start_worker/2) can
+  query it too. Uses a dedicated owner process (not the test process
+  itself), since shared mode reverts to :manual as soon as its owner
+  exits: tying it to the test process would break the test's own
+  on_exit callback if that callback also needs the connection (e.g. to
+  clean up rows it inserted), because the test process has already
+  exited by the time on_exit callbacks run. Stopping the owner restores
+  :manual mode automatically, so later tests/files in the same
+  `mix test` run aren't left with a shared owner that has exited.
+  """
+  def checkout_shared_repo! do
+    owner = Sandbox.start_owner!(RestdisRepo, shared: true)
+    ExUnit.Callbacks.on_exit(fn -> Sandbox.stop_owner(owner) end)
   end
 end
