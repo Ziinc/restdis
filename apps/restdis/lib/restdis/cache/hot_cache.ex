@@ -4,16 +4,17 @@ defmodule Restdis.Cache.HotCache do
   every node, sitting in front of the per-tenant owner-routed cache.
 
   Unlike `Restdis.Cache`/`Restdis.Cache.Router`, where a tenant's data lives
-  on exactly one owning node and every other node must hop to it,
-  entries here are pushed to every peer as soon as they turn "hot", so a hit
-  never needs a cross-node call at all.
+  on exactly one owning node and every other node must hop to it, an entry
+  here is stored locally on the very first access and pushed to every peer
+  once it turns "hot", so a hit for it never needs a cross-node call at all.
 
-  A key turns hot once its local access count (tracked per node) crosses
-  `:hot_cache_threshold` (default 5) within one sweep window. The node that
-  promotes it gossips the value to every peer. A peer applies the gossiped
-  entry to its own copy of this same layer but never re-broadcasts it, which
-  bounds propagation of any one entry to a single hop, the same bound
-  `Restdis.Cache.Replication` uses for persisted disk-cache writes.
+  Every entry is stored locally the first time it is observed, with a fixed
+  five minute TTL. Once its local access count (tracked per node) reaches 5
+  within one sweep window, the node gossips the value to every peer.
+  A peer applies the gossiped entry to its own copy of this same layer but
+  never re-broadcasts it, which bounds propagation of any one entry to a
+  single hop, the same bound `Restdis.Cache.Replication` uses for persisted
+  disk-cache writes.
   """
 
   use GenServer
@@ -23,8 +24,8 @@ defmodule Restdis.Cache.HotCache do
   @store :restdis_hot_cache_store
   @counters :restdis_hot_cache_counters
 
-  @default_threshold 5
-  @default_ttl_ms 5_000
+  @propagate_at 5
+  @ttl_ms 5 * 60 * 1_000
   @sweep_interval_ms 10_000
 
   @type gossip_message ::
@@ -70,18 +71,23 @@ defmodule Restdis.Cache.HotCache do
 
   @doc """
   Records a hit for `key` obtained elsewhere (the owner-routed cache or the
-  origin), promoting it to the hot layer and gossiping it to every peer once
-  the local access count for it crosses the hotness threshold.
+  origin).
+
+  Stores it in the hot layer immediately, on this first access, with the
+  fixed five minute TTL. Once the local access count for it reaches the
+  propagation threshold, gossips it to every peer so their copy of the hot
+  layer picks it up too.
   """
   @spec observe(Restdis.Cache.tenant_id(), Key.t(), term()) :: :ok
   def observe(tenant_id, key, value) do
-    threshold = Application.get_env(:restdis, :hot_cache_threshold, @default_threshold)
+    put_local(tenant_id, key, value, @ttl_ms)
+
     composite = {tenant_id, key}
     count = :ets.update_counter(@counters, composite, {2, 1}, {composite, 0})
 
-    if count >= threshold do
-      :ets.delete(@counters, composite)
-      promote(tenant_id, key, value)
+    if count == @propagate_at do
+      :telemetry.execute([:restdis, :hot_cache, :promoted], %{count: 1}, %{tenant_id: tenant_id})
+      :ok = transport().broadcast({:sc_hot_cache_put, tenant_id, key, value, @ttl_ms})
     end
 
     :ok
@@ -134,16 +140,6 @@ defmodule Restdis.Cache.HotCache do
   def flush do
     :ets.delete_all_objects(@store)
     :ets.delete_all_objects(@counters)
-    :ok
-  end
-
-  defp promote(tenant_id, key, value) do
-    ttl_ms = Application.get_env(:restdis, :hot_cache_ttl_ms, @default_ttl_ms)
-    put_local(tenant_id, key, value, ttl_ms)
-
-    :telemetry.execute([:restdis, :hot_cache, :promoted], %{count: 1}, %{tenant_id: tenant_id})
-
-    :ok = transport().broadcast({:sc_hot_cache_put, tenant_id, key, value, ttl_ms})
     :ok
   end
 
