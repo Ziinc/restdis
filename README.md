@@ -83,7 +83,7 @@ Build the image and run it against any Postgres with logical replication turned 
 docker build -t restdis .
 docker run --rm \
   --add-host=host.docker.internal:host-gateway \
-  -e DATABASE_URL=postgres://postgres:postgres@host.docker.internal:5432/restdis_dev \
+  -e RESTDIS_DATABASE_URL=postgres://postgres:postgres@host.docker.internal:5432/restdis_dev \
   -e RELEASE_COOKIE=some_secret_cookie \
   -p 4040:4040 -p 6380:6380 \
   restdis
@@ -246,7 +246,7 @@ and fills the faster layers on the way back, so the next read stops earlier:
 | Layer             | Where                                           | Expiry and eviction                                                                                     |
 | ----------------- | ----------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
 | 1. Query cache    | An ETS table in memory, one per tenant          | The entry's TTL. Expired entries are swept every 30 s. Past 500 MB per tenant, least recently used goes first. |
-| 2. Disk cache     | A [FeoxDB](https://github.com/ziinc/feoxdb-ex) store at `CACHE_DATA_DIR/<tenant>/store.feox` | The same TTL, kept on the wall clock so it holds across restarts. Past 500 MB per tenant, oldest written goes first. |
+| 2. Disk cache     | A [FeoxDB](https://github.com/ziinc/feoxdb-ex) store at `RESTDIS_CACHE_DATA_DIR/<tenant>/store.feox` | The same TTL, kept on the wall clock so it holds across restarts. Past 500 MB per tenant, oldest written goes first. |
 | 3. Origin         | The tenant's PostgREST                          | Not a cache. A miss in both layers fetches here and writes the response into layers 1 and 2.           |
 
 **Restarts start warm.** ETS is empty after a restart, but the FeoxDB store is not: it reopens

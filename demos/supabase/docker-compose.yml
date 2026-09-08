@@ -74,11 +74,11 @@ services:
       rest:
         condition: service_started
     environment:
-      DATABASE_URL: ecto://postgres:postgres@db/postgres
+      RESTDIS_DATABASE_URL: ecto://postgres:postgres@db/postgres
       RELEASE_COOKIE: restdis_demo_cookie
-      RELEASE_AZ: local
-      HTTP_PORT: "4040"
-      RESP_PORT: "6380"
+      RESTDIS_RELEASE_AZ: local
+      RESTDIS_HTTP_PORT: "4040"
+      RESTDIS_RESP_PORT: "6380"
     ports:
       - "4041:4040"
       - "6381:6380"
