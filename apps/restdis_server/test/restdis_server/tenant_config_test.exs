@@ -40,7 +40,10 @@ defmodule RestdisServer.TenantConfigTest do
   test "a lookup is served from the disk layer once the query cache is empty" do
     assert {:ok, _} = TenantConfig.lookup_by_tenant_id("acme")
     InMemory.clear()
-    QueryCache.flush(ReadThrough.namespace(TenantConfig.Cache.cache_name()))
+    QueryCache.flush(
+      TenantConfig.Cache.cache_name(),
+      ReadThrough.namespace(TenantConfig.Cache.cache_name())
+    )
 
     assert {:ok, %{tenant_id: "acme"}} = TenantConfig.lookup_by_tenant_id("acme")
   end

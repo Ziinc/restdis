@@ -8,7 +8,7 @@ defmodule Restdis.Cache.ReplicationTest do
   alias Restdis.Cache.TestUtils.RecordingTransport
 
   setup do
-    previous = Application.get_env(:restdis, :replication_transport)
+    previous = Restdis.Cache.InstanceConfig.fetch!(Restdis.Cache).replication_transport
     TestUtils.put_transport(RecordingTransport)
     TestUtils.capture_replication(self())
 
@@ -30,7 +30,9 @@ defmodule Restdis.Cache.ReplicationTest do
 
       assert :ok = Restdis.Cache.put(tenant_id, key, value, persist: true)
 
-      assert_receive {:replicated, {:sc_replication, ^tenant_id, {:put, ^key, ^value, opts}}}
+      assert_receive {:replicated,
+                       {:sc_replication, Restdis.Cache, ^tenant_id, {:put, ^key, ^value, opts}}}
+
       assert Keyword.fetch!(opts, :persist)
     end
 
@@ -47,7 +49,9 @@ defmodule Restdis.Cache.ReplicationTest do
       key2 = Key.build(:table, "t", %{"a" => "2"})
 
       assert :ok = Restdis.Cache.put(tenant_id, key1, "v1", persist: true, persist_cap: 1)
-      assert_receive {:replicated, {:sc_replication, ^tenant_id, {:put, ^key1, _, _}}}
+
+      assert_receive {:replicated,
+                       {:sc_replication, Restdis.Cache, ^tenant_id, {:put, ^key1, _, _}}}
 
       assert {:error, :persist_cap} =
                Restdis.Cache.put(tenant_id, key2, "v2", persist: true, persist_cap: 1)
@@ -58,11 +62,13 @@ defmodule Restdis.Cache.ReplicationTest do
     test "delete of a persist entry broadcasts a delete event", %{tenant_id: tenant_id} do
       key = Key.build(:table, "orders", %{})
       assert :ok = Restdis.Cache.put(tenant_id, key, "v", persist: true)
-      assert_receive {:replicated, {:sc_replication, ^tenant_id, {:put, ^key, _, _}}}
+
+      assert_receive {:replicated,
+                       {:sc_replication, Restdis.Cache, ^tenant_id, {:put, ^key, _, _}}}
 
       assert :ok = Restdis.Cache.delete(tenant_id, key)
 
-      assert_receive {:replicated, {:sc_replication, ^tenant_id, {:delete, ^key}}}
+      assert_receive {:replicated, {:sc_replication, Restdis.Cache, ^tenant_id, {:delete, ^key}}}
     end
 
     test "delete of a non-persist entry does not broadcast", %{tenant_id: tenant_id} do
@@ -83,18 +89,23 @@ defmodule Restdis.Cache.ReplicationTest do
 
       assert :ok = Restdis.Cache.set_persist(tenant_id, key, true)
 
-      assert_receive {:replicated, {:sc_replication, ^tenant_id, {:put, ^key, ^value, opts}}}
+      assert_receive {:replicated,
+                       {:sc_replication, Restdis.Cache, ^tenant_id, {:put, ^key, ^value, opts}}}
+
       assert Keyword.fetch!(opts, :persist)
     end
 
     test "set_persist true→false broadcasts a set_persist event", %{tenant_id: tenant_id} do
       key = Key.build(:table, "products", %{})
       assert :ok = Restdis.Cache.put(tenant_id, key, "v", persist: true)
-      assert_receive {:replicated, {:sc_replication, ^tenant_id, {:put, ^key, _, _}}}
+
+      assert_receive {:replicated,
+                       {:sc_replication, Restdis.Cache, ^tenant_id, {:put, ^key, _, _}}}
 
       assert :ok = Restdis.Cache.set_persist(tenant_id, key, false)
 
-      assert_receive {:replicated, {:sc_replication, ^tenant_id, {:set_persist, ^key, false}}}
+      assert_receive {:replicated,
+                       {:sc_replication, Restdis.Cache, ^tenant_id, {:set_persist, ^key, false}}}
     end
 
     test "a nil transport disables replication", %{tenant_id: tenant_id} do
@@ -121,7 +132,8 @@ defmodule Restdis.Cache.ReplicationTest do
       key = Key.build(:table, "widgets", %{})
       value = %{"id" => 3}
 
-      assert :ok = Replication.apply_event(tenant_id, {:put, key, value, persist: true})
+      assert :ok =
+               Replication.apply_event(Restdis.Cache, tenant_id, {:put, key, value, persist: true})
 
       assert {:ok, ^value} = Restdis.Cache.peek(tenant_id, key)
       assert 1 = Restdis.Cache.persist_count(tenant_id)
@@ -130,7 +142,8 @@ defmodule Restdis.Cache.ReplicationTest do
     test "put does not re-broadcast", %{tenant_id: tenant_id} do
       key = Key.build(:table, "widgets", %{})
 
-      assert :ok = Replication.apply_event(tenant_id, {:put, key, "v", persist: true})
+      assert :ok =
+               Replication.apply_event(Restdis.Cache, tenant_id, {:put, key, "v", persist: true})
 
       refute_receive {:replicated, _}, 100
     end
@@ -141,7 +154,9 @@ defmodule Restdis.Cache.ReplicationTest do
       key = Key.build(:table, "widgets", %{})
       value = [%{"id" => 42}]
 
-      assert :ok = Replication.apply_event(tenant_id, {:put, key, value, persist: true})
+      assert :ok =
+               Replication.apply_event(Restdis.Cache, tenant_id, {:put, key, value, persist: true})
+
       assert :ok = Restdis.Cache.invalidate_by_row(tenant_id, "widgets", 42)
       Process.sleep(50)
 
@@ -154,12 +169,14 @@ defmodule Restdis.Cache.ReplicationTest do
 
       assert :ok =
                Replication.apply_event(
+                 Restdis.Cache,
                  tenant_id,
                  {:put, key1, "v1", persist: true, persist_cap: 1}
                )
 
       assert {:error, :persist_cap} =
                Replication.apply_event(
+                 Restdis.Cache,
                  tenant_id,
                  {:put, key2, "v2", persist: true, persist_cap: 1}
                )
@@ -167,9 +184,11 @@ defmodule Restdis.Cache.ReplicationTest do
 
     test "delete removes the local entry without re-broadcasting", %{tenant_id: tenant_id} do
       key = Key.build(:table, "widgets", %{})
-      assert :ok = Replication.apply_event(tenant_id, {:put, key, "v", persist: true})
 
-      assert :ok = Replication.apply_event(tenant_id, {:delete, key})
+      assert :ok =
+               Replication.apply_event(Restdis.Cache, tenant_id, {:put, key, "v", persist: true})
+
+      assert :ok = Replication.apply_event(Restdis.Cache, tenant_id, {:delete, key})
       Process.sleep(50)
 
       assert :miss = Restdis.Cache.peek(tenant_id, key)
@@ -179,10 +198,13 @@ defmodule Restdis.Cache.ReplicationTest do
 
     test "set_persist false clears the local persist flag", %{tenant_id: tenant_id} do
       key = Key.build(:table, "widgets", %{})
-      assert :ok = Replication.apply_event(tenant_id, {:put, key, "v", persist: true})
+
+      assert :ok =
+               Replication.apply_event(Restdis.Cache, tenant_id, {:put, key, "v", persist: true})
+
       assert 1 = Restdis.Cache.persist_count(tenant_id)
 
-      assert :ok = Replication.apply_event(tenant_id, {:set_persist, key, false})
+      assert :ok = Replication.apply_event(Restdis.Cache, tenant_id, {:set_persist, key, false})
 
       assert 0 = Restdis.Cache.persist_count(tenant_id)
       refute_receive {:replicated, _}, 100
@@ -191,7 +213,8 @@ defmodule Restdis.Cache.ReplicationTest do
     test "set_persist for an unknown key is a no-op", %{tenant_id: tenant_id} do
       key = Key.build(:table, "ghost", %{})
 
-      assert {:error, :not_found} = Replication.apply_event(tenant_id, {:set_persist, key, false})
+      assert {:error, :not_found} =
+               Replication.apply_event(Restdis.Cache, tenant_id, {:set_persist, key, false})
     end
   end
 
@@ -201,18 +224,18 @@ defmodule Restdis.Cache.ReplicationTest do
       value = %{"id" => 9}
 
       GenServer.cast(
-        Replication.Receiver,
-        {:sc_replication, tenant_id, {:put, key, value, persist: true}}
+        Replication.Receiver.process_name(Restdis.Cache),
+        {:sc_replication, Restdis.Cache, tenant_id, {:put, key, value, persist: true}}
       )
 
-      :ok = GenServer.call(Replication.Receiver, :sync)
+      :ok = GenServer.call(Replication.Receiver.process_name(Restdis.Cache), :sync)
 
       assert {:ok, ^value} = Restdis.Cache.peek(tenant_id, key)
     end
 
     test "ignores an unrecognized cast message" do
-      GenServer.cast(Replication.Receiver, :some_unknown_message)
-      assert :ok = GenServer.call(Replication.Receiver, :sync)
+      GenServer.cast(Replication.Receiver.process_name(Restdis.Cache), :some_unknown_message)
+      assert :ok = GenServer.call(Replication.Receiver.process_name(Restdis.Cache), :sync)
     end
   end
 
@@ -220,7 +243,8 @@ defmodule Restdis.Cache.ReplicationTest do
     test "broadcasting with no connected peers succeeds" do
       assert :ok =
                Distribution.broadcast(
-                 {:sc_replication, "t", {:delete, Key.build(:table, "x", %{})}}
+                 Replication.Receiver.process_name(Restdis.Cache),
+                 {:sc_replication, Restdis.Cache, "t", {:delete, Key.build(:table, "x", %{})}}
                )
     end
   end

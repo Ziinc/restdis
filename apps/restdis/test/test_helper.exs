@@ -2,16 +2,16 @@ run_db_tests? = System.get_env("RESTDIS_SKIP_DB_TESTS") != "true"
 
 ExUnit.start(exclude: if(run_db_tests?, do: [], else: [:db]))
 
-{:ok, _pid} = Restdis.Cache.Supervisor.start_link([])
-
-test_dir =
-  Application.get_env(
-    :restdis,
-    :cache_data_dir,
-    System.tmp_dir!() <> "/restdis_test"
-  )
-
+test_dir = System.tmp_dir!() <> "/restdis_test"
 File.rm_rf!(test_dir)
+
+{:ok, _pid} =
+  Restdis.Cache.Supervisor.start_link(
+    data_dir: test_dir,
+    origin: Restdis.Cache.Origin.Stub,
+    repo: Restdis.TestRepo,
+    prefix: "restdis"
+  )
 
 if run_db_tests? do
   {:ok, _} = Application.ensure_all_started(:ecto_sql)

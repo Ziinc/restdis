@@ -12,7 +12,7 @@ defmodule Restdis.CacheEdgeCasesTest do
 
   test "persist_count/1 is 0 for a tenant that never persisted anything" do
     tenant_id = "pc_#{System.unique_integer([:positive])}"
-    TenantSupervisor.ensure_started(tenant_id)
+    TenantSupervisor.ensure_started(Restdis.Cache, tenant_id)
     on_exit(fn -> Cache.flush_tenant(tenant_id) end)
 
     assert Cache.persist_count(tenant_id) == 0
@@ -25,7 +25,7 @@ defmodule Restdis.CacheEdgeCasesTest do
 
   test "put/4 with :persist returns {:error, :persist_cap} once the cap is reached" do
     tenant_id = "cap_#{System.unique_integer([:positive])}"
-    TenantSupervisor.ensure_started(tenant_id)
+    TenantSupervisor.ensure_started(Restdis.Cache, tenant_id)
     on_exit(fn -> Cache.flush_tenant(tenant_id) end)
 
     key1 = Key.build(:table, "capped1", %{})

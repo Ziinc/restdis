@@ -70,7 +70,7 @@ defmodule RestdisBuster.Integration.WalInvalidationTest do
   end
 
   setup _ctx do
-    TenantSupervisor.ensure_started(@tenant_id)
+    TenantSupervisor.ensure_started(Restdis.Cache, @tenant_id)
     Restdis.Cache.flush_tenant(@tenant_id)
     # The table-config cache is read-through; invalidate to refetch the fixture.
     RestdisBuster.TenantTableConfig.invalidate(@test_schema, @test_table)

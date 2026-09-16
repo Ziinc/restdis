@@ -19,6 +19,7 @@ defmodule Restdis.Cache.ReadThrough do
   alias Restdis.Cache.DiskCache
   alias Restdis.Cache.Key
   alias Restdis.Cache.QueryCache
+  alias Restdis.Cache.TenantRegistry
 
   @type name :: atom()
   @type ident :: String.t()
@@ -63,8 +64,8 @@ defmodule Restdis.Cache.ReadThrough do
     %{namespace: ns, ttl_ms: ttl_ms} = config(name)
     key = key(ident)
 
-    with :miss <- QueryCache.get(ns, key),
-         :miss <- disk_get_and_promote(ns, key, ttl_ms) do
+    with :miss <- QueryCache.get(name, ns, key),
+         :miss <- disk_get_and_promote(name, ns, key, ttl_ms) do
       load(name, ident, loader)
     end
   end
@@ -76,8 +77,8 @@ defmodule Restdis.Cache.ReadThrough do
   def put(name, ident, value) when is_binary(ident) do
     %{namespace: ns, ttl_ms: ttl_ms} = config(name)
     key = key(ident)
-    QueryCache.put(ns, key, value, ttl_ms: ttl_ms)
-    DiskCache.put(ns, key, envelope(value, ttl_ms))
+    QueryCache.put(name, ns, key, value, ttl_ms: ttl_ms)
+    DiskCache.put(name, ns, key, envelope(value, ttl_ms))
     :ok
   end
 
@@ -88,8 +89,8 @@ defmodule Restdis.Cache.ReadThrough do
   def delete(name, ident) when is_binary(ident) do
     ns = config(name).namespace
     key = key(ident)
-    QueryCache.delete(ns, key)
-    DiskCache.delete(ns, key)
+    QueryCache.delete(name, ns, key)
+    DiskCache.delete(name, ns, key)
     :ok
   end
 
@@ -99,8 +100,8 @@ defmodule Restdis.Cache.ReadThrough do
   @spec flush(name()) :: :ok
   def flush(name) do
     ns = config(name).namespace
-    QueryCache.flush(ns)
-    DiskCache.flush(ns)
+    QueryCache.flush(name, ns)
+    DiskCache.flush(name, ns)
     :ok
   end
 
@@ -114,8 +115,9 @@ defmodule Restdis.Cache.ReadThrough do
     :persistent_term.put({:sc_rt, name}, %{namespace: ns, ttl_ms: ttl_ms})
 
     children = [
-      QueryCache.child_spec(ns),
-      {DiskCache, tenant_id: ns, data_dir: data_dir}
+      {Registry, keys: :unique, name: TenantRegistry.registry_name(name)},
+      QueryCache.child_spec(name, ns),
+      {DiskCache, name: name, tenant_id: ns, data_dir: data_dir}
     ]
 
     Supervisor.init(children, strategy: :one_for_one)
@@ -132,14 +134,14 @@ defmodule Restdis.Cache.ReadThrough do
     end
   end
 
-  defp disk_get_and_promote(ns, key, ttl_ms) do
-    case DiskCache.get(ns, key) do
+  defp disk_get_and_promote(name, ns, key, ttl_ms) do
+    case DiskCache.get(name, ns, key) do
       {:ok, {:rt, value, expires_at}} ->
         if expires_at > now_ms() do
-          QueryCache.put(ns, key, value, ttl_ms: ttl_ms)
+          QueryCache.put(name, ns, key, value, ttl_ms: ttl_ms)
           {:ok, value}
         else
-          DiskCache.delete(ns, key)
+          DiskCache.delete(name, ns, key)
           :miss
         end
 

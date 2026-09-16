@@ -7,7 +7,7 @@ defmodule Restdis.Cache.PersistTest do
 
   setup do
     tenant_id = "persist_#{System.unique_integer([:positive])}"
-    TenantSupervisor.ensure_started(tenant_id)
+    TenantSupervisor.ensure_started(Restdis.Cache, tenant_id)
     on_exit(fn -> Restdis.Cache.flush_tenant(tenant_id) end)
     {:ok, tenant_id: tenant_id}
   end
@@ -18,11 +18,11 @@ defmodule Restdis.Cache.PersistTest do
 
     assert :ok = Restdis.Cache.put(tenant_id, key, value, persist: true)
 
-    pid = TenantRegistry.whereis(tenant_id, :tenant)
+    pid = TenantRegistry.whereis(Restdis.Cache, tenant_id, :tenant)
     Supervisor.stop(pid, :normal)
     Process.sleep(50)
 
-    TenantSupervisor.ensure_started(tenant_id)
+    TenantSupervisor.ensure_started(Restdis.Cache, tenant_id)
     assert {:ok, ^value} = Restdis.Cache.peek(tenant_id, key)
   end
 
@@ -98,11 +98,11 @@ defmodule Restdis.Cache.PersistTest do
     assert :ok = Restdis.Cache.put(tenant_id, key3, "v3", persist: true)
     assert 3 = Restdis.Cache.persist_count(tenant_id)
 
-    pid = TenantRegistry.whereis(tenant_id, :tenant)
+    pid = TenantRegistry.whereis(Restdis.Cache, tenant_id, :tenant)
     Supervisor.stop(pid, :normal)
     Process.sleep(50)
 
-    TenantSupervisor.ensure_started(tenant_id)
+    TenantSupervisor.ensure_started(Restdis.Cache, tenant_id)
     assert 3 = Restdis.Cache.persist_count(tenant_id)
   end
 
@@ -145,7 +145,7 @@ defmodule Restdis.Cache.PersistTest do
     key = Key.build(:table, "legacy", %{})
     raw_value = %{"id" => 99, "name" => "old"}
 
-    disk_cache_pid = TenantRegistry.whereis(tenant_id, :disk_cache)
+    disk_cache_pid = TenantRegistry.whereis(Restdis.Cache, tenant_id, :disk_cache)
     state = :sys.get_state(disk_cache_pid)
     cubdb = state.cubdb
     :ok = CubDB.put(cubdb, key, raw_value)

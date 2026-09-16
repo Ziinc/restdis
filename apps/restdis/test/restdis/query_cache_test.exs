@@ -8,7 +8,7 @@ defmodule Restdis.Cache.QueryCacheTest do
 
   setup do
     tenant_id = "qc_#{System.unique_integer([:positive])}"
-    TenantSupervisor.ensure_started(tenant_id)
+    TenantSupervisor.ensure_started(Restdis.Cache, tenant_id)
     on_exit(fn -> Restdis.Cache.flush_tenant(tenant_id) end)
     {:ok, tenant_id: tenant_id}
   end
@@ -17,20 +17,20 @@ defmodule Restdis.Cache.QueryCacheTest do
     key = Key.build(:table, "products", %{"select" => "id,name"})
     value = %{"id" => 1, "name" => "Widget"}
 
-    QueryCache.put(tenant_id, key, value)
-    assert {:ok, ^value} = QueryCache.get(tenant_id, key)
+    QueryCache.put(Restdis.Cache, tenant_id, key, value)
+    assert {:ok, ^value} = QueryCache.get(Restdis.Cache, tenant_id, key)
   end
 
   test "get returns miss for unknown key", %{tenant_id: tenant_id} do
     key = Key.build(:table, "products", %{})
-    assert :miss = QueryCache.get(tenant_id, key)
+    assert :miss = QueryCache.get(Restdis.Cache, tenant_id, key)
   end
 
   test "delete removes value", %{tenant_id: tenant_id} do
     key = Key.build(:table, "products", %{})
-    QueryCache.put(tenant_id, key, "value")
-    QueryCache.delete(tenant_id, key)
-    assert :miss = QueryCache.get(tenant_id, key)
+    QueryCache.put(Restdis.Cache, tenant_id, key, "value")
+    QueryCache.delete(Restdis.Cache, tenant_id, key)
+    assert :miss = QueryCache.get(Restdis.Cache, tenant_id, key)
   end
 
   test "key canonicalization: same params in any order produce the same key" do
@@ -47,33 +47,33 @@ defmodule Restdis.Cache.QueryCacheTest do
 
   test "get treats an entry past its ttl as a miss and removes it", %{tenant_id: tenant_id} do
     key = Key.build(:table, "products", %{})
-    QueryCache.put(tenant_id, key, "value", ttl_ms: 1)
+    QueryCache.put(Restdis.Cache, tenant_id, key, "value", ttl_ms: 1)
 
     Process.sleep(5)
 
-    assert :miss = QueryCache.get(tenant_id, key)
-    assert :miss = QueryCache.get(tenant_id, key)
+    assert :miss = QueryCache.get(Restdis.Cache, tenant_id, key)
+    assert :miss = QueryCache.get(Restdis.Cache, tenant_id, key)
   end
 
   test "get returns an unexpired ttl entry and refreshes its last-access time", %{
     tenant_id: tenant_id
   } do
     key = Key.build(:table, "products", %{})
-    QueryCache.put(tenant_id, key, "value", ttl_ms: 60_000)
+    QueryCache.put(Restdis.Cache, tenant_id, key, "value", ttl_ms: 60_000)
 
-    assert {:ok, "value"} = QueryCache.get(tenant_id, key)
+    assert {:ok, "value"} = QueryCache.get(Restdis.Cache, tenant_id, key)
   end
 
   test "the periodic sweep removes expired entries", %{tenant_id: tenant_id} do
     key = Key.build(:table, "products", %{})
-    QueryCache.put(tenant_id, key, "value", ttl_ms: 1)
+    QueryCache.put(Restdis.Cache, tenant_id, key, "value", ttl_ms: 1)
     Process.sleep(5)
 
-    pid = TenantRegistry.whereis(tenant_id, :query_cache)
+    pid = TenantRegistry.whereis(Restdis.Cache, tenant_id, :query_cache)
     send(pid, :sweep)
     :sys.get_state(pid)
 
-    assert :miss = QueryCache.get(tenant_id, key)
+    assert :miss = QueryCache.get(Restdis.Cache, tenant_id, key)
   end
 
   test "stopping the tenant clears the query cache's registered table, not just the process", %{

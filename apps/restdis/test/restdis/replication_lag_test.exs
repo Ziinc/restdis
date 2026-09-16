@@ -30,14 +30,14 @@ defmodule Restdis.Cache.ReplicationLagTest do
     event = {:put, key, "v", [persist: true]}
 
     GenServer.cast(
-      Receiver,
-      {:sc_replication_stamped, {:sc_replication, tenant_id, event}, sent_at_us}
+      Receiver.process_name(Restdis.Cache),
+      {:sc_replication_stamped, {:sc_replication, Restdis.Cache, tenant_id, event}, sent_at_us}
     )
 
     assert_receive {:lag, %{lag_us: lag_us}, %{tenant_id: ^tenant_id}}
     assert lag_us >= 5_000
 
-    assert :ok = GenServer.call(Receiver, :sync)
+    assert :ok = GenServer.call(Receiver.process_name(Restdis.Cache), :sync)
     assert {:ok, "v"} = Restdis.Cache.peek(tenant_id, key)
   end
 end

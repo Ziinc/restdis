@@ -20,7 +20,9 @@ defmodule Restdis.Cache.Replication do
   """
 
   alias Restdis.Cache.Cluster
+  alias Restdis.Cache.InstanceConfig
   alias Restdis.Cache.Key
+  alias Restdis.Cache.Replication.Receiver
 
   @type event ::
           {:put, Key.t(), term(), keyword()}
@@ -30,17 +32,17 @@ defmodule Restdis.Cache.Replication do
   @wire_opts [:persist, :persist_cap, :ttl_ms, :pk_column, :primary_keys]
 
   @doc """
-  Sends `event` to every peer node. A no-op when no transport is configured.
+  Sends `event` to every peer node's instance `name`. A no-op when no transport is configured.
   """
-  @spec broadcast(Restdis.Cache.tenant_id(), event()) :: :ok
-  def broadcast(tenant_id, event) do
-    case transport() do
+  @spec broadcast(atom(), Restdis.Cache.tenant_id(), event()) :: :ok
+  def broadcast(name, tenant_id, event) do
+    case transport(name) do
       nil ->
         :ok
 
       transport ->
-        message = {:sc_replication, tenant_id, sanitize(event)}
-        :ok = transport.broadcast(message)
+        message = {:sc_replication, name, tenant_id, sanitize(event)}
+        :ok = transport.broadcast(Receiver.process_name(name), message)
 
         :telemetry.execute([:restdis, :replication, :broadcast], %{count: 1}, %{
           tenant_id: tenant_id,
@@ -52,16 +54,17 @@ defmodule Restdis.Cache.Replication do
   end
 
   @doc """
-  Applies a peer's `event` to the local cache layers without re-broadcasting it.
+  Applies a peer's `event` to the local cache layers under instance `name`, without
+  re-broadcasting it.
   """
-  @spec apply_event(Restdis.Cache.tenant_id(), event()) ::
+  @spec apply_event(atom(), Restdis.Cache.tenant_id(), event()) ::
           :ok | {:error, :persist_cap | :not_found | :not_owner}
-  def apply_event(tenant_id, event) do
+  def apply_event(name, tenant_id, event) do
     op = elem(event, 0)
 
     result =
-      if Cluster.local?(tenant_id) do
-        do_apply(tenant_id, event)
+      if Cluster.local?(tenant_id, name) do
+        do_apply(name, tenant_id, event)
       else
         {:error, :not_owner}
       end
@@ -84,16 +87,16 @@ defmodule Restdis.Cache.Replication do
     result
   end
 
-  defp do_apply(tenant_id, {:put, key, value, opts}) do
-    Restdis.Cache.put(tenant_id, key, value, Keyword.put(opts, :replicated, true))
+  defp do_apply(name, tenant_id, {:put, key, value, opts}) do
+    Restdis.Cache.put(tenant_id, key, value, Keyword.put(opts, :replicated, true), name)
   end
 
-  defp do_apply(tenant_id, {:delete, key}) do
-    Restdis.Cache.delete(tenant_id, key, replicated: true)
+  defp do_apply(name, tenant_id, {:delete, key}) do
+    Restdis.Cache.delete(tenant_id, key, [replicated: true], name)
   end
 
-  defp do_apply(tenant_id, {:set_persist, key, persist}) do
-    Restdis.Cache.set_persist(tenant_id, key, persist, replicated: true)
+  defp do_apply(name, tenant_id, {:set_persist, key, persist}) do
+    Restdis.Cache.set_persist(tenant_id, key, persist, [replicated: true], name)
   end
 
   defp sanitize({:put, key, value, opts}) do
@@ -102,9 +105,9 @@ defmodule Restdis.Cache.Replication do
 
   defp sanitize(event), do: event
 
-  defp transport do
-    Application.get_env(
-      :restdis,
+  defp transport(name) do
+    InstanceConfig.get(
+      name,
       :replication_transport,
       Restdis.Cache.Replication.Transport.Distribution
     )

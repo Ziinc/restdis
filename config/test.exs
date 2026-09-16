@@ -29,8 +29,6 @@ config :restdis_replicator,
   tenant_config_lookup: nil
 
 config :restdis,
-  cache_data_dir: System.tmp_dir!() <> "/restdis_test",
-  origin: Restdis.Cache.Origin.Stub,
   tenant_config_lookup: nil,
   ecto_repos: [Restdis.TestRepo]
 
@@ -58,7 +56,9 @@ config :restdis_server,
     ttl_ms: 60_000
   ],
   req_options: [plug: {Req.Test, RestdisServer.Finch}],
-  rewarm_tick_ms: 50
+  rewarm_tick_ms: 50,
+  cache_data_dir: System.tmp_dir!() <> "/restdis_test",
+  cache_origin: Restdis.Cache.Origin.Stub
 
 config :restdis_repo, RestdisRepo,
   username: "postgres",

@@ -56,7 +56,11 @@ defmodule RestdisServer.Commands.PgrstPolicy do
 
       _ ->
         if ttl_ms = parsed[:ttl_ms] do
-          QueryCache.put(state.tenant_id, key, get_current_value(state.tenant_id, key),
+          QueryCache.put(
+            Restdis.Cache,
+            state.tenant_id,
+            key,
+            get_current_value(state.tenant_id, key),
             ttl_ms: ttl_ms
           )
         end

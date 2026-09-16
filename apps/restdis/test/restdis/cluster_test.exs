@@ -61,7 +61,7 @@ defmodule Restdis.Cache.ClusterTest do
   end
 
   test "ignores an unrecognized info message" do
-    send(Restdis.Cache.Cluster, :some_unknown_message)
-    assert :ok = GenServer.call(Restdis.Cache.Cluster, :sync)
+    send(Cluster.process_name(Restdis.Cache), :some_unknown_message)
+    assert :ok = GenServer.call(Cluster.process_name(Restdis.Cache), :sync)
   end
 end

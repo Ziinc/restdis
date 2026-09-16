@@ -35,15 +35,15 @@ defmodule Restdis.Cache.TenantTest do
     key = Key.build(:table, "products", %{"id" => "eq.1"})
     value = %{"id" => 1, "name" => "Widget"}
 
-    TenantSupervisor.ensure_started(tenant_id)
-    DiskCache.put(tenant_id, key, value)
+    TenantSupervisor.ensure_started(Restdis.Cache, tenant_id)
+    DiskCache.put(Restdis.Cache, tenant_id, key, value)
 
-    pid = TenantRegistry.whereis(tenant_id, :tenant)
+    pid = TenantRegistry.whereis(Restdis.Cache, tenant_id, :tenant)
     Supervisor.stop(pid, :normal)
     Process.sleep(50)
 
-    TenantSupervisor.ensure_started(tenant_id)
-    assert {:ok, ^value} = DiskCache.get(tenant_id, key)
+    TenantSupervisor.ensure_started(Restdis.Cache, tenant_id)
+    assert {:ok, ^value} = DiskCache.get(Restdis.Cache, tenant_id, key)
 
     Restdis.Cache.flush_tenant(tenant_id)
   end
@@ -52,15 +52,15 @@ defmodule Restdis.Cache.TenantTest do
     tenant_id = "flush_#{System.unique_integer([:positive])}"
     key = Key.build(:table, "orders", %{})
 
-    TenantSupervisor.ensure_started(tenant_id)
-    DiskCache.put(tenant_id, key, "data")
-    DiskCache.get(tenant_id, key)
+    TenantSupervisor.ensure_started(Restdis.Cache, tenant_id)
+    DiskCache.put(Restdis.Cache, tenant_id, key, "data")
+    DiskCache.get(Restdis.Cache, tenant_id, key)
 
     Restdis.Cache.flush_tenant(tenant_id)
     Process.sleep(50)
 
-    TenantSupervisor.ensure_started(tenant_id)
-    assert :miss = DiskCache.get(tenant_id, key)
+    TenantSupervisor.ensure_started(Restdis.Cache, tenant_id)
+    assert :miss = DiskCache.get(Restdis.Cache, tenant_id, key)
 
     Restdis.Cache.flush_tenant(tenant_id)
   end
@@ -104,7 +104,7 @@ defmodule Restdis.Cache.TenantTest do
     Process.sleep(50)
 
     assert :miss = Restdis.Cache.get(tenant_id, key)
-    assert :miss = DiskCache.get(tenant_id, key)
+    assert :miss = DiskCache.get(Restdis.Cache, tenant_id, key)
 
     Restdis.Cache.flush_tenant(tenant_id)
   end

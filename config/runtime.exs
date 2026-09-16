@@ -54,7 +54,7 @@ if config_env() == :prod do
         ]
     end
 
-  config :restdis,
+  config :restdis_server,
     cache_data_dir: System.get_env("CACHE_DATA_DIR", "/var/lib/restdis/cache")
 
   config :restdis_replicator,

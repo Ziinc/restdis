@@ -32,7 +32,7 @@ defmodule RestdisBuster.Worker.BackpressureTest do
 
   setup do
     Application.put_env(:restdis_buster, :worker_per_tenant_cap, 2)
-    TenantSupervisor.ensure_started(@tenant)
+    TenantSupervisor.ensure_started(Restdis.Cache, @tenant)
     seed_config()
 
     # The CoalesceSweeper's 1s timer races the ETS assertions; it restarts later.

@@ -33,7 +33,7 @@ defmodule Restdis.Cache.ReadThroughTest do
   test "fetch/3 falls back to the disk layer when the query cache is empty", %{name: name} do
     assert {:ok, 1} = ReadThrough.fetch(name, "k", fn -> {:ok, 1} end)
 
-    QueryCache.flush(ReadThrough.namespace(name))
+    QueryCache.flush(name, ReadThrough.namespace(name))
 
     assert {:ok, 1} = ReadThrough.fetch(name, "k", fn -> flunk("loader ran") end)
   end
@@ -42,7 +42,7 @@ defmodule Restdis.Cache.ReadThroughTest do
   test "fetch/3 reloads once every layer has expired", %{name: name} do
     assert {:ok, 1} = ReadThrough.fetch(name, "k", fn -> {:ok, 1} end)
     Process.sleep(5)
-    QueryCache.flush(ReadThrough.namespace(name))
+    QueryCache.flush(name, ReadThrough.namespace(name))
 
     assert {:ok, 2} = ReadThrough.fetch(name, "k", fn -> {:ok, 2} end)
   end

@@ -7,7 +7,7 @@ defmodule Restdis.Cache.DiskCacheTest do
 
   setup do
     tenant_id = "dc_#{System.unique_integer([:positive])}"
-    TenantSupervisor.ensure_started(tenant_id)
+    TenantSupervisor.ensure_started(Restdis.Cache, tenant_id)
     on_exit(fn -> Restdis.Cache.flush_tenant(tenant_id) end)
     {:ok, tenant_id: tenant_id}
   end
@@ -16,33 +16,33 @@ defmodule Restdis.Cache.DiskCacheTest do
     key = Key.build(:table, "products", %{})
     value = [%{"id" => 1}, %{"id" => 2}]
 
-    DiskCache.put(tenant_id, key, value)
-    assert {:ok, ^value} = DiskCache.get(tenant_id, key)
+    DiskCache.put(Restdis.Cache, tenant_id, key, value)
+    assert {:ok, ^value} = DiskCache.get(Restdis.Cache, tenant_id, key)
   end
 
   test "get returns miss for unknown key", %{tenant_id: tenant_id} do
     key = Key.build(:table, "missing", %{})
-    assert :miss = DiskCache.get(tenant_id, key)
+    assert :miss = DiskCache.get(Restdis.Cache, tenant_id, key)
   end
 
   test "delete removes value", %{tenant_id: tenant_id} do
     key = Key.build(:table, "products", %{})
-    DiskCache.put(tenant_id, key, "val")
-    DiskCache.delete(tenant_id, key)
-    assert :miss = DiskCache.get(tenant_id, key)
+    DiskCache.put(Restdis.Cache, tenant_id, key, "val")
+    DiskCache.delete(Restdis.Cache, tenant_id, key)
+    assert :miss = DiskCache.get(Restdis.Cache, tenant_id, key)
   end
 
   test "stores and retrieves complex Elixir terms", %{tenant_id: tenant_id} do
     key = Key.build(:rpc, "my_fn", %{"arg" => "x"})
     value = %{nested: [1, 2, %{deep: true}], atom_key: :ok}
 
-    DiskCache.put(tenant_id, key, value)
-    assert {:ok, ^value} = DiskCache.get(tenant_id, key)
+    DiskCache.put(Restdis.Cache, tenant_id, key, value)
+    assert {:ok, ^value} = DiskCache.get(Restdis.Cache, tenant_id, key)
   end
 
   test "persisted_entries/1 returns [] when the disk cache is not running" do
     tenant_id = "dc_never_started_#{System.unique_integer([:positive])}"
-    assert DiskCache.persisted_entries(tenant_id) == []
+    assert DiskCache.persisted_entries(Restdis.Cache, tenant_id) == []
   end
 
   test "persisted_entries/1 returns only entries flagged persist: true", %{
@@ -51,15 +51,15 @@ defmodule Restdis.Cache.DiskCacheTest do
     persisted_key = Key.build(:table, "persisted", %{})
     plain_key = Key.build(:table, "plain", %{})
 
-    DiskCache.put(tenant_id, persisted_key, "persisted-value", persist: true)
-    DiskCache.put(tenant_id, plain_key, "plain-value")
+    DiskCache.put(Restdis.Cache, tenant_id, persisted_key, "persisted-value", persist: true)
+    DiskCache.put(Restdis.Cache, tenant_id, plain_key, "plain-value")
 
-    assert [{^persisted_key, "persisted-value"}] = DiskCache.persisted_entries(tenant_id)
+    assert [{^persisted_key, "persisted-value"}] = DiskCache.persisted_entries(Restdis.Cache, tenant_id)
   end
 
   test "set_persist/3 returns :not_found for a missing key", %{tenant_id: tenant_id} do
     key = Key.build(:table, "missing", %{})
-    assert :not_found = DiskCache.set_persist(tenant_id, key, true)
+    assert :not_found = DiskCache.set_persist(Restdis.Cache, tenant_id, key, true)
   end
 
   test "get_with_ttl returns the remaining ttl for a ttl-bearing entry", %{tenant_id: tenant_id} do
@@ -97,15 +97,19 @@ defmodule Restdis.Cache.DiskCacheTest do
     key2 = Key.build(:table, "cap2", %{})
     value = String.duplicate("z", 500)
 
-    DiskCache.put(tenant_id, key1, value, persist: true)
-    size_after_one = DiskCache.disk_size_bytes(tenant_id)
+    DiskCache.put(Restdis.Cache, tenant_id, key1, value, persist: true)
+    size_after_one = DiskCache.disk_size_bytes(Restdis.Cache, tenant_id)
 
-    Application.put_env(:restdis, :cubdb_cap_bytes, size_after_one)
-    on_exit(fn -> Application.delete_env(:restdis, :cubdb_cap_bytes) end)
+    previous = Restdis.Cache.InstanceConfig.get(Restdis.Cache, :cubdb_cap_bytes)
+    Restdis.Cache.InstanceConfig.put_field(Restdis.Cache, :cubdb_cap_bytes, size_after_one)
 
-    DiskCache.put(tenant_id, key2, value, persist: true)
+    on_exit(fn ->
+      Restdis.Cache.InstanceConfig.put_field(Restdis.Cache, :cubdb_cap_bytes, previous)
+    end)
 
-    assert {:ok, ^value} = DiskCache.get(tenant_id, key1)
-    assert {:ok, ^value} = DiskCache.get(tenant_id, key2)
+    DiskCache.put(Restdis.Cache, tenant_id, key2, value, persist: true)
+
+    assert {:ok, ^value} = DiskCache.get(Restdis.Cache, tenant_id, key1)
+    assert {:ok, ^value} = DiskCache.get(Restdis.Cache, tenant_id, key2)
   end
 end

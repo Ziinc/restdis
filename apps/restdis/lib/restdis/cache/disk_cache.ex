@@ -5,18 +5,18 @@ defmodule Restdis.Cache.DiskCache do
 
   use GenServer
 
+  alias Restdis.Cache.InstanceConfig
   alias Restdis.Cache.Key
   alias Restdis.Cache.TenantRegistry
 
-  @default_cubdb_cap_bytes 500 * 1024 * 1024
-
   @doc """
-  Starts the disk cache for the tenant given in `opts`.
+  Starts the disk cache for the tenant given in `opts` (`:name`, `:tenant_id`, `:data_dir`).
   """
   @spec start_link(keyword()) :: GenServer.on_start()
   def start_link(opts) do
+    name = Keyword.fetch!(opts, :name)
     tenant_id = Keyword.fetch!(opts, :tenant_id)
-    GenServer.start_link(__MODULE__, opts, name: TenantRegistry.via(tenant_id, :disk_cache))
+    GenServer.start_link(__MODULE__, opts, name: TenantRegistry.via(name, tenant_id, :disk_cache))
   end
 
   @doc """
@@ -27,11 +27,11 @@ defmodule Restdis.Cache.DiskCache do
   any process; going through the GenServer would needlessly serialize every
   read behind whatever writes/evictions are in flight.
   """
-  @spec get(String.t(), Key.t()) :: {:ok, term()} | :miss
-  def get(tenant_id, key) do
-    case TenantRegistry.get_value(tenant_id, :dc_cubdb) do
+  @spec get(atom(), String.t(), Key.t()) :: {:ok, term()} | :miss
+  def get(name, tenant_id, key) do
+    case TenantRegistry.get_value(name, tenant_id, :dc_cubdb) do
       nil ->
-        GenServer.call(TenantRegistry.via(tenant_id, :disk_cache), {:get, key})
+        GenServer.call(TenantRegistry.via(name, tenant_id, :disk_cache), {:get, key})
 
       cubdb ->
         case fetch_live(cubdb, key) do
@@ -40,7 +40,7 @@ defmodule Restdis.Cache.DiskCache do
 
           :expired ->
             # Falls back so the removal goes through the process owning `state.bytes`.
-            GenServer.call(TenantRegistry.via(tenant_id, :disk_cache), {:get, key})
+            GenServer.call(TenantRegistry.via(name, tenant_id, :disk_cache), {:get, key})
 
           :miss ->
             :miss
@@ -52,8 +52,8 @@ defmodule Restdis.Cache.DiskCache do
   Writes `value` under `key`, persisting it when `opts[:persist]` is true and
   expiring it after `opts[:ttl_ms]`, if given.
   """
-  @spec put(String.t(), Key.t(), term(), keyword()) :: :ok
-  def put(tenant_id, key, value, opts \\ []) do
+  @spec put(atom(), String.t(), Key.t(), term(), keyword()) :: :ok
+  def put(name, tenant_id, key, value, opts \\ []) do
     persist = Keyword.get(opts, :persist, false)
 
     expires_at =
@@ -63,7 +63,7 @@ defmodule Restdis.Cache.DiskCache do
       end
 
     GenServer.call(
-      TenantRegistry.via(tenant_id, :disk_cache),
+      TenantRegistry.via(name, tenant_id, :disk_cache),
       {:put, key, value, persist, expires_at}
     )
   end
@@ -73,17 +73,17 @@ defmodule Restdis.Cache.DiskCache do
   entry carries no ttl) alongside its value. Treats an expired entry as a
   miss, the same as `get/2`.
   """
-  @spec get_with_ttl(String.t(), Key.t()) :: {:ok, term(), pos_integer() | nil} | :miss
-  def get_with_ttl(tenant_id, key) do
-    GenServer.call(TenantRegistry.via(tenant_id, :disk_cache), {:get_with_ttl, key})
+  @spec get_with_ttl(atom(), String.t(), Key.t()) :: {:ok, term(), pos_integer() | nil} | :miss
+  def get_with_ttl(name, tenant_id, key) do
+    GenServer.call(TenantRegistry.via(name, tenant_id, :disk_cache), {:get_with_ttl, key})
   end
 
   @doc """
   Flips the persist flag of an existing entry.
   """
-  @spec set_persist(String.t(), Key.t(), boolean()) :: :ok | :not_found
-  def set_persist(tenant_id, key, persist) do
-    GenServer.call(TenantRegistry.via(tenant_id, :disk_cache), {:set_persist, key, persist})
+  @spec set_persist(atom(), String.t(), Key.t(), boolean()) :: :ok | :not_found
+  def set_persist(name, tenant_id, key, persist) do
+    GenServer.call(TenantRegistry.via(name, tenant_id, :disk_cache), {:set_persist, key, persist})
   end
 
   @doc """
@@ -92,11 +92,11 @@ defmodule Restdis.Cache.DiskCache do
   Calls the CubDB process directly for the same concurrency reason as
   `get/2`.
   """
-  @spec peek_meta(String.t(), Key.t()) :: {:ok, %{persist: boolean()}} | :miss
-  def peek_meta(tenant_id, key) do
-    case TenantRegistry.get_value(tenant_id, :dc_cubdb) do
+  @spec peek_meta(atom(), String.t(), Key.t()) :: {:ok, %{persist: boolean()}} | :miss
+  def peek_meta(name, tenant_id, key) do
+    case TenantRegistry.get_value(name, tenant_id, :dc_cubdb) do
       nil ->
-        GenServer.call(TenantRegistry.via(tenant_id, :disk_cache), {:peek_meta, key})
+        GenServer.call(TenantRegistry.via(name, tenant_id, :disk_cache), {:peek_meta, key})
 
       cubdb ->
         fetch_meta(cubdb, key)
@@ -114,17 +114,17 @@ defmodule Restdis.Cache.DiskCache do
   a subsequent `get` call from a different process, since Erlang only
   orders messages between the same sender and receiver.
   """
-  @spec delete(String.t(), Key.t()) :: :ok
-  def delete(tenant_id, key) do
-    GenServer.call(TenantRegistry.via(tenant_id, :disk_cache), {:delete, key})
+  @spec delete(atom(), String.t(), Key.t()) :: :ok
+  def delete(name, tenant_id, key) do
+    GenServer.call(TenantRegistry.via(name, tenant_id, :disk_cache), {:delete, key})
   end
 
   @doc """
   Returns the `{key, value}` pairs flagged `persist` for the tenant.
   """
-  @spec persisted_entries(String.t()) :: [{Key.t(), term()}]
-  def persisted_entries(tenant_id) do
-    case TenantRegistry.whereis(tenant_id, :disk_cache) do
+  @spec persisted_entries(atom(), String.t()) :: [{Key.t(), term()}]
+  def persisted_entries(name, tenant_id) do
+    case TenantRegistry.whereis(name, tenant_id, :disk_cache) do
       nil -> []
       pid -> GenServer.call(pid, :persisted_entries)
     end
@@ -133,17 +133,17 @@ defmodule Restdis.Cache.DiskCache do
   @doc """
   Removes every entry from the tenant's disk cache.
   """
-  @spec flush(String.t()) :: :ok
-  def flush(tenant_id) do
-    GenServer.call(TenantRegistry.via(tenant_id, :disk_cache), :flush)
+  @spec flush(atom(), String.t()) :: :ok
+  def flush(name, tenant_id) do
+    GenServer.call(TenantRegistry.via(name, tenant_id, :disk_cache), :flush)
   end
 
   @doc """
   Returns the number of entries held in the tenant's disk cache.
   """
-  @spec count(String.t()) :: non_neg_integer()
-  def count(tenant_id) do
-    GenServer.call(TenantRegistry.via(tenant_id, :disk_cache), :count)
+  @spec count(atom(), String.t()) :: non_neg_integer()
+  def count(name, tenant_id) do
+    GenServer.call(TenantRegistry.via(name, tenant_id, :disk_cache), :count)
   end
 
   @doc """
@@ -155,25 +155,27 @@ defmodule Restdis.Cache.DiskCache do
   only shrinks the underlying file on (asynchronous) compaction, which would
   make cap enforcement based on `File.stat/1` sizes lag behind evictions.
   """
-  @spec disk_size_bytes(String.t()) :: non_neg_integer()
-  def disk_size_bytes(tenant_id) do
-    GenServer.call(TenantRegistry.via(tenant_id, :disk_cache), :disk_size_bytes)
+  @spec disk_size_bytes(atom(), String.t()) :: non_neg_integer()
+  def disk_size_bytes(name, tenant_id) do
+    GenServer.call(TenantRegistry.via(name, tenant_id, :disk_cache), :disk_size_bytes)
   end
 
   @impl GenServer
   def init(opts) do
+    name = Keyword.fetch!(opts, :name)
     tenant_id = Keyword.fetch!(opts, :tenant_id)
     data_dir = Keyword.fetch!(opts, :data_dir)
     tenant_dir = Path.join(data_dir, tenant_id)
     File.mkdir_p!(tenant_dir)
     {:ok, cubdb} = CubDB.start_link(data_dir: tenant_dir)
-    TenantRegistry.put_value(tenant_id, :dc_cubdb, cubdb)
+    TenantRegistry.put_value(name, tenant_id, :dc_cubdb, cubdb)
     {bytes, persist_count, evict_idx, persist_keys} = rebuild_index(cubdb)
-    record_persist_count(tenant_id, persist_count)
+    record_persist_count(name, tenant_id, persist_count)
 
     {:ok,
      %{
        cubdb: cubdb,
+       name: name,
        tenant_id: tenant_id,
        tenant_dir: tenant_dir,
        bytes: bytes,
@@ -338,8 +340,8 @@ defmodule Restdis.Cache.DiskCache do
     %{state | bytes: max(state.bytes - old_size, 0)}
   end
 
-  defp evict_over_cap(%{bytes: bytes} = state) do
-    cap = Application.get_env(:restdis, :cubdb_cap_bytes, @default_cubdb_cap_bytes)
+  defp evict_over_cap(%{name: name, bytes: bytes} = state) do
+    cap = InstanceConfig.get(name, :cubdb_cap_bytes, 500 * 1024 * 1024)
     do_evict_over_cap(bytes, cap, state)
   end
 
@@ -454,9 +456,9 @@ defmodule Restdis.Cache.DiskCache do
     end)
   end
 
-  defp record_persist_count(tenant_id, count) do
+  defp record_persist_count(name, tenant_id, count) do
     ref = :counters.new(1, [:atomics])
     if count > 0, do: :counters.add(ref, 1, count)
-    TenantRegistry.put_value(tenant_id, :qc_persist, ref)
+    TenantRegistry.put_value(name, tenant_id, :qc_persist, ref)
   end
 end
