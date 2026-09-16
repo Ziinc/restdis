@@ -2,6 +2,7 @@ defmodule Restdis.Cache.HotCacheTest do
   use ExUnit.Case, async: false
 
   alias Restdis.Cache.HotCache
+  alias Restdis.Cache.HotCache.Transport.Distribution
   alias Restdis.Cache.Key
   alias Restdis.Cache.TestUtils
   alias Restdis.Cache.TestUtils.RecordingHotCacheTransport
@@ -137,10 +138,7 @@ defmodule Restdis.Cache.HotCacheTest do
     test "broadcasting with no connected peers succeeds" do
       key = Key.build(:table, "widgets", %{})
 
-      assert :ok =
-               Restdis.Cache.HotCache.Transport.Distribution.broadcast(
-                 {:sc_hot_cache_delete, "t", key}
-               )
+      assert :ok = Distribution.broadcast({:sc_hot_cache_delete, "t", key})
     end
   end
 end

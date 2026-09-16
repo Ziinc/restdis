@@ -56,7 +56,15 @@ defmodule Restdis.Cache do
   def put(tenant_id, key, value, opts \\ []) do
     TenantId.cast!(tenant_id)
     TenantSupervisor.ensure_started(tenant_id)
-    do_put(tenant_id, key, value, opts)
+
+    case do_put(tenant_id, key, value, opts) do
+      :ok ->
+        HotCache.delete(tenant_id, key)
+        :ok
+
+      error ->
+        error
+    end
   end
 
   @doc """

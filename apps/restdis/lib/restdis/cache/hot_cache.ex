@@ -180,8 +180,7 @@ defmodule Restdis.Cache.HotCache do
       {{:_, :_, :"$1"}, [{:<, :"$1", {:const, now}}], [true]}
     ])
 
-    # Bounds the counters table and re-evaluates hotness per window rather
-    # than accumulating access counts forever.
+    # Resets access counts each window instead of accumulating them forever.
     :ets.delete_all_objects(@counters)
 
     schedule_sweep()
