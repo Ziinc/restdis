@@ -134,7 +134,7 @@ defmodule Restdis.Cache.PersistTest do
     assert :ok = Restdis.Cache.put(tenant_id, key, "v1", persist: true)
     assert 1 = Restdis.Cache.persist_count(tenant_id)
 
-    query_cache_pid = TenantRegistry.whereis(tenant_id, :query_cache)
+    query_cache_pid = TenantRegistry.whereis(Restdis.Cache, tenant_id, :query_cache)
     Process.exit(query_cache_pid, :kill)
     Process.sleep(50)
 
