@@ -201,7 +201,8 @@ defmodule Restdis.Cache.QueryCache do
   end
 
   defp tables(tenant_id) do
-    {TenantRegistry.get_value(tenant_id, :qc_table), TenantRegistry.get_value(tenant_id, :qc_table_idx)}
+    {TenantRegistry.get_value(tenant_id, :qc_table),
+     TenantRegistry.get_value(tenant_id, :qc_table_idx)}
   end
 
   defp schedule_sweep, do: Process.send_after(self(), :sweep, @sweep_interval_ms)
