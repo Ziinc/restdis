@@ -1,6 +1,8 @@
 defmodule RestdisServer.Commands.GetReplicatedTest do
   use ExUnit.Case, async: false
 
+  import RestdisServer.TestUtils
+
   alias RestdisReplicator.Dataset
   alias RestdisServer.Commands.Get
 
@@ -12,8 +14,6 @@ defmodule RestdisServer.Commands.GetReplicatedTest do
 
     {:ok, tenant_id: tenant_id, dataset: dataset}
   end
-
-  defp state(tenant_id), do: %{authenticated?: true, tenant_id: tenant_id, buffer: <<>>}
 
   test "GET <table>:<pk> serves a replicated row", %{tenant_id: tenant_id, dataset: dataset} do
     row = %{"id" => 42, "name" => "widget"}

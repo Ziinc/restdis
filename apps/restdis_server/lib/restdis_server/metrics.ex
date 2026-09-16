@@ -82,8 +82,8 @@ defmodule RestdisServer.Metrics do
       ),
 
       # Reverse index
-      counter("restdis_buster.reverse_index.miss.count", tags: [:tenant_id, :table]),
-      sum("restdis_buster.reverse_index.hit.keys", tags: [:tenant_id, :table]),
+      counter("restdis.reverse_index.miss.count", tags: [:tenant_id, :table]),
+      sum("restdis.reverse_index.hit.keys", tags: [:tenant_id, :table]),
 
       # WAL tailer
       sum("restdis_buster.wal.received.bytes", unit: :byte),

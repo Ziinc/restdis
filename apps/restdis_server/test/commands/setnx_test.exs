@@ -1,6 +1,8 @@
 defmodule RestdisServer.Commands.SetnxTest do
   use ExUnit.Case, async: false
 
+  import RestdisServer.TestUtils
+
   alias RestdisServer.Commands.Get
   alias RestdisServer.Commands.Set
   alias RestdisServer.Commands.Setnx
@@ -10,8 +12,6 @@ defmodule RestdisServer.Commands.SetnxTest do
     on_exit(fn -> Restdis.Cache.flush_tenant(tenant_id) end)
     {:ok, tenant_id: tenant_id}
   end
-
-  defp state(tenant_id), do: %{authenticated?: true, tenant_id: tenant_id, buffer: <<>>}
 
   test "SETNX sets the key when it doesn't exist", %{tenant_id: tenant_id} do
     {reply, _state} = Setnx.run(state(tenant_id), ["mykey", "hello"])

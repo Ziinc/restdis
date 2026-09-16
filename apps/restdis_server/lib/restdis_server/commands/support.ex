@@ -5,7 +5,6 @@ defmodule RestdisServer.Commands.Support do
   """
 
   alias Restdis.Cache.Key
-  alias Restdis.Cache.TenantRegistry
   alias RestdisServer.RESP.Encoder
   alias RestdisServer.TenantConfig
 
@@ -42,23 +41,7 @@ defmodule RestdisServer.Commands.Support do
   """
   @spec remaining_ttl_ms(String.t(), Key.t()) :: non_neg_integer() | :infinity | :miss
   def remaining_ttl_ms(tenant_id, key) do
-    case TenantRegistry.get_value(tenant_id, :qc_table) do
-      nil ->
-        :miss
-
-      tid ->
-        case :ets.lookup(tid, key) do
-          [{^key, _value, :infinity, _last_access}] ->
-            :infinity
-
-          [{^key, _value, expires_at, _last_access}] ->
-            now = System.monotonic_time(:millisecond)
-            max(0, expires_at - now)
-
-          [] ->
-            :miss
-        end
-    end
+    Restdis.Cache.ttl(tenant_id, key)
   end
 
   @doc """

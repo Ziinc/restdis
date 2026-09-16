@@ -125,14 +125,14 @@ defmodule RestdisBuster.TelemetryTest do
   end
 
   test "ReverseIndex emits :hit when keys exist" do
-    attach("test-rev-hit", [[:restdis_buster, :reverse_index, :hit]])
+    attach("test-rev-hit", [[:restdis, :reverse_index, :hit]])
 
     key = Key.build(:table, "tel_hits", %{})
     Restdis.Cache.put("tel-tenant", key, %{"id" => 1}, primary_keys: [1])
 
     ReverseIndex.purge_row("tel-tenant", "tel_hits", 1)
 
-    assert_receive {:telemetry, [:restdis_buster, :reverse_index, :hit], measurements, metadata},
+    assert_receive {:telemetry, [:restdis, :reverse_index, :hit], measurements, metadata},
                    500
 
     assert measurements.keys >= 1
@@ -141,11 +141,11 @@ defmodule RestdisBuster.TelemetryTest do
   end
 
   test "ReverseIndex emits :miss when no keys exist" do
-    attach("test-rev-miss", [[:restdis_buster, :reverse_index, :miss]])
+    attach("test-rev-miss", [[:restdis, :reverse_index, :miss]])
 
     ReverseIndex.purge_row("tel-tenant", "tel_unknown", 999)
 
-    assert_receive {:telemetry, [:restdis_buster, :reverse_index, :miss], %{count: 1}, metadata},
+    assert_receive {:telemetry, [:restdis, :reverse_index, :miss], %{count: 1}, metadata},
                    500
 
     assert metadata.tenant_id == "tel-tenant"

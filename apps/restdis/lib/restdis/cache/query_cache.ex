@@ -91,6 +91,33 @@ defmodule Restdis.Cache.QueryCache do
   end
 
   @doc """
+  Returns the milliseconds remaining before `key` expires, `:infinity` for a
+  key with no TTL, or `:miss` if it isn't held in this tenant's query cache.
+
+  Unlike `get/2`, this does not touch the entry's LRU recency.
+  """
+  @spec ttl_ms(String.t(), Key.t()) :: non_neg_integer() | :infinity | :miss
+  def ttl_ms(tenant_id, key) do
+    case TenantRegistry.get_value(tenant_id, :qc_table) do
+      nil ->
+        :miss
+
+      tid ->
+        case :ets.lookup(tid, key) do
+          [{^key, _value, :infinity, _last_access}] ->
+            :infinity
+
+          [{^key, _value, expires_at, _last_access}] ->
+            now = System.monotonic_time(:millisecond)
+            max(0, expires_at - now)
+
+          [] ->
+            :miss
+        end
+    end
+  end
+
+  @doc """
   Returns the approximate memory footprint, in bytes, of the tenant's ETS
   query cache table.
   """

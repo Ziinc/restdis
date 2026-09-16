@@ -1,28 +1,4 @@
 defmodule Mix.Tasks.Restdis.Gen.Migration do
-  use Mix.Task
-
-  import Mix.Generator
-  import Mix.Ecto
-  import Mix.EctoSQL
-
-  alias Restdis.Migrations.Postgres
-
-  @shortdoc "Generates a migration that installs the restdis library's tables"
-
-  @aliases [
-    r: :repo,
-    p: :prefix
-  ]
-
-  @switches [
-    repo: [:string, :keep],
-    prefix: :string,
-    version: :integer,
-    migrations_path: :string,
-    no_compile: :boolean,
-    no_deps_check: :boolean
-  ]
-
   @moduledoc """
   Generates the one host migration a consumer of the `restdis` library needs
   to install its control-plane tables.
@@ -51,7 +27,32 @@ defmodule Mix.Tasks.Restdis.Gen.Migration do
       to `priv/repo/migrations`
   """
 
+  use Mix.Task
+
+  import Mix.Generator
+  import Mix.Ecto
+  import Mix.EctoSQL
+
+  alias Restdis.Migrations.Postgres
+
+  @shortdoc "Generates a migration that installs the restdis library's tables"
+
+  @aliases [
+    r: :repo,
+    p: :prefix
+  ]
+
+  @switches [
+    repo: [:string, :keep],
+    prefix: :string,
+    version: :integer,
+    migrations_path: :string,
+    no_compile: :boolean,
+    no_deps_check: :boolean
+  ]
+
   @impl Mix.Task
+  @spec run([String.t()]) :: [String.t()]
   def run(args) do
     repos = parse_repo(args)
 

@@ -1,6 +1,8 @@
 defmodule RestdisServer.Commands.DbsizeTest do
   use ExUnit.Case, async: false
 
+  import RestdisServer.TestUtils
+
   alias RestdisServer.Commands.Dbsize
   alias RestdisServer.Commands.Del
   alias RestdisServer.Commands.Set
@@ -10,8 +12,6 @@ defmodule RestdisServer.Commands.DbsizeTest do
     on_exit(fn -> Restdis.Cache.flush_tenant(tenant_id) end)
     {:ok, tenant_id: tenant_id}
   end
-
-  defp state(tenant_id), do: %{authenticated?: true, tenant_id: tenant_id, buffer: <<>>}
 
   test "DBSIZE reflects the number of keys stored for the tenant", %{tenant_id: tenant_id} do
     {reply, _state} = Dbsize.run(state(tenant_id), [])

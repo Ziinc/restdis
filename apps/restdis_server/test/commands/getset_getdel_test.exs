@@ -1,6 +1,8 @@
 defmodule RestdisServer.Commands.GetsetGetdelTest do
   use ExUnit.Case, async: false
 
+  import RestdisServer.TestUtils
+
   alias RestdisServer.Commands.Exists
   alias RestdisServer.Commands.Get
   alias RestdisServer.Commands.Getdel
@@ -12,8 +14,6 @@ defmodule RestdisServer.Commands.GetsetGetdelTest do
     on_exit(fn -> Restdis.Cache.flush_tenant(tenant_id) end)
     {:ok, tenant_id: tenant_id}
   end
-
-  defp state(tenant_id), do: %{authenticated?: true, tenant_id: tenant_id, buffer: <<>>}
 
   test "GETSET returns nil and sets the value when the key is missing", %{tenant_id: tenant_id} do
     {reply, _state} = Getset.run(state(tenant_id), ["mykey", "hello"])

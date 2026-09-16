@@ -1,6 +1,8 @@
 defmodule RestdisServer.Commands.SetArgumentErrorsTest do
   use ExUnit.Case, async: false
 
+  import RestdisServer.TestUtils
+
   alias Restdis.Cache.Key
   alias RestdisServer.Commands.Set
 
@@ -9,8 +11,6 @@ defmodule RestdisServer.Commands.SetArgumentErrorsTest do
     on_exit(fn -> Restdis.Cache.flush_tenant(tenant_id) end)
     {:ok, tenant_id: tenant_id}
   end
-
-  defp state(tenant_id), do: %{authenticated?: true, tenant_id: tenant_id, buffer: <<>>}
 
   test "SET with the wrong number of arguments replies with an error", %{tenant_id: tenant_id} do
     {reply, _state} = Set.run(state(tenant_id), [])

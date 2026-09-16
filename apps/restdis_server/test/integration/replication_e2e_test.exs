@@ -1,6 +1,8 @@
 defmodule RestdisServer.Integration.ReplicationE2ETest do
   use ExUnit.Case, async: false
 
+  import RestdisServer.TestUtils
+
   alias RestdisReplicator.Dataset
   alias RestdisReplicator.Dispatcher
   alias RestdisReplicator.Origin.Stub
@@ -29,8 +31,6 @@ defmodule RestdisServer.Integration.ReplicationE2ETest do
 
     {:ok, tenant_id: tenant_id, dataset: dataset, config: config}
   end
-
-  defp state(tenant_id), do: %{authenticated?: true, tenant_id: tenant_id, buffer: <<>>}
 
   test "GET products:42 returns row data current with the last WAL change", %{
     tenant_id: tenant_id,

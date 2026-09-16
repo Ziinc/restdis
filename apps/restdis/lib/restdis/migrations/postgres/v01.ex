@@ -26,14 +26,18 @@ defmodule Restdis.Migrations.Postgres.V01 do
     end
 
     create table(:tenant_table_config, primary_key: false, prefix: prefix) do
-      add(:tenant_id, :text, null: false, primary_key: true)
+      add(:tenant_id, references(:tenants, column: :tenant_id, type: :text, prefix: prefix),
+        null: false,
+        primary_key: true
+      )
+
       add(:schema, :text, null: false, default: "public", primary_key: true)
       add(:table_name, :text, null: false, primary_key: true)
       add(:mode, :text, null: false, default: "ttl")
       add(:pk_column, :text, null: false, default: "id")
       add(:filter, :text)
 
-      timestamps()
+      timestamps(type: :utc_datetime_usec)
     end
 
     create(
@@ -44,10 +48,10 @@ defmodule Restdis.Migrations.Postgres.V01 do
     )
 
     create table(:wal_checkpoint, primary_key: false, prefix: prefix) do
-      add(:slot_name, :string, primary_key: true)
+      add(:slot_name, :text, primary_key: true)
       add(:lsn, :bigint, null: false, default: 0)
 
-      timestamps()
+      timestamps(type: :utc_datetime_usec)
     end
 
     :ok

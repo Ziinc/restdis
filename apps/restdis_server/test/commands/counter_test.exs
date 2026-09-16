@@ -1,6 +1,8 @@
 defmodule RestdisServer.Commands.CounterTest do
   use ExUnit.Case, async: false
 
+  import RestdisServer.TestUtils
+
   alias RestdisServer.Commands.Decr
   alias RestdisServer.Commands.Decrby
   alias RestdisServer.Commands.Incr
@@ -13,8 +15,6 @@ defmodule RestdisServer.Commands.CounterTest do
     on_exit(fn -> Restdis.Cache.flush_tenant(tenant_id) end)
     {:ok, tenant_id: tenant_id}
   end
-
-  defp state(tenant_id), do: %{authenticated?: true, tenant_id: tenant_id, buffer: <<>>}
 
   test "INCR on a missing key starts at zero", %{tenant_id: tenant_id} do
     {reply, _state} = Incr.run(state(tenant_id), ["counter"])

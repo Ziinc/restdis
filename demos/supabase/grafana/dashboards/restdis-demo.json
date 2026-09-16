@@ -108,7 +108,7 @@
       "id": 5,
       "type": "timeseries",
       "title": "Reverse index hit vs miss",
-      "description": "restdis_buster.reverse_index.hit/miss - whether a WAL event found a cached entry to invalidate. A hit on \"widgets\" right after the update is the reverse index doing its job; misses are WAL events for pks nothing has cached yet (e.g. a brand-new row's insert - see PRD.md, \"Reverse Index\").",
+      "description": "restdis.reverse_index.hit/miss - whether a WAL event found a cached entry to invalidate. A hit on \"widgets\" right after the update is the reverse index doing its job; misses are WAL events for pks nothing has cached yet (e.g. a brand-new row's insert - see PRD.md, \"Reverse Index\").",
       "gridPos": { "h": 9, "w": 8, "x": 8, "y": 9 },
       "datasource": { "type": "prometheus", "uid": "restdis-demo-prometheus" },
       "fieldConfig": {
@@ -119,12 +119,12 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "sum by (table) (rate(restdis_buster_reverse_index_hit_keys_sum[10s]))",
+          "expr": "sum by (table) (rate(restdis_reverse_index_hit_keys_sum[10s]))",
           "legendFormat": "hit {{table}}"
         },
         {
           "refId": "B",
-          "expr": "sum by (table) (rate(restdis_buster_reverse_index_miss_count[10s]))",
+          "expr": "sum by (table) (rate(restdis_reverse_index_miss_count[10s]))",
           "legendFormat": "miss {{table}}"
         }
       ]

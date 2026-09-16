@@ -327,11 +327,11 @@
       },
       "targets": [
         {
-          "expr": "sum(rate(restdis_buster_reverse_index_hit_keys[5m])) by (tenant_id, table)",
+          "expr": "sum(rate(restdis_reverse_index_hit_keys[5m])) by (tenant_id, table)",
           "legendFormat": "hit keys {{tenant_id}}/{{table}}"
         },
         {
-          "expr": "sum(rate(restdis_buster_reverse_index_miss_count[5m])) by (tenant_id, table)",
+          "expr": "sum(rate(restdis_reverse_index_miss_count[5m])) by (tenant_id, table)",
           "legendFormat": "miss {{tenant_id}}/{{table}}"
         }
       ]
@@ -360,7 +360,7 @@
       },
       "targets": [
         {
-          "expr": "sum(rate(restdis_buster_reverse_index_hit_keys[5m])) / (sum(rate(restdis_buster_reverse_index_hit_keys[5m])) + sum(rate(restdis_buster_reverse_index_miss_count[5m])))",
+          "expr": "sum(rate(restdis_reverse_index_hit_keys[5m])) / (sum(rate(restdis_reverse_index_hit_keys[5m])) + sum(rate(restdis_reverse_index_miss_count[5m])))",
           "legendFormat": "hit ratio"
         }
       ]
