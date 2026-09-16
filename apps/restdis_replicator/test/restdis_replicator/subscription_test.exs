@@ -31,8 +31,7 @@ defmodule RestdisReplicator.SubscriptionTest do
     assert Stub.page_calls(dataset) == 3
   end
 
-  # The 10,000-row load runs well past ExUnit's 60s default when the suite is
-  # instrumented for coverage on a shared CI runner.
+  # Coverage-instrumented, the 10,000-row load runs past ExUnit's 60s default on a shared CI runner.
   @tag :slow
   @tag timeout: 180_000
   test "a replicated table with 10,000 rows loads fully", %{dataset: dataset} do
