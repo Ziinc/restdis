@@ -4,6 +4,7 @@ defmodule RestdisServer.Commands.Ttl do
   """
 
   alias Restdis.Cache.Key
+  alias Restdis.Cache.TenantRegistry
   alias RestdisServer.RESP.Encoder
 
   @doc """
@@ -34,7 +35,7 @@ defmodule RestdisServer.Commands.Ttl do
   def run(state, _), do: {Encoder.error("ERR wrong number of arguments for 'ttl' command"), state}
 
   defp ets_lookup(tenant_id, key) do
-    tid = :persistent_term.get({:sc_qc, tenant_id}, nil)
+    tid = TenantRegistry.get_value(tenant_id, :qc_table)
     if tid, do: :ets.lookup(tid, key), else: []
   end
 end

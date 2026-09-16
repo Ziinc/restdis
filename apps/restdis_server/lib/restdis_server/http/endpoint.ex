@@ -9,6 +9,7 @@ defmodule RestdisServer.HTTP.Endpoint do
 
   alias Restdis.Cache.Key
   alias Restdis.Cache.Router
+  alias Restdis.Cache.TenantRegistry
   alias RestdisServer.Fallback
   alias RestdisServer.HTTP.Electric
   alias RestdisServer.HTTP.Plug.Auth
@@ -206,7 +207,7 @@ defmodule RestdisServer.HTTP.Endpoint do
   end
 
   defp ttl_remaining(tenant_id, key) do
-    tid = :persistent_term.get({:sc_qc, tenant_id}, nil)
+    tid = TenantRegistry.get_value(tenant_id, :qc_table)
 
     if tid do
       case :ets.lookup(tid, key) do

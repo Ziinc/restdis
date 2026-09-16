@@ -96,8 +96,6 @@ defmodule Restdis.Cache do
       pid -> Supervisor.stop(pid, :normal)
     end
 
-    :persistent_term.erase({:sc_persist, tenant_id})
-
     data_dir = Application.fetch_env!(:restdis, :cache_data_dir)
     tenant_dir = Path.join(data_dir, tenant_id)
     if File.exists?(tenant_dir), do: File.rm_rf!(tenant_dir)
@@ -186,7 +184,7 @@ defmodule Restdis.Cache do
   """
   @spec persist_count(tenant_id()) :: non_neg_integer()
   def persist_count(tenant_id) do
-    case :persistent_term.get({:sc_persist, tenant_id}, nil) do
+    case TenantRegistry.get_value(tenant_id, :qc_persist) do
       nil -> 0
       ref -> :counters.get(ref, 1)
     end
@@ -214,7 +212,7 @@ defmodule Restdis.Cache do
   end
 
   defp mark_persisted(tenant_id, key, persist_cap, opts) do
-    ref = :persistent_term.get({:sc_persist, tenant_id})
+    ref = TenantRegistry.get_value(tenant_id, :qc_persist)
     :counters.add(ref, 1, 1)
     new_count = :counters.get(ref, 1)
 
@@ -245,7 +243,7 @@ defmodule Restdis.Cache do
   defp unmark_persisted(tenant_id, key, opts) do
     case DiskCache.set_persist(tenant_id, key, false) do
       :ok ->
-        ref = :persistent_term.get({:sc_persist, tenant_id})
+        ref = TenantRegistry.get_value(tenant_id, :qc_persist)
         :counters.sub(ref, 1, 1)
         new_count = :counters.get(ref, 1)
 
@@ -313,7 +311,7 @@ defmodule Restdis.Cache do
         :ok
 
       persist ->
-        ref = :persistent_term.get({:sc_persist, tenant_id})
+        ref = TenantRegistry.get_value(tenant_id, :qc_persist)
         :counters.add(ref, 1, 1)
         new_count = :counters.get(ref, 1)
 
@@ -410,7 +408,7 @@ defmodule Restdis.Cache do
   end
 
   defp decrement_persist(tenant_id) do
-    case :persistent_term.get({:sc_persist, tenant_id}, nil) do
+    case TenantRegistry.get_value(tenant_id, :qc_persist) do
       nil ->
         :ok
 

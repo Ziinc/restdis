@@ -29,7 +29,7 @@ defmodule Restdis.Cache.DiskCache do
   """
   @spec get(String.t(), Key.t()) :: {:ok, term()} | :miss
   def get(tenant_id, key) do
-    case :persistent_term.get({:sc_dc, tenant_id}, nil) do
+    case TenantRegistry.get_value(tenant_id, :dc_cubdb) do
       nil ->
         GenServer.call(TenantRegistry.via(tenant_id, :disk_cache), {:get, key})
 
@@ -94,7 +94,7 @@ defmodule Restdis.Cache.DiskCache do
   """
   @spec peek_meta(String.t(), Key.t()) :: {:ok, %{persist: boolean()}} | :miss
   def peek_meta(tenant_id, key) do
-    case :persistent_term.get({:sc_dc, tenant_id}, nil) do
+    case TenantRegistry.get_value(tenant_id, :dc_cubdb) do
       nil ->
         GenServer.call(TenantRegistry.via(tenant_id, :disk_cache), {:peek_meta, key})
 
@@ -167,7 +167,7 @@ defmodule Restdis.Cache.DiskCache do
     tenant_dir = Path.join(data_dir, tenant_id)
     File.mkdir_p!(tenant_dir)
     {:ok, cubdb} = CubDB.start_link(data_dir: tenant_dir)
-    :persistent_term.put({:sc_dc, tenant_id}, cubdb)
+    TenantRegistry.put_value(tenant_id, :dc_cubdb, cubdb)
     {bytes, persist_count, evict_idx, persist_keys} = rebuild_index(cubdb)
     record_persist_count(tenant_id, persist_count)
 
@@ -180,11 +180,6 @@ defmodule Restdis.Cache.DiskCache do
        evict_idx: evict_idx,
        persist_keys: persist_keys
      }}
-  end
-
-  @impl GenServer
-  def terminate(_reason, %{tenant_id: tenant_id}) do
-    :persistent_term.erase({:sc_dc, tenant_id})
   end
 
   @impl GenServer
@@ -462,6 +457,6 @@ defmodule Restdis.Cache.DiskCache do
   defp record_persist_count(tenant_id, count) do
     ref = :counters.new(1, [:atomics])
     if count > 0, do: :counters.add(ref, 1, count)
-    :persistent_term.put({:sc_persist, tenant_id}, ref)
+    TenantRegistry.put_value(tenant_id, :qc_persist, ref)
   end
 end

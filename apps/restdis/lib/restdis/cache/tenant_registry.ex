@@ -35,4 +35,32 @@ defmodule Restdis.Cache.TenantRegistry do
       [] -> nil
     end
   end
+
+  @doc """
+  Registers the calling process under `{tenant_id, key}` with `value`.
+
+  Used to publish per-tenant shared state (an ETS table id, a counters
+  ref, ...) that must be readable from any process without going through
+  `persistent_term`, whose writes trigger a global GC pass on every
+  change. Registry registrations live in a regular ETS table and are
+  automatically removed when the registering process exits, so tenant
+  churn never pays a global-GC cost and never leaves a stale entry
+  behind.
+  """
+  @spec put_value(String.t(), term(), term()) :: :ok
+  def put_value(tenant_id, key, value) do
+    {:ok, _owner} = Registry.register(@registry, {tenant_id, key}, value)
+    :ok
+  end
+
+  @doc """
+  Returns the value registered under `{tenant_id, key}`, or `default`.
+  """
+  @spec get_value(String.t(), term(), term()) :: term()
+  def get_value(tenant_id, key, default \\ nil) do
+    case Registry.lookup(@registry, {tenant_id, key}) do
+      [{_pid, value}] -> value
+      [] -> default
+    end
+  end
 end
