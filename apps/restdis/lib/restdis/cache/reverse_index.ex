@@ -27,8 +27,8 @@ defmodule Restdis.Cache.ReverseIndex do
   @doc """
   Records that `key` depends on the row `{table, pk}`.
   """
-  @spec add(atom(), String.t(), table_name(), primary_key(), Key.t()) :: :ok
-  def add(name, tenant_id, table, pk, key) do
+  @spec add(atom(), String.t(), {table_name(), primary_key()}, Key.t()) :: :ok
+  def add(name, tenant_id, {table, pk}, key) do
     GenServer.call(TenantRegistry.via(name, tenant_id, :reverse_index), {:add, table, pk, key})
   end
 

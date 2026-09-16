@@ -66,7 +66,7 @@ defmodule Restdis.Cache.Cluster.Migration do
            owner,
            Restdis.Cache,
            :put,
-           [tenant_id, key, value, [persist: true, replicated: true], name],
+           [tenant_id, key, value, [persist: true, replicated: true, name: name]],
            @migrate_timeout_ms
          ) do
       :ok -> true

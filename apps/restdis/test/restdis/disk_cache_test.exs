@@ -2,6 +2,7 @@ defmodule Restdis.Cache.DiskCacheTest do
   use ExUnit.Case, async: false
 
   alias Restdis.Cache.DiskCache
+  alias Restdis.Cache.InstanceConfig
   alias Restdis.Cache.Key
   alias Restdis.Cache.TenantSupervisor
 
@@ -16,7 +17,7 @@ defmodule Restdis.Cache.DiskCacheTest do
     key = Key.build(:table, "products", %{})
     value = [%{"id" => 1}, %{"id" => 2}]
 
-    DiskCache.put(Restdis.Cache, tenant_id, key, value)
+    DiskCache.put(tenant_id, key, value, name: Restdis.Cache)
     assert {:ok, ^value} = DiskCache.get(Restdis.Cache, tenant_id, key)
   end
 
@@ -27,7 +28,7 @@ defmodule Restdis.Cache.DiskCacheTest do
 
   test "delete removes value", %{tenant_id: tenant_id} do
     key = Key.build(:table, "products", %{})
-    DiskCache.put(Restdis.Cache, tenant_id, key, "val")
+    DiskCache.put(tenant_id, key, "val", name: Restdis.Cache)
     DiskCache.delete(Restdis.Cache, tenant_id, key)
     assert :miss = DiskCache.get(Restdis.Cache, tenant_id, key)
   end
@@ -36,7 +37,7 @@ defmodule Restdis.Cache.DiskCacheTest do
     key = Key.build(:rpc, "my_fn", %{"arg" => "x"})
     value = %{nested: [1, 2, %{deep: true}], atom_key: :ok}
 
-    DiskCache.put(Restdis.Cache, tenant_id, key, value)
+    DiskCache.put(tenant_id, key, value, name: Restdis.Cache)
     assert {:ok, ^value} = DiskCache.get(Restdis.Cache, tenant_id, key)
   end
 
@@ -51,8 +52,8 @@ defmodule Restdis.Cache.DiskCacheTest do
     persisted_key = Key.build(:table, "persisted", %{})
     plain_key = Key.build(:table, "plain", %{})
 
-    DiskCache.put(Restdis.Cache, tenant_id, persisted_key, "persisted-value", persist: true)
-    DiskCache.put(Restdis.Cache, tenant_id, plain_key, "plain-value")
+    DiskCache.put(tenant_id, persisted_key, "persisted-value", persist: true, name: Restdis.Cache)
+    DiskCache.put(tenant_id, plain_key, "plain-value", name: Restdis.Cache)
 
     assert [{^persisted_key, "persisted-value"}] =
              DiskCache.persisted_entries(Restdis.Cache, tenant_id)
@@ -67,7 +68,7 @@ defmodule Restdis.Cache.DiskCacheTest do
     key = Key.build(:table, "products", %{})
     value = [%{"id" => 1}]
 
-    DiskCache.put(Restdis.Cache, tenant_id, key, value, ttl_ms: 60_000)
+    DiskCache.put(tenant_id, key, value, ttl_ms: 60_000, name: Restdis.Cache)
 
     assert {:ok, ^value, ttl_ms} = DiskCache.get_with_ttl(Restdis.Cache, tenant_id, key)
     assert is_integer(ttl_ms)
@@ -78,14 +79,14 @@ defmodule Restdis.Cache.DiskCacheTest do
     tenant_id: tenant_id
   } do
     key = Key.build(:table, "products", %{})
-    DiskCache.put(Restdis.Cache, tenant_id, key, "val")
+    DiskCache.put(tenant_id, key, "val", name: Restdis.Cache)
 
     assert {:ok, "val", nil} = DiskCache.get_with_ttl(Restdis.Cache, tenant_id, key)
   end
 
   test "get treats an expired ttl_ms entry as a miss and removes it", %{tenant_id: tenant_id} do
     key = Key.build(:table, "products", %{})
-    DiskCache.put(Restdis.Cache, tenant_id, key, "val", ttl_ms: -1)
+    DiskCache.put(tenant_id, key, "val", ttl_ms: -1, name: Restdis.Cache)
 
     assert :miss = DiskCache.get(Restdis.Cache, tenant_id, key)
     assert :miss = DiskCache.get_with_ttl(Restdis.Cache, tenant_id, key)
@@ -98,17 +99,17 @@ defmodule Restdis.Cache.DiskCacheTest do
     key2 = Key.build(:table, "cap2", %{})
     value = String.duplicate("z", 500)
 
-    DiskCache.put(Restdis.Cache, tenant_id, key1, value, persist: true)
+    DiskCache.put(tenant_id, key1, value, persist: true, name: Restdis.Cache)
     size_after_one = DiskCache.disk_size_bytes(Restdis.Cache, tenant_id)
 
-    previous = Restdis.Cache.InstanceConfig.get(Restdis.Cache, :cubdb_cap_bytes)
-    Restdis.Cache.InstanceConfig.put_field(Restdis.Cache, :cubdb_cap_bytes, size_after_one)
+    previous = InstanceConfig.get(Restdis.Cache, :cubdb_cap_bytes)
+    InstanceConfig.put_field(Restdis.Cache, :cubdb_cap_bytes, size_after_one)
 
     on_exit(fn ->
-      Restdis.Cache.InstanceConfig.put_field(Restdis.Cache, :cubdb_cap_bytes, previous)
+      InstanceConfig.put_field(Restdis.Cache, :cubdb_cap_bytes, previous)
     end)
 
-    DiskCache.put(Restdis.Cache, tenant_id, key2, value, persist: true)
+    DiskCache.put(tenant_id, key2, value, persist: true, name: Restdis.Cache)
 
     assert {:ok, ^value} = DiskCache.get(Restdis.Cache, tenant_id, key1)
     assert {:ok, ^value} = DiskCache.get(Restdis.Cache, tenant_id, key2)

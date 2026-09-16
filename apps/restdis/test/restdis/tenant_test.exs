@@ -40,7 +40,7 @@ defmodule Restdis.Cache.TenantTest do
     value = %{"id" => 1, "name" => "Widget"}
 
     TenantSupervisor.ensure_started(Restdis.Cache, tenant_id)
-    DiskCache.put(Restdis.Cache, tenant_id, key, value)
+    DiskCache.put(tenant_id, key, value, name: Restdis.Cache)
 
     pid = TenantRegistry.whereis(Restdis.Cache, tenant_id, :tenant)
     Supervisor.stop(pid, :normal)
@@ -57,7 +57,7 @@ defmodule Restdis.Cache.TenantTest do
     key = Key.build(:table, "orders", %{})
 
     TenantSupervisor.ensure_started(Restdis.Cache, tenant_id)
-    DiskCache.put(Restdis.Cache, tenant_id, key, "data")
+    DiskCache.put(tenant_id, key, "data", name: Restdis.Cache)
     DiskCache.get(Restdis.Cache, tenant_id, key)
 
     Restdis.Cache.flush_tenant(tenant_id)

@@ -77,8 +77,8 @@ defmodule Restdis.Cache.ReadThrough do
   def put(name, ident, value) when is_binary(ident) do
     %{namespace: ns, ttl_ms: ttl_ms} = config(name)
     key = key(ident)
-    QueryCache.put(name, ns, key, value, ttl_ms: ttl_ms)
-    DiskCache.put(name, ns, key, envelope(value, ttl_ms))
+    QueryCache.put(ns, key, value, name: name, ttl_ms: ttl_ms)
+    DiskCache.put(ns, key, envelope(value, ttl_ms), name: name)
     :ok
   end
 
@@ -138,7 +138,7 @@ defmodule Restdis.Cache.ReadThrough do
     case DiskCache.get(name, ns, key) do
       {:ok, {:rt, value, expires_at}} ->
         if expires_at > now_ms() do
-          QueryCache.put(name, ns, key, value, ttl_ms: ttl_ms)
+          QueryCache.put(ns, key, value, name: name, ttl_ms: ttl_ms)
           {:ok, value}
         else
           DiskCache.delete(name, ns, key)

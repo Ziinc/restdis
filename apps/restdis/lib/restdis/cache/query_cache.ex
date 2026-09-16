@@ -62,15 +62,17 @@ defmodule Restdis.Cache.QueryCache do
   end
 
   @doc """
-  Writes `value` under `key`, expiring it after `opts[:ttl_ms]`.
+  Writes `value` under `key`, expiring it after `opts[:ttl_ms]`. `opts[:name]`
+  selects the cache instance (required).
 
   Enforces the per-instance ETS memory cap (`:ets_cap_bytes` in
   `Restdis.Cache.InstanceConfig`, defaulting to 500 MB) by evicting the
   least-recently-used entries when the write pushes the tenant's table over
   the cap.
   """
-  @spec put(atom(), String.t(), Key.t(), term(), keyword()) :: :ok
-  def put(name, tenant_id, key, value, opts \\ []) do
+  @spec put(String.t(), Key.t(), term(), keyword()) :: :ok
+  def put(tenant_id, key, value, opts \\ []) do
+    name = Keyword.fetch!(opts, :name)
     {tid, idx} = tables(name, tenant_id)
 
     expires_at =

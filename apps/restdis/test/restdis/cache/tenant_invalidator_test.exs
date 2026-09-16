@@ -12,7 +12,7 @@ defmodule Restdis.Cache.TenantInvalidatorTest do
     TenantSupervisor.ensure_started(Restdis.Cache, tenant_id)
 
     key = Key.build(:table, "products", %{})
-    QueryCache.put(Restdis.Cache, tenant_id, key, "value")
+    QueryCache.put(tenant_id, key, "value", name: Restdis.Cache)
     assert {:ok, "value"} = QueryCache.get(Restdis.Cache, tenant_id, key)
 
     assert :ok = TenantInvalidator.invalidate(tenant_id)

@@ -2,10 +2,12 @@ defmodule Restdis.Cache do
   @moduledoc """
   Public API of the cache bounded context: get, put, delete, peek and table flushes.
 
-  Every function takes the cache instance's `name` as an optional, trailing
-  argument, defaulting to `__MODULE__`, so a second instance mounted with a
-  different `:name` (see `Restdis.Cache.Supervisor.start_link/1`) can be
-  addressed without colliding with the default one.
+  Every function takes the cache instance's `name` as an optional argument
+  (a trailing positional argument, or `opts[:name]` for functions that
+  already accept an options list), defaulting to `__MODULE__`, so a second
+  instance mounted with a different `:name` (see
+  `Restdis.Cache.Supervisor.start_link/1`) can be addressed without
+  colliding with the default one.
   """
 
   alias Restdis.Cache.DiskCache
@@ -56,10 +58,12 @@ defmodule Restdis.Cache do
   end
 
   @doc """
-  Writes `value` under `key`. Pass `:ttl_ms` and `:persist` in `opts`.
+  Writes `value` under `key`. Pass `:ttl_ms` and `:persist` in `opts`, and
+  `:name` to target a non-default instance.
   """
-  @spec put(tenant_id(), Key.t(), term(), keyword(), atom()) :: :ok | {:error, :persist_cap}
-  def put(tenant_id, key, value, opts \\ [], name \\ __MODULE__) do
+  @spec put(tenant_id(), Key.t(), term(), keyword()) :: :ok | {:error, :persist_cap}
+  def put(tenant_id, key, value, opts \\ []) do
+    name = Keyword.get(opts, :name, __MODULE__)
     TenantId.cast!(tenant_id)
     TenantSupervisor.ensure_started(name, tenant_id)
 
@@ -214,9 +218,10 @@ defmodule Restdis.Cache do
   Pass `replicated: true` in `opts` to apply a peer's change without
   re-broadcasting it.
   """
-  @spec set_persist(tenant_id(), Key.t(), boolean(), keyword(), atom()) ::
+  @spec set_persist(tenant_id(), Key.t(), boolean(), keyword()) ::
           :ok | {:error, :persist_cap | :not_found}
-  def set_persist(tenant_id, key, persist, opts \\ [], name \\ __MODULE__) do
+  def set_persist(tenant_id, key, persist, opts \\ []) do
+    name = Keyword.get(opts, :name, __MODULE__)
     TenantId.cast!(tenant_id)
     TenantSupervisor.ensure_started(name, tenant_id)
 
@@ -296,7 +301,7 @@ defmodule Restdis.Cache do
   defp disk_get_and_promote(name, tenant_id, key) do
     case DiskCache.get_with_ttl(name, tenant_id, key) do
       {:ok, value, ttl_ms} ->
-        QueryCache.put(name, tenant_id, key, value, ttl_ms: ttl_ms)
+        QueryCache.put(tenant_id, key, value, name: name, ttl_ms: ttl_ms)
         {:ok, value}
 
       :miss ->
@@ -309,7 +314,7 @@ defmodule Restdis.Cache do
 
     case origin.fetch(tenant_id, key) do
       {:ok, value} ->
-        do_put(name, tenant_id, key, value, [])
+        do_put(tenant_id, key, value, name: name)
         {:ok, value}
 
       :error ->
@@ -317,7 +322,9 @@ defmodule Restdis.Cache do
     end
   end
 
-  defp do_put(name, tenant_id, key, value, opts) do
+  defp do_put(tenant_id, key, value, opts) do
+    name = Keyword.get(opts, :name, __MODULE__)
+    opts = Keyword.put_new(opts, :name, name)
     persist = Keyword.get(opts, :persist, false)
     persist_cap = Keyword.get(opts, :persist_cap, @default_persist_cap)
     ttl_ms = Keyword.get(opts, :ttl_ms)
@@ -327,9 +334,9 @@ defmodule Restdis.Cache do
 
     cond do
       persist and already_persisted? ->
-        QueryCache.put(name, tenant_id, key, value, opts)
-        DiskCache.put(name, tenant_id, key, value, persist: true, ttl_ms: ttl_ms)
-        index_value(name, tenant_id, key, value, opts)
+        QueryCache.put(tenant_id, key, value, opts)
+        DiskCache.put(tenant_id, key, value, persist: true, ttl_ms: ttl_ms, name: name)
+        index_value(tenant_id, key, value, opts)
         maybe_broadcast(opts, name, tenant_id, {:put, key, value, opts})
         :ok
 
@@ -347,9 +354,9 @@ defmodule Restdis.Cache do
 
           {:error, :persist_cap}
         else
-          QueryCache.put(name, tenant_id, key, value, opts)
-          DiskCache.put(name, tenant_id, key, value, persist: true, ttl_ms: ttl_ms)
-          index_value(name, tenant_id, key, value, opts)
+          QueryCache.put(tenant_id, key, value, opts)
+          DiskCache.put(tenant_id, key, value, persist: true, ttl_ms: ttl_ms, name: name)
+          index_value(tenant_id, key, value, opts)
 
           :telemetry.execute([:restdis, :persist, :count], %{count: new_count}, %{
             tenant_id: tenant_id
@@ -362,21 +369,22 @@ defmodule Restdis.Cache do
 
       already_persisted? ->
         decrement_persist(name, tenant_id)
-        QueryCache.put(name, tenant_id, key, value, opts)
-        DiskCache.put(name, tenant_id, key, value, ttl_ms: ttl_ms)
-        index_value(name, tenant_id, key, value, opts)
+        QueryCache.put(tenant_id, key, value, opts)
+        DiskCache.put(tenant_id, key, value, ttl_ms: ttl_ms, name: name)
+        index_value(tenant_id, key, value, opts)
         maybe_broadcast(opts, name, tenant_id, {:put, key, value, opts})
         :ok
 
       true ->
-        QueryCache.put(name, tenant_id, key, value, opts)
-        DiskCache.put(name, tenant_id, key, value, ttl_ms: ttl_ms)
-        index_value(name, tenant_id, key, value, opts)
+        QueryCache.put(tenant_id, key, value, opts)
+        DiskCache.put(tenant_id, key, value, ttl_ms: ttl_ms, name: name)
+        index_value(tenant_id, key, value, opts)
         :ok
     end
   end
 
-  defp index_value(name, tenant_id, key, value, opts) do
+  defp index_value(tenant_id, key, value, opts) do
+    name = Keyword.get(opts, :name, __MODULE__)
     pk_column = opts[:pk_column] || "id"
     table = key.ident
 
@@ -387,7 +395,7 @@ defmodule Restdis.Cache do
       end
 
     Enum.each(pks, fn pk ->
-      ReverseIndex.add(name, tenant_id, table, pk, key)
+      ReverseIndex.add(name, tenant_id, {table, pk}, key)
     end)
 
     if is_list(value), do: ReverseIndex.add_list_key(name, tenant_id, table, key)

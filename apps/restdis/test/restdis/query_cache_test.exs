@@ -17,7 +17,7 @@ defmodule Restdis.Cache.QueryCacheTest do
     key = Key.build(:table, "products", %{"select" => "id,name"})
     value = %{"id" => 1, "name" => "Widget"}
 
-    QueryCache.put(Restdis.Cache, tenant_id, key, value)
+    QueryCache.put(tenant_id, key, value, name: Restdis.Cache)
     assert {:ok, ^value} = QueryCache.get(Restdis.Cache, tenant_id, key)
   end
 
@@ -28,7 +28,7 @@ defmodule Restdis.Cache.QueryCacheTest do
 
   test "delete removes value", %{tenant_id: tenant_id} do
     key = Key.build(:table, "products", %{})
-    QueryCache.put(Restdis.Cache, tenant_id, key, "value")
+    QueryCache.put(tenant_id, key, "value", name: Restdis.Cache)
     QueryCache.delete(Restdis.Cache, tenant_id, key)
     assert :miss = QueryCache.get(Restdis.Cache, tenant_id, key)
   end
@@ -47,7 +47,7 @@ defmodule Restdis.Cache.QueryCacheTest do
 
   test "get treats an entry past its ttl as a miss and removes it", %{tenant_id: tenant_id} do
     key = Key.build(:table, "products", %{})
-    QueryCache.put(Restdis.Cache, tenant_id, key, "value", ttl_ms: 1)
+    QueryCache.put(tenant_id, key, "value", ttl_ms: 1, name: Restdis.Cache)
 
     Process.sleep(5)
 
@@ -59,14 +59,14 @@ defmodule Restdis.Cache.QueryCacheTest do
     tenant_id: tenant_id
   } do
     key = Key.build(:table, "products", %{})
-    QueryCache.put(Restdis.Cache, tenant_id, key, "value", ttl_ms: 60_000)
+    QueryCache.put(tenant_id, key, "value", ttl_ms: 60_000, name: Restdis.Cache)
 
     assert {:ok, "value"} = QueryCache.get(Restdis.Cache, tenant_id, key)
   end
 
   test "the periodic sweep removes expired entries", %{tenant_id: tenant_id} do
     key = Key.build(:table, "products", %{})
-    QueryCache.put(Restdis.Cache, tenant_id, key, "value", ttl_ms: 1)
+    QueryCache.put(tenant_id, key, "value", ttl_ms: 1, name: Restdis.Cache)
     Process.sleep(5)
 
     pid = TenantRegistry.whereis(Restdis.Cache, tenant_id, :query_cache)

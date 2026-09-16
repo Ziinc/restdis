@@ -1,6 +1,7 @@
 defmodule Restdis.Cache.ReplicationTest do
   use ExUnit.Case, async: false
 
+  alias Restdis.Cache.InstanceConfig
   alias Restdis.Cache.Key
   alias Restdis.Cache.Replication
   alias Restdis.Cache.Replication.Transport.Distribution
@@ -8,7 +9,7 @@ defmodule Restdis.Cache.ReplicationTest do
   alias Restdis.Cache.TestUtils.RecordingTransport
 
   setup do
-    previous = Restdis.Cache.InstanceConfig.fetch!(Restdis.Cache).replication_transport
+    previous = InstanceConfig.fetch!(Restdis.Cache).replication_transport
     TestUtils.put_transport(RecordingTransport)
     TestUtils.capture_replication(self())
 

@@ -7,6 +7,8 @@ defmodule Restdis.Cache.ChildSpecTest do
   (LIB_PRD Phase 5, "explicit start").
   """
 
+  alias Restdis.Cache.Key
+
   test "the :restdis application declares no `mod:` callback" do
     assert Application.spec(:restdis, :mod) in [nil, []]
   end
@@ -40,9 +42,9 @@ defmodule Restdis.Cache.ChildSpecTest do
     refute pid == Process.whereis(Restdis.Cache)
 
     tenant_id = "second_instance_#{System.unique_integer([:positive])}"
-    key = Restdis.Cache.Key.build(:table, "widgets", %{})
+    key = Key.build(:table, "widgets", %{})
 
-    assert :ok = Restdis.Cache.put(tenant_id, key, "v", [], name)
+    assert :ok = Restdis.Cache.put(tenant_id, key, "v", name: name)
     assert {:ok, "v"} = Restdis.Cache.peek(tenant_id, key, name)
     assert :miss = Restdis.Cache.peek(tenant_id, key)
   end

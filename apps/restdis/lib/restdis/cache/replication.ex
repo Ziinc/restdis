@@ -88,7 +88,7 @@ defmodule Restdis.Cache.Replication do
   end
 
   defp do_apply(name, tenant_id, {:put, key, value, opts}) do
-    Restdis.Cache.put(tenant_id, key, value, Keyword.put(opts, :replicated, true), name)
+    Restdis.Cache.put(tenant_id, key, value, Keyword.merge(opts, replicated: true, name: name))
   end
 
   defp do_apply(name, tenant_id, {:delete, key}) do
@@ -96,7 +96,7 @@ defmodule Restdis.Cache.Replication do
   end
 
   defp do_apply(name, tenant_id, {:set_persist, key, persist}) do
-    Restdis.Cache.set_persist(tenant_id, key, persist, [replicated: true], name)
+    Restdis.Cache.set_persist(tenant_id, key, persist, replicated: true, name: name)
   end
 
   defp sanitize({:put, key, value, opts}) do

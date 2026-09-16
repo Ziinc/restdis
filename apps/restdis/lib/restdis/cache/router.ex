@@ -57,12 +57,15 @@ defmodule Restdis.Cache.Router do
     do: route(tenant_id, name, :peek, [tenant_id, key, name])
 
   @doc """
-  Routed `Restdis.Cache.put/5`.
+  Routed `Restdis.Cache.put/4`. Pass `:name` in `opts` to target a
+  non-default instance.
   """
-  @spec put(Restdis.Cache.tenant_id(), Key.t(), term(), keyword(), atom()) ::
+  @spec put(Restdis.Cache.tenant_id(), Key.t(), term(), keyword()) ::
           :ok | {:error, :persist_cap} | unreachable()
-  def put(tenant_id, key, value, opts \\ [], name \\ Restdis.Cache),
-    do: route(tenant_id, name, :put, [tenant_id, key, value, opts, name])
+  def put(tenant_id, key, value, opts \\ []) do
+    name = Keyword.get(opts, :name, Restdis.Cache)
+    route(tenant_id, name, :put, [tenant_id, key, value, opts])
+  end
 
   @doc """
   Routed `Restdis.Cache.delete/4`.

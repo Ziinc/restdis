@@ -27,9 +27,9 @@ defmodule Restdis.Cache.ResourceCapsTest do
       key3 = Key.build(:table, "t3", %{"a" => 3})
       value = String.duplicate("x", 1000)
 
-      QueryCache.put(Restdis.Cache, tenant_id, key1, value)
+      QueryCache.put(tenant_id, key1, value, name: Restdis.Cache)
       mem_after_one = QueryCache.memory_bytes(Restdis.Cache, tenant_id)
-      QueryCache.put(Restdis.Cache, tenant_id, key2, value)
+      QueryCache.put(tenant_id, key2, value, name: Restdis.Cache)
       mem_after_two = QueryCache.memory_bytes(Restdis.Cache, tenant_id)
       marginal = mem_after_two - mem_after_one
 
@@ -43,7 +43,7 @@ defmodule Restdis.Cache.ResourceCapsTest do
       assert {:ok, ^value} = QueryCache.get(Restdis.Cache, tenant_id, key1)
 
       # inserting key3 pushes memory over the cap; key2 (LRU) should be evicted
-      QueryCache.put(Restdis.Cache, tenant_id, key3, value)
+      QueryCache.put(tenant_id, key3, value, name: Restdis.Cache)
 
       assert {:ok, ^value} = QueryCache.get(Restdis.Cache, tenant_id, key1)
       assert {:ok, ^value} = QueryCache.get(Restdis.Cache, tenant_id, key3)
@@ -56,7 +56,7 @@ defmodule Restdis.Cache.ResourceCapsTest do
       key2 = Key.build(:table, "e2", %{"a" => 2})
       value = String.duplicate("y", 1000)
 
-      QueryCache.put(Restdis.Cache, tenant_id, key1, value)
+      QueryCache.put(tenant_id, key1, value, name: Restdis.Cache)
       mem_after_one = QueryCache.memory_bytes(Restdis.Cache, tenant_id)
       cap = mem_after_one + 1
 
@@ -79,7 +79,7 @@ defmodule Restdis.Cache.ResourceCapsTest do
       InstanceConfig.put_field(Restdis.Cache, :ets_cap_bytes, cap)
       on_exit(fn -> InstanceConfig.put_field(Restdis.Cache, :ets_cap_bytes, previous) end)
 
-      QueryCache.put(Restdis.Cache, tenant_id, key2, value)
+      QueryCache.put(tenant_id, key2, value, name: Restdis.Cache)
 
       assert_receive {:ets_evict, %{count: 1}, %{tenant_id: ^tenant_id}}, 1000
     end
@@ -98,8 +98,8 @@ defmodule Restdis.Cache.ResourceCapsTest do
       new_key = Key.build(:table, "new", %{})
       value = String.duplicate("z", 2000)
 
-      DiskCache.put(Restdis.Cache, tenant_id, persisted_key, value, persist: true)
-      DiskCache.put(Restdis.Cache, tenant_id, old_key, value)
+      DiskCache.put(tenant_id, persisted_key, value, persist: true, name: Restdis.Cache)
+      DiskCache.put(tenant_id, old_key, value, name: Restdis.Cache)
 
       size_after_two = DiskCache.disk_size_bytes(Restdis.Cache, tenant_id)
       cap = round(size_after_two * 1.3)
@@ -107,7 +107,7 @@ defmodule Restdis.Cache.ResourceCapsTest do
       InstanceConfig.put_field(Restdis.Cache, :cubdb_cap_bytes, cap)
       on_exit(fn -> InstanceConfig.put_field(Restdis.Cache, :cubdb_cap_bytes, previous) end)
 
-      DiskCache.put(Restdis.Cache, tenant_id, new_key, value)
+      DiskCache.put(tenant_id, new_key, value, name: Restdis.Cache)
 
       assert {:ok, ^value} = DiskCache.get(Restdis.Cache, tenant_id, persisted_key)
       assert {:ok, ^value} = DiskCache.get(Restdis.Cache, tenant_id, new_key)
@@ -119,7 +119,7 @@ defmodule Restdis.Cache.ResourceCapsTest do
       new_key = Key.build(:table, "enew", %{})
       value = String.duplicate("q", 2000)
 
-      DiskCache.put(Restdis.Cache, tenant_id, old_key, value)
+      DiskCache.put(tenant_id, old_key, value, name: Restdis.Cache)
       size_after_one = DiskCache.disk_size_bytes(Restdis.Cache, tenant_id)
       cap = round(size_after_one * 1.3)
       previous = InstanceConfig.get(Restdis.Cache, :cubdb_cap_bytes)
@@ -140,7 +140,7 @@ defmodule Restdis.Cache.ResourceCapsTest do
 
       on_exit(fn -> :telemetry.detach(handler_id) end)
 
-      DiskCache.put(Restdis.Cache, tenant_id, new_key, value)
+      DiskCache.put(tenant_id, new_key, value, name: Restdis.Cache)
 
       assert_receive {:cubdb_evict, %{count: 1}, %{tenant_id: ^tenant_id}}, 1000
     end

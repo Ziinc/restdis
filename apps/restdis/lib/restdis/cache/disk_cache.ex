@@ -50,10 +50,12 @@ defmodule Restdis.Cache.DiskCache do
 
   @doc """
   Writes `value` under `key`, persisting it when `opts[:persist]` is true and
-  expiring it after `opts[:ttl_ms]`, if given.
+  expiring it after `opts[:ttl_ms]`, if given. `opts[:name]` selects the
+  cache instance (required).
   """
-  @spec put(atom(), String.t(), Key.t(), term(), keyword()) :: :ok
-  def put(name, tenant_id, key, value, opts \\ []) do
+  @spec put(String.t(), Key.t(), term(), keyword()) :: :ok
+  def put(tenant_id, key, value, opts \\ []) do
+    name = Keyword.fetch!(opts, :name)
     persist = Keyword.get(opts, :persist, false)
 
     expires_at =
