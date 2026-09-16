@@ -206,39 +206,45 @@ defmodule Restdis.Cache do
     TenantSupervisor.ensure_started(tenant_id)
 
     case DiskCache.peek_meta(tenant_id, key) do
-      :miss ->
-        {:error, :not_found}
+      :miss -> {:error, :not_found}
+      {:ok, %{persist: ^persist}} -> :ok
+      {:ok, %{persist: false}} -> mark_persisted(tenant_id, key, persist_cap, opts)
+      {:ok, %{persist: true}} -> unmark_persisted(tenant_id, key, opts)
+    end
+  end
 
-      {:ok, %{persist: ^persist}} ->
+  defp mark_persisted(tenant_id, key, persist_cap, opts) do
+    ref = :persistent_term.get({:sc_persist, tenant_id})
+    :counters.add(ref, 1, 1)
+    new_count = :counters.get(ref, 1)
+
+    cond do
+      new_count > persist_cap ->
+        :counters.sub(ref, 1, 1)
+
+        :telemetry.execute([:restdis, :persist, :cap_reached], %{count: 1}, %{
+          tenant_id: tenant_id
+        })
+
+        {:error, :persist_cap}
+
+      DiskCache.set_persist(tenant_id, key, true) == :ok ->
+        :telemetry.execute([:restdis, :persist, :count], %{count: new_count}, %{
+          tenant_id: tenant_id
+        })
+
+        broadcast_persisted_value(tenant_id, key, opts)
         :ok
 
-      {:ok, %{persist: false}} ->
-        ref = :persistent_term.get({:sc_persist, tenant_id})
-        :counters.add(ref, 1, 1)
-        new_count = :counters.get(ref, 1)
+      true ->
+        :counters.sub(ref, 1, 1)
+        {:error, :not_found}
+    end
+  end
 
-        if new_count > persist_cap do
-          :counters.sub(ref, 1, 1)
-
-          :telemetry.execute([:restdis, :persist, :cap_reached], %{count: 1}, %{
-            tenant_id: tenant_id
-          })
-
-          {:error, :persist_cap}
-        else
-          :ok = DiskCache.set_persist(tenant_id, key, true)
-
-          :telemetry.execute([:restdis, :persist, :count], %{count: new_count}, %{
-            tenant_id: tenant_id
-          })
-
-          broadcast_persisted_value(tenant_id, key, opts)
-
-          :ok
-        end
-
-      {:ok, %{persist: true}} ->
-        :ok = DiskCache.set_persist(tenant_id, key, false)
+  defp unmark_persisted(tenant_id, key, opts) do
+    case DiskCache.set_persist(tenant_id, key, false) do
+      :ok ->
         ref = :persistent_term.get({:sc_persist, tenant_id})
         :counters.sub(ref, 1, 1)
         new_count = :counters.get(ref, 1)
@@ -248,8 +254,10 @@ defmodule Restdis.Cache do
         })
 
         maybe_broadcast(opts, tenant_id, {:set_persist, key, false})
-
         :ok
+
+      :not_found ->
+        {:error, :not_found}
     end
   end
 
@@ -294,38 +302,56 @@ defmodule Restdis.Cache do
     persist = Keyword.get(opts, :persist, false)
     persist_cap = Keyword.get(opts, :persist_cap, @default_persist_cap)
     ttl_ms = Keyword.get(opts, :ttl_ms)
+    already_persisted? = match?({:ok, %{persist: true}}, DiskCache.peek_meta(tenant_id, key))
 
-    if persist do
-      ref = :persistent_term.get({:sc_persist, tenant_id})
-      :counters.add(ref, 1, 1)
-      new_count = :counters.get(ref, 1)
-
-      if new_count > persist_cap do
-        :counters.sub(ref, 1, 1)
-
-        :telemetry.execute([:restdis, :persist, :cap_reached], %{count: 1}, %{
-          tenant_id: tenant_id
-        })
-
-        {:error, :persist_cap}
-      else
+    cond do
+      persist and already_persisted? ->
         QueryCache.put(tenant_id, key, value, opts)
         DiskCache.put(tenant_id, key, value, persist: true, ttl_ms: ttl_ms)
         index_value(tenant_id, key, value, opts)
-
-        :telemetry.execute([:restdis, :persist, :count], %{count: new_count}, %{
-          tenant_id: tenant_id
-        })
-
         maybe_broadcast(opts, tenant_id, {:put, key, value, opts})
-
         :ok
-      end
-    else
-      QueryCache.put(tenant_id, key, value, opts)
-      DiskCache.put(tenant_id, key, value, ttl_ms: ttl_ms)
-      index_value(tenant_id, key, value, opts)
-      :ok
+
+      persist ->
+        ref = :persistent_term.get({:sc_persist, tenant_id})
+        :counters.add(ref, 1, 1)
+        new_count = :counters.get(ref, 1)
+
+        if new_count > persist_cap do
+          :counters.sub(ref, 1, 1)
+
+          :telemetry.execute([:restdis, :persist, :cap_reached], %{count: 1}, %{
+            tenant_id: tenant_id
+          })
+
+          {:error, :persist_cap}
+        else
+          QueryCache.put(tenant_id, key, value, opts)
+          DiskCache.put(tenant_id, key, value, persist: true, ttl_ms: ttl_ms)
+          index_value(tenant_id, key, value, opts)
+
+          :telemetry.execute([:restdis, :persist, :count], %{count: new_count}, %{
+            tenant_id: tenant_id
+          })
+
+          maybe_broadcast(opts, tenant_id, {:put, key, value, opts})
+
+          :ok
+        end
+
+      already_persisted? ->
+        decrement_persist(tenant_id)
+        QueryCache.put(tenant_id, key, value, opts)
+        DiskCache.put(tenant_id, key, value, ttl_ms: ttl_ms)
+        index_value(tenant_id, key, value, opts)
+        maybe_broadcast(opts, tenant_id, {:put, key, value, opts})
+        :ok
+
+      true ->
+        QueryCache.put(tenant_id, key, value, opts)
+        DiskCache.put(tenant_id, key, value, ttl_ms: ttl_ms)
+        index_value(tenant_id, key, value, opts)
+        :ok
     end
   end
 

@@ -459,10 +459,9 @@ defmodule Restdis.Cache.DiskCache do
     end)
   end
 
-  defp record_persist_count(_tenant_id, 0), do: :ok
-
   defp record_persist_count(tenant_id, count) do
-    ref = :persistent_term.get({:sc_persist, tenant_id})
-    :counters.add(ref, 1, count)
+    ref = :counters.new(1, [:atomics])
+    if count > 0, do: :counters.add(ref, 1, count)
+    :persistent_term.put({:sc_persist, tenant_id}, ref)
   end
 end
