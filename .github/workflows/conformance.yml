@@ -21,6 +21,7 @@ jobs:
   conformance:
     name: Real @electric-sql/client against Restdis (blocks merge on failure)
     runs-on: ubuntu-latest
+    timeout-minutes: 10
 
     steps:
       - uses: actions/checkout@v4
@@ -47,6 +48,7 @@ jobs:
       # `services:` has no way to pass to the Postgres entrypoint. Mirrors
       # `docker-compose.yml`'s `db` service.
       - name: Start Postgres (wal_level=logical)
+        timeout-minutes: 2
         run: |
           docker run -d --name pg \
             -e POSTGRES_USER=postgres -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=restdis_dev \
@@ -62,6 +64,7 @@ jobs:
           exit 1
 
       - name: Install dependencies, migrate, and seed the conformance fixture
+        timeout-minutes: 3
         run: |
           mix deps.get
           mix ecto.create --quiet
@@ -71,6 +74,7 @@ jobs:
             -v ON_ERROR_STOP=1 -f test/conformance/seed.sql
 
       - name: Start Restdis
+        timeout-minutes: 2
         run: |
           nohup mix run --no-halt > /tmp/restdis-conformance.log 2>&1 &
           for _ in $(seq 1 30); do
@@ -83,6 +87,7 @@ jobs:
 
       - name: Install the pinned @electric-sql/client and run the conformance check
         working-directory: test/conformance
+        timeout-minutes: 6
         run: |
           npm ci
           npm test
@@ -94,6 +99,10 @@ jobs:
       - name: Dump Restdis logs
         if: always()
         run: cat /tmp/restdis-conformance.log || true
+
+      - name: Dump Postgres logs
+        if: always()
+        run: docker logs pg || true
 
       - name: Tear down
         if: always()
