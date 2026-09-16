@@ -4,7 +4,6 @@ defmodule RestdisServer.Commands.Ttl do
   """
 
   alias Restdis.Cache.Key
-  alias Restdis.Cache.TenantRegistry
   alias RestdisServer.RESP.Encoder
 
   @doc """
@@ -14,17 +13,10 @@ defmodule RestdisServer.Commands.Ttl do
   def run(state, [wire_key]) do
     case Key.decode(wire_key) do
       {:ok, key} ->
-        case ets_lookup(state.tenant_id, key) do
-          [{^key, _value, :infinity, _last_access}] ->
-            {Encoder.integer(-1), state}
-
-          [{^key, _value, expires_at, _last_access}] ->
-            now = System.monotonic_time(:millisecond)
-            remaining_s = max(0, div(expires_at - now, 1000))
-            {Encoder.integer(remaining_s), state}
-
-          [] ->
-            {Encoder.integer(-2), state}
+        case Restdis.Cache.ttl(state.tenant_id, key) do
+          :infinity -> {Encoder.integer(-1), state}
+          :miss -> {Encoder.integer(-2), state}
+          remaining_ms -> {Encoder.integer(div(remaining_ms, 1000)), state}
         end
 
       :error ->
@@ -33,9 +25,4 @@ defmodule RestdisServer.Commands.Ttl do
   end
 
   def run(state, _), do: {Encoder.error("ERR wrong number of arguments for 'ttl' command"), state}
-
-  defp ets_lookup(tenant_id, key) do
-    tid = TenantRegistry.get_value(tenant_id, :qc_table)
-    if tid, do: :ets.lookup(tid, key), else: []
-  end
 end

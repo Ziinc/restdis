@@ -1,6 +1,8 @@
 defmodule RestdisServer.Commands.ArgumentErrorsTest do
   use ExUnit.Case, async: false
 
+  import RestdisServer.TestUtils
+
   alias RestdisServer.Commands.Auth
   alias RestdisServer.Commands.Del
   alias RestdisServer.Commands.Exists
@@ -13,8 +15,6 @@ defmodule RestdisServer.Commands.ArgumentErrorsTest do
     on_exit(fn -> Restdis.Cache.flush_tenant(tenant_id) end)
     {:ok, tenant_id: tenant_id}
   end
-
-  defp state(tenant_id), do: %{authenticated?: true, tenant_id: tenant_id, buffer: <<>>}
 
   test "AUTH with the wrong number of arguments replies with an error" do
     {reply, _state} = Auth.run(%{authenticated?: false}, [])

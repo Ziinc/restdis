@@ -272,6 +272,15 @@ defmodule Restdis.Cache do
     end
   end
 
+  @doc """
+  Returns the milliseconds remaining before `key` expires, `:infinity` for a
+  key with no TTL, or `:miss` if it isn't held in this node's query cache.
+  """
+  @spec ttl(tenant_id(), Key.t()) :: non_neg_integer() | :infinity | :miss
+  def ttl(tenant_id, key) do
+    QueryCache.ttl_ms(tenant_id, key)
+  end
+
   defp disk_get_and_promote(tenant_id, key) do
     case DiskCache.get_with_ttl(tenant_id, key) do
       {:ok, value, ttl_ms} ->

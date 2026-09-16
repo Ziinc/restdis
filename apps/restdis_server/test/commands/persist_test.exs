@@ -1,6 +1,8 @@
 defmodule RestdisServer.Commands.PersistTest do
   use ExUnit.Case, async: false
 
+  import RestdisServer.TestUtils
+
   alias RestdisServer.Commands.Persist
   alias RestdisServer.Commands.Set
   alias RestdisServer.Commands.Ttl
@@ -32,8 +34,6 @@ defmodule RestdisServer.Commands.PersistTest do
 
     {:ok, tenant_id: tenant_id}
   end
-
-  defp state(tenant_id), do: %{authenticated?: true, tenant_id: tenant_id, buffer: <<>>}
 
   test "PERSIST extends the TTL of an existing key to the tenant's max TTL", %{
     tenant_id: tenant_id

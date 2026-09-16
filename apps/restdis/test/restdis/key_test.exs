@@ -29,6 +29,11 @@ defmodule Restdis.Cache.KeyTest do
       assert {:ok, ^key} = key |> Key.encode() |> Key.decode()
     end
 
+    test "ident containing a colon is preserved" do
+      key = Key.build(:table, "schema:table", %{})
+      assert {:ok, ^key} = key |> Key.encode() |> Key.decode()
+    end
+
     test "raw key encodes as its bare ident and decodes back to a :raw key" do
       key = %Key{scope: :raw, ident: "my-raw-key", params_hash: 0}
       assert Key.encode(key) == "my-raw-key"
@@ -51,6 +56,14 @@ defmodule Restdis.Cache.KeyTest do
 
     test "non-integer hash" do
       assert :error = Key.decode("pgrst:t:users:notanumber")
+    end
+
+    test "negative hash is rejected" do
+      assert :error = Key.decode("pgrst:t:users:-1")
+    end
+
+    test "signed positive hash is rejected" do
+      assert :error = Key.decode("pgrst:t:users:+1")
     end
 
     test "empty string" do

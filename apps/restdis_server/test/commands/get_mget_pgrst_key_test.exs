@@ -1,6 +1,8 @@
 defmodule RestdisServer.Commands.GetMgetPgrstKeyTest do
   use ExUnit.Case, async: false
 
+  import RestdisServer.TestUtils
+
   alias Restdis.Cache.Key
   alias RestdisServer.Commands.Get
   alias RestdisServer.Commands.Mget
@@ -10,8 +12,6 @@ defmodule RestdisServer.Commands.GetMgetPgrstKeyTest do
     on_exit(fn -> Restdis.Cache.flush_tenant(tenant_id) end)
     {:ok, tenant_id: tenant_id}
   end
-
-  defp state(tenant_id), do: %{authenticated?: true, tenant_id: tenant_id, buffer: <<>>}
 
   test "GET of a pgrst:* key JSON-encodes the cached value", %{tenant_id: tenant_id} do
     key = Key.build(:table, "products", %{"id" => "eq.1"})

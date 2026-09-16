@@ -1,9 +1,9 @@
 defmodule RestdisServer.Commands.GetArgumentErrorsTest do
   use ExUnit.Case, async: false
 
-  alias RestdisServer.Commands.Get
+  import RestdisServer.TestUtils
 
-  defp state(tenant_id), do: %{authenticated?: true, tenant_id: tenant_id, buffer: <<>>}
+  alias RestdisServer.Commands.Get
 
   test "GET with the wrong number of arguments replies with an error" do
     {reply, _state} = Get.run(state("tenant_get_args"), [])

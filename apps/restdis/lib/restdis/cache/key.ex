@@ -31,7 +31,7 @@ defmodule Restdis.Cache.Key do
   def encode(%__MODULE__{scope: :raw, ident: ident}), do: ident
 
   def encode(%__MODULE__{scope: scope, ident: ident, params_hash: hash}) do
-    "pgrst:#{@scope_to_wire[scope]}:#{URI.encode(ident)}:#{hash}"
+    "pgrst:#{@scope_to_wire[scope]}:#{URI.encode(ident, &URI.char_unreserved?/1)}:#{hash}"
   end
 
   @doc """
@@ -51,6 +51,7 @@ defmodule Restdis.Cache.Key do
     case String.split(rest, ":", parts: 3) do
       [wire_scope, encoded_ident, hash_str] ->
         with {:ok, scope} <- Map.fetch(@wire_to_scope, wire_scope),
+             true <- hash_str =~ ~r/^\d+$/,
              {hash, ""} <- Integer.parse(hash_str) do
           {:ok, %__MODULE__{scope: scope, ident: URI.decode(encoded_ident), params_hash: hash}}
         else

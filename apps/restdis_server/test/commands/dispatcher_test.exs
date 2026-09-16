@@ -1,6 +1,8 @@
 defmodule RestdisServer.Commands.DispatcherTest do
   use ExUnit.Case, async: false
 
+  import RestdisServer.TestUtils
+
   alias RestdisServer.Commands.Dispatcher
 
   setup do
@@ -8,8 +10,6 @@ defmodule RestdisServer.Commands.DispatcherTest do
     on_exit(fn -> Restdis.Cache.flush_tenant(tenant_id) end)
     {:ok, tenant_id: tenant_id}
   end
-
-  defp state(tenant_id), do: %{authenticated?: true, tenant_id: tenant_id, buffer: <<>>}
 
   test "dispatch/2 with an empty command list replies with an error" do
     {reply, state} = Dispatcher.dispatch(%{authenticated?: true}, [])

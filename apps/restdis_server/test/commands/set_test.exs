@@ -1,6 +1,8 @@
 defmodule RestdisServer.Commands.SetTest do
   use ExUnit.Case, async: false
 
+  import RestdisServer.TestUtils
+
   alias RestdisServer.Commands.Del
   alias RestdisServer.Commands.Exists
   alias RestdisServer.Commands.Get
@@ -13,8 +15,6 @@ defmodule RestdisServer.Commands.SetTest do
     on_exit(fn -> Restdis.Cache.flush_tenant(tenant_id) end)
     {:ok, tenant_id: tenant_id}
   end
-
-  defp state(tenant_id), do: %{authenticated?: true, tenant_id: tenant_id, buffer: <<>>}
 
   test "SET key value stores a plain value retrievable via GET", %{tenant_id: tenant_id} do
     {set_reply, _state} = Set.run(state(tenant_id), ["mykey", "hello"])

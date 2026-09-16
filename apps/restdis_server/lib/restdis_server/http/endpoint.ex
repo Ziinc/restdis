@@ -9,7 +9,6 @@ defmodule RestdisServer.HTTP.Endpoint do
 
   alias Restdis.Cache.Key
   alias Restdis.Cache.Router
-  alias Restdis.Cache.TenantRegistry
   alias RestdisServer.Fallback
   alias RestdisServer.HTTP.Electric
   alias RestdisServer.HTTP.Plug.Auth
@@ -207,21 +206,10 @@ defmodule RestdisServer.HTTP.Endpoint do
   end
 
   defp ttl_remaining(tenant_id, key) do
-    tid = TenantRegistry.get_value(tenant_id, :qc_table)
-
-    if tid do
-      case :ets.lookup(tid, key) do
-        [{^key, _, :infinity, _last_access}] ->
-          -1
-
-        [{^key, _, exp, _last_access}] ->
-          max(0, div(exp - System.monotonic_time(:millisecond), 1000))
-
-        [] ->
-          -2
-      end
-    else
-      -2
+    case Restdis.Cache.ttl(tenant_id, key) do
+      :infinity -> -1
+      :miss -> -2
+      remaining_ms -> max(0, div(remaining_ms, 1000))
     end
   end
 end

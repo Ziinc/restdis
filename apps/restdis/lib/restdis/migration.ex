@@ -91,7 +91,7 @@ defmodule Restdis.Migration do
       case tables do
         nil -> "FOR ALL TABLES"
         [] -> "FOR ALL TABLES"
-        tables -> "FOR TABLE " <> Enum.join(tables, ", ")
+        tables -> "FOR TABLE " <> Enum.map_join(tables, ", ", &quote_qualified_table/1)
       end
 
     execute("""
@@ -105,6 +105,12 @@ defmodule Restdis.Migration do
     """)
 
     :ok
+  end
+
+  defp quote_qualified_table(table) do
+    table
+    |> String.split(".")
+    |> Enum.map_join(".", &SqlQuoting.quote_ident/1)
   end
 
   @doc "Drops the WAL publication created by `create_publication/1`."

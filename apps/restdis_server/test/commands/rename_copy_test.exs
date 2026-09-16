@@ -1,6 +1,8 @@
 defmodule RestdisServer.Commands.RenameCopyTest do
   use ExUnit.Case, async: false
 
+  import RestdisServer.TestUtils
+
   alias RestdisServer.Commands.Copy
   alias RestdisServer.Commands.Exists
   alias RestdisServer.Commands.Get
@@ -14,8 +16,6 @@ defmodule RestdisServer.Commands.RenameCopyTest do
     on_exit(fn -> Restdis.Cache.flush_tenant(tenant_id) end)
     {:ok, tenant_id: tenant_id}
   end
-
-  defp state(tenant_id), do: %{authenticated?: true, tenant_id: tenant_id, buffer: <<>>}
 
   test "RENAME moves a value, overwriting the destination", %{tenant_id: tenant_id} do
     Set.run(state(tenant_id), ["src", "hello"])

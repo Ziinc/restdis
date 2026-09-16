@@ -100,14 +100,14 @@ defmodule Restdis.Cache.ReverseIndex do
     case keys do
       [] ->
         :telemetry.execute(
-          [:restdis_buster, :reverse_index, :miss],
+          [:restdis, :reverse_index, :miss],
           %{count: 1},
           %{tenant_id: tenant_id, table: table}
         )
 
       _ ->
         :telemetry.execute(
-          [:restdis_buster, :reverse_index, :hit],
+          [:restdis, :reverse_index, :hit],
           %{keys: length(keys)},
           %{tenant_id: tenant_id, table: table}
         )
