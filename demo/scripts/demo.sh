@@ -83,8 +83,9 @@ pause
 
 step "4. Prove it: update a row that's already in the cached result"
 note "Restdis's reverse index maps (table, primary key) -> cache keys, populated"
-note "from the pks actually present in a cached response - so busting works on a"
-note "row already in the cache (id=1), not on a brand-new row (see PRD.md)"
+note "from the pks actually present in a cached response. An insert has no such"
+note "entry to look up, so inserts bust every cached list for the table instead"
+note "(see PRD.md); updates/deletes bust only the lists that held the row's pk"
 note "update widgets set name = 'updated widget' where id = 1"
 psql_demo "update widgets set name = 'updated widget' where id = 1;" > /dev/null
 note "Restdis is still serving the OLD cached result for a moment..."

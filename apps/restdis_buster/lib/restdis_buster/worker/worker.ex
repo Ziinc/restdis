@@ -196,6 +196,10 @@ defmodule RestdisBuster.Worker do
     end
   end
 
+  defp apply_change(config, %Event{op: :insert} = event, _row, _pk) do
+    handler().invalidate_lists(config.tenant_id, event.table)
+  end
+
   defp apply_change(config, event, _row, pk) do
     handler().invalidate_by_row(config.tenant_id, event.table, pk)
   end

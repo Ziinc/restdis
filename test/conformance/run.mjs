@@ -27,8 +27,40 @@
 import { readdirSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
+import { ConformanceError } from "./lib/helpers.mjs";
 
 const scenariosDir = path.join(path.dirname(fileURLToPath(import.meta.url)), "scenarios");
+
+// Backstop for a scenario that forgets to bound one of its own awaits (see
+// 08_shape_class.mjs's history): every scenario gets a hard ceiling here so
+// one hung stream fails just that scenario instead of the whole suite, no
+// matter what the scenario itself does or doesn't await with a timeout.
+// Kept well above the longest waitUntil timeout any scenario actually uses
+// (20s) but small enough that every scenario hitting the backstop at once
+// still fits inside the workflow's per-step timeout.
+const SCENARIO_TIMEOUT_MS = Number(process.env.CONFORMANCE_SCENARIO_TIMEOUT_MS ?? 25_000);
+
+async function runWithDeadline(fn, label) {
+  let timer;
+  try {
+    return await Promise.race([
+      fn(),
+      new Promise((_, reject) => {
+        timer = setTimeout(
+          () =>
+            reject(
+              new ConformanceError(
+                `${label} did not finish within ${SCENARIO_TIMEOUT_MS}ms (suite-wide backstop)`
+              )
+            ),
+          SCENARIO_TIMEOUT_MS
+        );
+      }),
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
 
 async function main() {
   const files = readdirSync(scenariosDir)
@@ -44,7 +76,7 @@ async function main() {
     const xfail = module.xfail;
 
     try {
-      await module.default();
+      await runWithDeadline(module.default, label);
       if (xfail) {
         failures += 1;
         console.log("XPASS");

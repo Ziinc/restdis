@@ -125,6 +125,33 @@ defmodule Restdis.Cache do
   end
 
   @doc """
+  Invalidates every list-scoped cache key recorded for `table`.
+
+  Used on row insert: a new row's primary key was never indexed, so it
+  can't be purged via `invalidate_by_row/3`. Single-row cache entries are
+  left untouched since an insert cannot affect them.
+  """
+  @spec invalidate_lists(tenant_id(), String.t()) :: :ok
+  def invalidate_lists(tenant_id, table) do
+    TenantId.cast!(tenant_id)
+
+    case TenantRegistry.whereis(tenant_id, :reverse_index) do
+      nil ->
+        :ok
+
+      _ ->
+        cache_keys = ReverseIndex.purge_list_keys(tenant_id, table)
+
+        Enum.each(cache_keys, fn key ->
+          QueryCache.delete(tenant_id, key)
+          DiskCache.delete(tenant_id, key)
+        end)
+
+        :ok
+    end
+  end
+
+  @doc """
   Invalidates every cache key that depends on the row `{table, pk}`.
   """
   @spec invalidate_by_row(tenant_id(), String.t(), primary_key()) :: :ok
@@ -312,6 +339,8 @@ defmodule Restdis.Cache do
     Enum.each(pks, fn pk ->
       ReverseIndex.add(tenant_id, table, pk, key)
     end)
+
+    if is_list(value), do: ReverseIndex.add_list_key(tenant_id, table, key)
   end
 
   defp extract_pks(value, pk_column) when is_map(value) do
