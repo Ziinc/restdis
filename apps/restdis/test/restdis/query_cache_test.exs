@@ -75,4 +75,18 @@ defmodule Restdis.Cache.QueryCacheTest do
 
     assert :miss = QueryCache.get(tenant_id, key)
   end
+
+  test "stopping the tenant clears the query cache's registered table, not just the process", %{
+    tenant_id: tenant_id
+  } do
+    assert TenantRegistry.get_value(tenant_id, :qc_table)
+    assert TenantRegistry.get_value(tenant_id, :qc_persist)
+
+    pid = TenantRegistry.whereis(tenant_id, :tenant)
+    Supervisor.stop(pid, :normal)
+
+    refute TenantRegistry.whereis(tenant_id, :query_cache)
+    refute TenantRegistry.get_value(tenant_id, :qc_table)
+    refute TenantRegistry.get_value(tenant_id, :qc_persist)
+  end
 end

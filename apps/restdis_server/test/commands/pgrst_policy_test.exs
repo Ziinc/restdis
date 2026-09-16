@@ -2,6 +2,7 @@ defmodule RestdisServer.Commands.PgrstPolicyTest do
   use ExUnit.Case
 
   alias Restdis.Cache.Key
+  alias Restdis.Cache.TenantRegistry
   alias RestdisServer.Commands.Dispatcher
   alias RestdisServer.PolicyStore
   alias RestdisServer.Rewarm
@@ -82,7 +83,7 @@ defmodule RestdisServer.Commands.PgrstPolicyTest do
     Restdis.Cache.put(@tenant_id, key, [%{"id" => 2}], ttl_ms: 60_000)
 
     # Prime the same `:counters` ref so the next attempt tips over the cap, avoiding looping 50,000 times.
-    ref = :persistent_term.get({:sc_persist, @tenant_id})
+    ref = TenantRegistry.get_value(@tenant_id, :qc_persist)
     :counters.add(ref, 1, 50_000)
 
     {reply, _} = Dispatcher.dispatch(state, ["PGRST.POLICY", wire_key, "PERSIST"])

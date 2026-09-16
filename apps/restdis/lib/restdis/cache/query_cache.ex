@@ -175,8 +175,8 @@ defmodule Restdis.Cache.QueryCache do
         write_concurrency: true
       ])
 
-    :persistent_term.put({:sc_qc, tenant_id}, tid)
-    :persistent_term.put({:sc_qc_idx, tenant_id}, idx)
+    TenantRegistry.put_value(tenant_id, :qc_table, tid)
+    TenantRegistry.put_value(tenant_id, :qc_table_idx, idx)
     schedule_sweep()
     {:ok, %{tenant_id: tenant_id, tid: tid, idx: idx}}
   end
@@ -200,15 +200,9 @@ defmodule Restdis.Cache.QueryCache do
     {:noreply, state}
   end
 
-  @impl GenServer
-  def terminate(_reason, %{tenant_id: tenant_id}) do
-    :persistent_term.erase({:sc_qc, tenant_id})
-    :persistent_term.erase({:sc_qc_idx, tenant_id})
-    :persistent_term.erase({:sc_persist, tenant_id})
-  end
-
   defp tables(tenant_id) do
-    {:persistent_term.get({:sc_qc, tenant_id}), :persistent_term.get({:sc_qc_idx, tenant_id})}
+    {TenantRegistry.get_value(tenant_id, :qc_table),
+     TenantRegistry.get_value(tenant_id, :qc_table_idx)}
   end
 
   defp schedule_sweep, do: Process.send_after(self(), :sweep, @sweep_interval_ms)
