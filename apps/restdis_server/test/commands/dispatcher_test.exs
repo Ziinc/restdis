@@ -61,4 +61,101 @@ defmodule RestdisServer.Commands.DispatcherTest do
     {reply, _state} = Dispatcher.dispatch(state(tenant_id), ["EXISTS", "mykey", "missing"])
     assert IO.iodata_to_binary(reply) == ":1\r\n"
   end
+
+  test "dispatch/2 routes INCR", %{tenant_id: tenant_id} do
+    {reply, _state} = Dispatcher.dispatch(state(tenant_id), ["INCR", "counter"])
+    assert IO.iodata_to_binary(reply) == ":1\r\n"
+  end
+
+  test "dispatch/2 routes DECR", %{tenant_id: tenant_id} do
+    {reply, _state} = Dispatcher.dispatch(state(tenant_id), ["DECR", "counter"])
+    assert IO.iodata_to_binary(reply) == ":-1\r\n"
+  end
+
+  test "dispatch/2 routes INCRBY", %{tenant_id: tenant_id} do
+    {reply, _state} = Dispatcher.dispatch(state(tenant_id), ["INCRBY", "counter", "5"])
+    assert IO.iodata_to_binary(reply) == ":5\r\n"
+  end
+
+  test "dispatch/2 routes DECRBY", %{tenant_id: tenant_id} do
+    {reply, _state} = Dispatcher.dispatch(state(tenant_id), ["DECRBY", "counter", "5"])
+    assert IO.iodata_to_binary(reply) == ":-5\r\n"
+  end
+
+  test "dispatch/2 routes EXPIRE", %{tenant_id: tenant_id} do
+    Dispatcher.dispatch(state(tenant_id), ["SET", "mykey", "myvalue"])
+    {reply, _state} = Dispatcher.dispatch(state(tenant_id), ["EXPIRE", "mykey", "60"])
+    assert IO.iodata_to_binary(reply) == ":1\r\n"
+  end
+
+  test "dispatch/2 routes PEXPIRE", %{tenant_id: tenant_id} do
+    Dispatcher.dispatch(state(tenant_id), ["SET", "mykey", "myvalue"])
+    {reply, _state} = Dispatcher.dispatch(state(tenant_id), ["PEXPIRE", "mykey", "60000"])
+    assert IO.iodata_to_binary(reply) == ":1\r\n"
+  end
+
+  test "dispatch/2 routes PERSIST", %{tenant_id: tenant_id} do
+    {reply, _state} = Dispatcher.dispatch(state(tenant_id), ["PERSIST", "mykey"])
+    assert IO.iodata_to_binary(reply) == ":0\r\n"
+  end
+
+  test "dispatch/2 routes SETNX", %{tenant_id: tenant_id} do
+    {reply, _state} = Dispatcher.dispatch(state(tenant_id), ["SETNX", "mykey", "myvalue"])
+    assert IO.iodata_to_binary(reply) == ":1\r\n"
+  end
+
+  test "dispatch/2 routes GETSET", %{tenant_id: tenant_id} do
+    {reply, _state} = Dispatcher.dispatch(state(tenant_id), ["GETSET", "mykey", "myvalue"])
+    assert IO.iodata_to_binary(reply) == "$-1\r\n"
+  end
+
+  test "dispatch/2 routes GETDEL", %{tenant_id: tenant_id} do
+    Dispatcher.dispatch(state(tenant_id), ["SET", "mykey", "myvalue"])
+    {reply, _state} = Dispatcher.dispatch(state(tenant_id), ["GETDEL", "mykey"])
+    assert IO.iodata_to_binary(reply) == "$7\r\nmyvalue\r\n"
+  end
+
+  test "dispatch/2 routes APPEND", %{tenant_id: tenant_id} do
+    {reply, _state} = Dispatcher.dispatch(state(tenant_id), ["APPEND", "mykey", "hello"])
+    assert IO.iodata_to_binary(reply) == ":5\r\n"
+  end
+
+  test "dispatch/2 routes STRLEN", %{tenant_id: tenant_id} do
+    Dispatcher.dispatch(state(tenant_id), ["SET", "mykey", "myvalue"])
+    {reply, _state} = Dispatcher.dispatch(state(tenant_id), ["STRLEN", "mykey"])
+    assert IO.iodata_to_binary(reply) == ":7\r\n"
+  end
+
+  test "dispatch/2 routes RENAME", %{tenant_id: tenant_id} do
+    Dispatcher.dispatch(state(tenant_id), ["SET", "src", "hello"])
+    {reply, _state} = Dispatcher.dispatch(state(tenant_id), ["RENAME", "src", "dst"])
+    assert IO.iodata_to_binary(reply) == "+OK\r\n"
+  end
+
+  test "dispatch/2 routes RENAMENX", %{tenant_id: tenant_id} do
+    Dispatcher.dispatch(state(tenant_id), ["SET", "src", "hello"])
+    {reply, _state} = Dispatcher.dispatch(state(tenant_id), ["RENAMENX", "src", "dst"])
+    assert IO.iodata_to_binary(reply) == ":1\r\n"
+  end
+
+  test "dispatch/2 routes DBSIZE", %{tenant_id: tenant_id} do
+    {reply, _state} = Dispatcher.dispatch(state(tenant_id), ["DBSIZE"])
+    assert IO.iodata_to_binary(reply) =~ ~r/^:\d+\r\n$/
+  end
+
+  test "dispatch/2 routes COPY", %{tenant_id: tenant_id} do
+    Dispatcher.dispatch(state(tenant_id), ["SET", "src", "hello"])
+    {reply, _state} = Dispatcher.dispatch(state(tenant_id), ["COPY", "src", "dst"])
+    assert IO.iodata_to_binary(reply) == ":1\r\n"
+  end
+
+  test "dispatch/2 rejects unauthenticated connections for auth-required commands" do
+    {reply, _state} = Dispatcher.dispatch(%{authenticated?: false}, ["GET", "mykey"])
+    assert IO.iodata_to_binary(reply) == "-NOAUTH Authentication required\r\n"
+  end
+
+  test "dispatch/2 allows PING without authentication" do
+    {reply, _state} = Dispatcher.dispatch(%{authenticated?: false}, ["PING"])
+    assert IO.iodata_to_binary(reply) == "+PONG\r\n"
+  end
 end
