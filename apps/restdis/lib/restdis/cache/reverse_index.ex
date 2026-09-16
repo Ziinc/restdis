@@ -28,7 +28,7 @@ defmodule Restdis.Cache.ReverseIndex do
   """
   @spec add(String.t(), table_name(), primary_key(), Key.t()) :: :ok
   def add(tenant_id, table, pk, key) do
-    GenServer.cast(TenantRegistry.via(tenant_id, :reverse_index), {:add, table, pk, key})
+    GenServer.call(TenantRegistry.via(tenant_id, :reverse_index), {:add, table, pk, key})
   end
 
   @doc """
@@ -63,10 +63,10 @@ defmodule Restdis.Cache.ReverseIndex do
   end
 
   @impl GenServer
-  def handle_cast({:add, table, pk, key}, %{fwd: fwd, rev: rev} = state) do
+  def handle_call({:add, table, pk, key}, _from, %{fwd: fwd, rev: rev} = state) do
     :ets.insert(fwd, {{table, pk}, key})
     :ets.insert(rev, {key, {table, pk}})
-    {:noreply, state}
+    {:reply, :ok, state}
   end
 
   @impl GenServer
