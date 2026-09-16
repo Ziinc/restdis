@@ -1,6 +1,8 @@
 defmodule Restdis.MigrationTest do
   use ExUnit.Case, async: false
 
+  @moduletag :db
+
   alias Restdis.TestRepo
 
   defmodule DefaultPrefixMigration do

@@ -1,6 +1,8 @@
 defmodule Mix.Tasks.Restdis.Gen.MigrationTest do
   use ExUnit.Case, async: false
 
+  @moduletag :db
+
   alias Mix.Tasks.Restdis.Gen.Migration, as: GenMigrationTask
   alias Restdis.TestRepo
 
