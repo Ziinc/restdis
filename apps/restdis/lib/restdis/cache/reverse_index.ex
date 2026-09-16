@@ -70,18 +70,6 @@ defmodule Restdis.Cache.ReverseIndex do
   end
 
   @impl GenServer
-  def handle_cast({:purge_key, key}, %{fwd: fwd, rev: rev} = state) do
-    pairs = :ets.lookup(rev, key) |> Enum.map(fn {_, pair} -> pair end)
-
-    Enum.each(pairs, fn {table, pk} ->
-      :ets.delete_object(fwd, {{table, pk}, key})
-    end)
-
-    :ets.delete(rev, key)
-    {:noreply, state}
-  end
-
-  @impl GenServer
   def handle_call(
         {:purge_row, table, pk},
         _from,
@@ -125,5 +113,17 @@ defmodule Restdis.Cache.ReverseIndex do
     end)
 
     {:reply, cache_keys, state}
+  end
+
+  @impl GenServer
+  def handle_cast({:purge_key, key}, %{fwd: fwd, rev: rev} = state) do
+    pairs = :ets.lookup(rev, key) |> Enum.map(fn {_, pair} -> pair end)
+
+    Enum.each(pairs, fn {table, pk} ->
+      :ets.delete_object(fwd, {{table, pk}, key})
+    end)
+
+    :ets.delete(rev, key)
+    {:noreply, state}
   end
 end
