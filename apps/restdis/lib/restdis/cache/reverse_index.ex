@@ -28,7 +28,7 @@ defmodule Restdis.Cache.ReverseIndex do
   """
   @spec add(String.t(), table_name(), primary_key(), Key.t()) :: :ok
   def add(tenant_id, table, pk, key) do
-    GenServer.cast(TenantRegistry.via(tenant_id, :reverse_index), {:add, table, pk, key})
+    GenServer.call(TenantRegistry.via(tenant_id, :reverse_index), {:add, table, pk, key})
   end
 
   @doc """
@@ -83,28 +83,10 @@ defmodule Restdis.Cache.ReverseIndex do
   end
 
   @impl GenServer
-  def handle_cast({:add, table, pk, key}, %{fwd: fwd, rev: rev} = state) do
+  def handle_call({:add, table, pk, key}, _from, %{fwd: fwd, rev: rev} = state) do
     :ets.insert(fwd, {{table, pk}, key})
     :ets.insert(rev, {key, {table, pk}})
-    {:noreply, state}
-  end
-
-  @impl GenServer
-  def handle_cast({:purge_key, key}, %{fwd: fwd, rev: rev} = state) do
-    pairs = :ets.lookup(rev, key) |> Enum.map(fn {_, pair} -> pair end)
-
-    Enum.each(pairs, fn {table, pk} ->
-      :ets.delete_object(fwd, {{table, pk}, key})
-    end)
-
-    :ets.delete(rev, key)
-    {:noreply, state}
-  end
-
-  @impl GenServer
-  def handle_cast({:add_list_key, table, key}, %{list_keys: list_keys} = state) do
-    :ets.insert(list_keys, {table, key})
-    {:noreply, state}
+    {:reply, :ok, state}
   end
 
   @impl GenServer
@@ -177,5 +159,23 @@ defmodule Restdis.Cache.ReverseIndex do
     end)
 
     {:reply, keys, state}
+  end
+
+  @impl GenServer
+  def handle_cast({:add_list_key, table, key}, %{list_keys: list_keys} = state) do
+    :ets.insert(list_keys, {table, key})
+    {:noreply, state}
+  end
+
+  @impl GenServer
+  def handle_cast({:purge_key, key}, %{fwd: fwd, rev: rev} = state) do
+    pairs = :ets.lookup(rev, key) |> Enum.map(fn {_, pair} -> pair end)
+
+    Enum.each(pairs, fn {table, pk} ->
+      :ets.delete_object(fwd, {{table, pk}, key})
+    end)
+
+    :ets.delete(rev, key)
+    {:noreply, state}
   end
 end

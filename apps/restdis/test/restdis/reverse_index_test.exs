@@ -15,11 +15,20 @@ defmodule Restdis.Cache.ReverseIndexTest do
   test "add and purge_row returns the indexed cache key", %{tenant_id: tenant_id} do
     key = Key.build(:table, "products", %{})
     ReverseIndex.add(tenant_id, "products", 1, key)
-    # flush async add via a sync call
-    ReverseIndex.purge_row(tenant_id, "products", 999)
 
     keys = ReverseIndex.purge_row(tenant_id, "products", 1)
     assert key in keys
+  end
+
+  test "add is synchronous, so a purge issued right after always sees it", %{
+    tenant_id: tenant_id
+  } do
+    key = Key.build(:table, "products", %{})
+
+    for pk <- 1..200 do
+      ReverseIndex.add(tenant_id, "products", pk, key)
+      assert ReverseIndex.purge_row(tenant_id, "products", pk) == [key]
+    end
   end
 
   test "array result: one index entry per primary key", %{tenant_id: tenant_id} do
@@ -37,7 +46,6 @@ defmodule Restdis.Cache.ReverseIndexTest do
   test "purge_key removes entries from forward index", %{tenant_id: tenant_id} do
     key = Key.build(:table, "orders", %{})
     ReverseIndex.add(tenant_id, "orders", 99, key)
-    ReverseIndex.purge_row(tenant_id, "orders", 0)
 
     ReverseIndex.purge_key(tenant_id, key)
     # flush purge_key (cast) via sync call
@@ -52,7 +60,6 @@ defmodule Restdis.Cache.ReverseIndexTest do
 
     ReverseIndex.add(tenant_id, "products", 5, key1)
     ReverseIndex.add(tenant_id, "products", 5, key2)
-    ReverseIndex.purge_row(tenant_id, "products", 0)
 
     keys = ReverseIndex.purge_row(tenant_id, "products", 5)
     assert key1 in keys
