@@ -292,6 +292,9 @@ defmodule RestdisBuster.WorkerTest do
         send(:worker_test, {:flush_table, tenant_id, table})
         :ok
       end
+
+      @impl Restdis.Wal.Handler
+      def invalidate_lists(_tenant_id, _table), do: :ok
     end
 
     # Reuse the file-level `setup`'s `:worker_test` registration; a process can only hold one registered name at a time.
