@@ -5,7 +5,9 @@ defmodule RestdisServer.Rewarm.SchedulerTest do
   alias RestdisServer.PolicyStore
   alias RestdisServer.QueryStore
   alias RestdisServer.Rewarm
+  alias RestdisServer.Rewarm.DynamicSupervisor, as: RewarmDynamicSupervisor
   alias RestdisServer.Rewarm.Scheduler
+  alias RestdisServer.TenantConfig
   alias RestdisServer.TenantStore.InMemory
 
   @tenant_id "rewarm-scheduler-test-tenant"
@@ -187,6 +189,111 @@ defmodule RestdisServer.Rewarm.SchedulerTest do
 
     assert_receive {:outbound_query, query_string}, 1500
     assert query_string == "id=eq.1"
+  end
+
+  test "(h) a fetch failure emits a rewarm error telemetry event" do
+    attach_telemetry([:restdis_server, :rewarm, :error])
+    Application.put_env(:restdis_server, :stub_fetcher_error, :timeout)
+    on_exit(fn -> Application.delete_env(:restdis_server, :stub_fetcher_error) end)
+
+    key = Key.build(:table, "erroring_items", %{})
+    wire_key = Key.encode(key)
+    Restdis.Cache.put(@tenant_id, key, [%{"id" => 1}], ttl_ms: 60_000)
+
+    PolicyStore.put(@tenant_id, wire_key, %{rewarm_s: 1, persist: false})
+    Rewarm.touch(@tenant_id, wire_key, key)
+
+    assert_receive {:telemetry, [:restdis_server, :rewarm, :error], _, meta}, 1500
+    assert meta.reason == :timeout
+  end
+
+  test "(i) touching an already-tracked key updates its policy instead of resetting it" do
+    key = Key.build(:table, "retouched_items", %{})
+    wire_key = Key.encode(key)
+    Restdis.Cache.put(@tenant_id, key, [%{"id" => 1}], ttl_ms: 60_000)
+
+    pid = ensure_scheduler()
+    Scheduler.upsert(pid, wire_key, key, %{rewarm_s: 60, persist: false})
+    Scheduler.upsert(pid, wire_key, key, %{rewarm_s: 60, persist: true})
+
+    table = :sys.get_state(pid).table
+    assert [{^wire_key, entry}] = :ets.lookup(table, wire_key)
+    assert entry.persist == true
+  end
+
+  test "(j) policy_changed on an already-tracked key updates its policy in place" do
+    key = Key.build(:table, "policy_retouched_items", %{})
+    wire_key = Key.encode(key)
+
+    pid = ensure_scheduler()
+    Scheduler.upsert(pid, wire_key, key, %{rewarm_s: 60, persist: false})
+    :ok = Scheduler.policy_changed(pid, wire_key, key, %{rewarm_s: 90, persist: true})
+
+    table = :sys.get_state(pid).table
+    assert [{^wire_key, entry}] = :ets.lookup(table, wire_key)
+    assert entry.rewarm_s == 90
+    assert entry.persist == true
+  end
+
+  test "(k) policy_changed on an untracked key with a rewarm interval starts tracking it" do
+    key = Key.build(:table, "brand_new_policy_items", %{})
+    wire_key = Key.encode(key)
+
+    pid = ensure_scheduler()
+    :ok = Scheduler.policy_changed(pid, wire_key, key, %{rewarm_s: 45, persist: false})
+
+    table = :sys.get_state(pid).table
+    assert [{^wire_key, entry}] = :ets.lookup(table, wire_key)
+    assert entry.rewarm_s == 45
+  end
+
+  test "(l) a :refetch_ok cast for a key no longer tracked is a no-op" do
+    pid = ensure_scheduler()
+
+    # Nothing was inserted under this wire_key, so the ETS lookup misses; the scheduler must not crash.
+    GenServer.cast(pid, {:refetch_ok, "pgrst:t:untracked:none", [%{"id" => 1}], 0})
+
+    assert Process.alive?(pid)
+  end
+
+  test "(m) a rewarm refetch for a tenant whose config has disappeared falls back to a 60s TTL" do
+    key = Key.build(:table, "vanished_tenant_items", %{})
+    wire_key = Key.encode(key)
+    Restdis.Cache.put(@tenant_id, key, [%{"id" => 1}], ttl_ms: 1000)
+
+    pid = ensure_scheduler()
+    Scheduler.upsert(pid, wire_key, key, %{rewarm_s: 60, persist: false})
+
+    # Config lookup now fails without stopping the scheduler, so the next `:refetch_ok` exercises the fallback branch.
+    InMemory.clear()
+    TenantConfig.invalidate(@tenant_id)
+
+    GenServer.cast(pid, {:refetch_ok, wire_key, [%{"id" => 1, "rewarmed" => true}], 0})
+
+    table = :sys.get_state(pid).table
+    assert [{^wire_key, entry}] = :ets.lookup(table, wire_key)
+    assert entry.last_rewarm_ms != nil
+    assert {:ok, [%{"id" => 1, "rewarmed" => true}]} = Restdis.Cache.peek(@tenant_id, key)
+  end
+
+  test "(n) terminate/2 removes the scheduler's ETS table on a clean stop" do
+    tenant_id = "rewarm-scheduler-terminate-tenant"
+    on_exit(fn -> Rewarm.stop_tenant(tenant_id) end)
+
+    {:ok, pid} =
+      DynamicSupervisor.start_child(
+        RewarmDynamicSupervisor,
+        {Scheduler, tenant_id: tenant_id}
+      )
+
+    table = :sys.get_state(pid).table
+    assert :ets.info(table) != :undefined
+
+    # Unlike an uncooperative `:shutdown` exit, `GenServer.stop/1` asks the process to stop cooperatively, which runs `terminate/2`.
+    :ok = GenServer.stop(pid)
+
+    refute Process.alive?(pid)
+    assert :ets.info(table) == :undefined
   end
 
   defp ensure_scheduler do

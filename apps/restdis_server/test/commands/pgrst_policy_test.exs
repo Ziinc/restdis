@@ -75,10 +75,58 @@ defmodule RestdisServer.Commands.PgrstPolicyTest do
     assert entry.persist == true
   end
 
+  test "PGRST.POLICY PERSIST refuses past the tenant's persist cap", %{state: state} do
+    # A fresh key, so `set_persist/4` actually runs instead of short-circuiting as a no-op.
+    key = Key.build(:table, "products", %{"id" => "eq.2"})
+    wire_key = Key.encode(key)
+    Restdis.Cache.put(@tenant_id, key, [%{"id" => 2}], ttl_ms: 60_000)
+
+    # Prime the same `:counters` ref so the next attempt tips over the cap, avoiding looping 50,000 times.
+    ref = :persistent_term.get({:sc_persist, @tenant_id})
+    :counters.add(ref, 1, 50_000)
+
+    {reply, _} = Dispatcher.dispatch(state, ["PGRST.POLICY", wire_key, "PERSIST"])
+    assert IO.iodata_to_binary(reply) == "-ERR persist cap reached\r\n"
+  end
+
   defp fetch_scheduler_pid(tenant_id) do
     case Registry.lookup(RestdisServer.Rewarm.Registry, tenant_id) do
       [{pid, _}] -> {:ok, pid}
       [] -> :error
     end
+  end
+
+  test "PGRST.POLICY with no arguments replies with an error", %{state: state} do
+    {reply, _} = Dispatcher.dispatch(state, ["PGRST.POLICY"])
+    assert IO.iodata_to_binary(reply) =~ "wrong number of arguments"
+  end
+
+  test "PGRST.POLICY with an undecodable key replies with an error", %{state: state} do
+    {reply, _} = Dispatcher.dispatch(state, ["PGRST.POLICY", "bad:scheme:key"])
+    assert IO.iodata_to_binary(reply) == "-ERR invalid cache key\r\n"
+  end
+
+  test "PGRST.POLICY TTL on a key with no cached value still succeeds", %{state: state} do
+    key = Key.build(:table, "uncached_table", %{"id" => "eq.99"})
+    wire_key = Key.encode(key)
+
+    {reply, _} = Dispatcher.dispatch(state, ["PGRST.POLICY", wire_key, "TTL", "60"])
+    assert IO.iodata_to_binary(reply) == "+OK\r\n"
+  end
+
+  test "PGRST.POLICY ignores an unrecognized trailing single option", %{
+    state: state,
+    wire_key: wire_key
+  } do
+    {reply, _} = Dispatcher.dispatch(state, ["PGRST.POLICY", wire_key, "NOTANOPT"])
+    assert IO.iodata_to_binary(reply) == "+OK\r\n"
+  end
+
+  test "PGRST.POLICY ignores an unrecognized key/value pair option", %{
+    state: state,
+    wire_key: wire_key
+  } do
+    {reply, _} = Dispatcher.dispatch(state, ["PGRST.POLICY", wire_key, "NOTANOPT", "1"])
+    assert IO.iodata_to_binary(reply) == "+OK\r\n"
   end
 end

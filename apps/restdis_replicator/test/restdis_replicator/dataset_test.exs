@@ -58,10 +58,27 @@ defmodule RestdisReplicator.DatasetTest do
     assert :error = Dataset.parse_wire_key("pgrst:t:products:123")
   end
 
+  test "parse_wire_key/1 rejects non-binary input" do
+    assert :error = Dataset.parse_wire_key(nil)
+    assert :error = Dataset.parse_wire_key(42)
+  end
+
   test "pk_of/2 reads the primary key from a row" do
     dataset = Dataset.new(%{tenant_id: "t1", table_name: "orders", pk_column: "order_id"})
 
     assert Dataset.pk_of(dataset, %{"order_id" => 7, "total" => 1}) == "7"
     assert Dataset.pk_of(dataset, %{"total" => 1}) == nil
+  end
+
+  test "pk_of/2 returns nil when the primary key value is explicitly nil" do
+    dataset = Dataset.new(%{tenant_id: "t1", table_name: "orders", pk_column: "order_id"})
+
+    assert Dataset.pk_of(dataset, %{"order_id" => nil}) == nil
+  end
+
+  test "pk_of/2 returns nil for a non-map row" do
+    dataset = Dataset.new(%{tenant_id: "t1", table_name: "orders", pk_column: "order_id"})
+
+    assert Dataset.pk_of(dataset, "not-a-map") == nil
   end
 end

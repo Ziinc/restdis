@@ -62,4 +62,24 @@ defmodule RestdisServer.Commands.ExpiryTest do
     {reply, _state} = Pexpire.run(state(tenant_id), ["mykey", "1000"])
     assert IO.iodata_to_binary(reply) == ":0\r\n"
   end
+
+  test "EXPIRE with a non-positive TTL on a missing key replies 0", %{tenant_id: tenant_id} do
+    {reply, _state} = Expire.run(state(tenant_id), ["mykey", "0"])
+    assert IO.iodata_to_binary(reply) == ":0\r\n"
+  end
+
+  test "PEXPIRE with a non-positive TTL deletes the key", %{tenant_id: tenant_id} do
+    Set.run(state(tenant_id), ["mykey", "hello"])
+
+    {reply, _state} = Pexpire.run(state(tenant_id), ["mykey", "0"])
+    assert IO.iodata_to_binary(reply) == ":1\r\n"
+
+    {exists_reply, _state} = Exists.run(state(tenant_id), ["mykey"])
+    assert IO.iodata_to_binary(exists_reply) == ":0\r\n"
+  end
+
+  test "EXPIRE rejects pgrst:* keys", %{tenant_id: tenant_id} do
+    {reply, _state} = Expire.run(state(tenant_id), ["pgrst:t:users:123", "60"])
+    assert IO.iodata_to_binary(reply) =~ "ERR"
+  end
 end

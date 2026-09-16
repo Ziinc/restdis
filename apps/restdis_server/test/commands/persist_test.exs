@@ -53,4 +53,14 @@ defmodule RestdisServer.Commands.PersistTest do
     {reply, _state} = Persist.run(state(tenant_id), ["mykey"])
     assert IO.iodata_to_binary(reply) == ":0\r\n"
   end
+
+  test "PERSIST falls back to the default max TTL when the tenant has no config" do
+    tenant_id = "tenant_persist_noconfig_#{System.unique_integer([:positive])}"
+    Set.run(state(tenant_id), ["mykey", "hello", "EX", "10"])
+
+    {reply, _state} = Persist.run(state(tenant_id), ["mykey"])
+    assert IO.iodata_to_binary(reply) == ":1\r\n"
+
+    Restdis.Cache.flush_tenant(tenant_id)
+  end
 end

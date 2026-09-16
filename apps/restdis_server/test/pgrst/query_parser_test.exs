@@ -44,4 +44,12 @@ defmodule RestdisServer.PGRST.QueryParserTest do
     wire_key = Key.encode(key)
     assert RestdisServer.QueryStore.get("t1", wire_key) == ""
   end
+
+  test "a path with no path segment at all is rejected" do
+    assert {:error, :missing_path} = QueryParser.parse("t1", "?id=eq.1")
+  end
+
+  test "an empty path is rejected" do
+    assert {:error, :empty_path} = QueryParser.parse("t1", "/")
+  end
 end

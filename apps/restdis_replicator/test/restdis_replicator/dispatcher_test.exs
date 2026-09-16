@@ -61,4 +61,8 @@ defmodule RestdisReplicator.DispatcherTest do
   test "a row without the primary key column is ignored", %{config: config} do
     assert :ok = Dispatcher.dispatch(config, :update, %{"name" => "no-pk"})
   end
+
+  test "an unrecognized op is ignored", %{config: config} do
+    assert :ok = Dispatcher.dispatch(config, :truncate, %{"id" => 1})
+  end
 end

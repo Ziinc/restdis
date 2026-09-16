@@ -45,4 +45,13 @@ defmodule RestdisServer.RESP.HandlerSocketTest do
 
     assert {:ok, "+PONG\r\n"} = :gen_tcp.recv(socket, 0, 1_000)
   end
+
+  test "malformed input replies with a protocol error and closes the connection", %{port: port} do
+    socket = connect(port)
+
+    :ok = :gen_tcp.send(socket, "*1\r\n$notanumber\r\n")
+
+    assert {:ok, "-ERR protocol error" <> _} = :gen_tcp.recv(socket, 0, 1_000)
+    assert {:error, :closed} = :gen_tcp.recv(socket, 0, 1_000)
+  end
 end

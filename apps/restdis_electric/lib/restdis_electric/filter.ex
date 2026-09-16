@@ -275,7 +275,7 @@ defmodule RestdisElectric.Filter do
 
   defp constant({:lit, {:number, text}}, _params), do: {:ok, text}
   defp constant({:lit, {:string, text}}, _params), do: {:ok, text}
-  defp constant({:lit, {:bool, bool}}, _params), do: {:ok, bool}
+  defp constant({:lit, {:bool_, bool}}, _params), do: {:ok, bool}
   defp constant({:param, index}, params), do: Map.fetch(params, index)
   defp constant(_node, _params), do: :error
 

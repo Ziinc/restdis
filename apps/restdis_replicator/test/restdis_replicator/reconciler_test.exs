@@ -78,6 +78,12 @@ defmodule RestdisReplicator.ReconcilerTest do
     assert Reconciler.reconcile_all_sync() == []
   end
 
+  test "handle_info/2 ignores unrelated messages" do
+    send(Process.whereis(Reconciler), :some_unrelated_message)
+
+    assert Process.alive?(Process.whereis(Reconciler))
+  end
+
   defp eventually(fun, attempts \\ 50) do
     cond do
       fun.() ->

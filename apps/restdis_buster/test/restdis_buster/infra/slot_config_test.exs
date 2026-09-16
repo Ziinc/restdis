@@ -56,6 +56,33 @@ defmodule RestdisBuster.Infra.SlotConfigTest do
     assert opts[:password] == "p@ss"
   end
 
+  test "a :url with a username but no password omits the password" do
+    put_conn(url: "postgres://alice@db.internal/restdis")
+
+    opts = SlotConfig.replication_conn_opts()
+
+    assert opts[:username] == "alice"
+    refute Keyword.has_key?(opts, :password)
+  end
+
+  test "a :url with a root path (no database) omits the database" do
+    put_conn(url: "postgres://db.internal/")
+
+    opts = SlotConfig.replication_conn_opts()
+
+    assert opts[:hostname] == "db.internal"
+    refute Keyword.has_key?(opts, :database)
+  end
+
+  test "a :url with no path at all omits the database" do
+    put_conn(url: "postgres://db.internal")
+
+    opts = SlotConfig.replication_conn_opts()
+
+    assert opts[:hostname] == "db.internal"
+    refute Keyword.has_key?(opts, :database)
+  end
+
   test "explicit options win over the url" do
     put_conn(url: "postgres://db.internal/restdis", hostname: "override")
 

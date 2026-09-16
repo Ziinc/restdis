@@ -68,7 +68,8 @@ defmodule RestdisServer.Commands.PgrstQuery do
       {:ok, body} ->
         case Router.put(state.tenant_id, key, body,
                ttl_ms: effective_ttl_ms,
-               persist: policy.persist
+               persist: policy.persist,
+               persist_cap: config.persist_cap
              ) do
           :ok ->
             Rewarm.touch(state.tenant_id, wire_key, key)

@@ -13,8 +13,11 @@ defmodule RestdisServer.HTTP.ElectricTransportTest do
   import Plug.Conn
 
   alias RestdisElectric.WAL
+  alias RestdisServer.HTTP.Electric
   alias RestdisServer.HTTP.Endpoint
+  alias RestdisServer.HTTP.Plug.Auth
   alias RestdisServer.TenantStore.InMemory
+  alias RestdisServer.Test.FlakyChunkAdapter
 
   @tenant_id "test-electric-transport"
 
@@ -76,6 +79,15 @@ defmodule RestdisServer.HTTP.ElectricTransportTest do
     |> fetch_query_params()
     |> put_req_header("authorization", "Bearer sk_transport")
     |> Endpoint.call(Endpoint.init([]))
+  end
+
+  # Builds a conn like the Endpoint pipeline would, stopping short of dispatch so tests can swap in `FlakyChunkAdapter`.
+  defp authed_conn(url) do
+    :get
+    |> conn(url)
+    |> fetch_query_params()
+    |> put_req_header("authorization", "Bearer sk_transport")
+    |> Auth.call([])
   end
 
   defp header(conn, name) do
@@ -281,6 +293,24 @@ defmodule RestdisServer.HTTP.ElectricTransportTest do
       assert header(conn, "content-type") == nil
       assert Jason.decode!(conn.resp_body)["error"]
     end
+
+    test "a message arriving mid-stream is delivered over the same SSE connection" do
+      {handle, _} = snapshot()
+
+      task =
+        Task.async(fn ->
+          request("/v1/shape?table=gadgets&offset=0_inf&handle=#{handle}&live_sse=true")
+        end)
+
+      # Give the SSE loop time to start awaiting, so the change is delivered from `sse_loop`, not `send_events`.
+      Process.sleep(10)
+      append_change(50, %{"id" => 4, "name" => "d"})
+
+      conn = Task.await(task, 1000)
+
+      events = sse_events(conn.resp_body)
+      assert Enum.any?(events, &(&1["value"] == %{"id" => 4, "name" => "d"}))
+    end
   end
 
   describe "replica=full over HTTP" do
@@ -347,6 +377,92 @@ defmodule RestdisServer.HTTP.ElectricTransportTest do
       conn = request("/v1/shape?table=gadgets&offset=-1&where=id%20%3D%20%3D")
 
       assert conn.status == 400
+    end
+  end
+
+  describe "SSE client disconnect" do
+    # `Plug.Test` can't fail a chunked write, so these drive `Electric.get_shape/1` on a `FlakyChunkAdapter`-wired conn.
+    test "a chunk failure while flushing the initial events ends the stream, not a crash" do
+      {handle, _} = snapshot()
+      append_change(10, %{"id" => 2, "name" => "b"})
+
+      conn =
+        "/v1/shape?table=gadgets&offset=0_inf&handle=#{handle}&live_sse=true"
+        |> authed_conn()
+        |> FlakyChunkAdapter.install(0)
+
+      result = Electric.get_shape(conn)
+
+      assert result.state == :chunked
+      assert result.status == 200
+    end
+
+    test "a chunk failure during the keepalive loop stops the loop cleanly" do
+      {handle, _} = snapshot()
+
+      conn =
+        "/v1/shape?table=gadgets&offset=0_inf&handle=#{handle}&live_sse=true"
+        |> authed_conn()
+        # Allows the "up-to-date" control chunk through, then fails the keepalive chunk from `sse_loop/4`.
+        |> FlakyChunkAdapter.install(1)
+
+      result = Electric.get_shape(conn)
+
+      assert result.state == :chunked
+      assert result.status == 200
+    end
+
+    test "a chunk failure delivering a live message stops the loop cleanly" do
+      {handle, _} = snapshot()
+
+      task =
+        Task.async(fn ->
+          conn =
+            "/v1/shape?table=gadgets&offset=0_inf&handle=#{handle}&live_sse=true"
+            |> authed_conn()
+            # Allows the "up-to-date" control message through, then fails the chunk carrying the live-inserted row.
+            |> FlakyChunkAdapter.install(1)
+
+          Electric.get_shape(conn)
+        end)
+
+      Process.sleep(10)
+      append_change(50, %{"id" => 4, "name" => "d"})
+
+      result = Task.await(task, 1000)
+
+      assert result.state == :chunked
+      assert result.status == 200
+    end
+  end
+
+  describe "SSE registry/limit race while awaiting" do
+    test "hitting the waiting-clients limit inside the SSE loop ends the stream, not a crash" do
+      limited_tenant_id = "test-electric-transport-wait-limit"
+
+      InMemory.seed([
+        %{
+          api_key: "sk_transport_wait_limit",
+          tenant_id: limited_tenant_id,
+          default_ttl_s: 60,
+          persist_cap: 50_000,
+          pgrst_base_url: "http://localhost:3003",
+          pgrst_api_key: "svc_key",
+          replica_url: nil,
+          allow_shape_deletion: true,
+          max_waiting_clients: 0
+        }
+      ])
+
+      conn =
+        :get
+        |> conn("/v1/shape?table=gadgets&offset=-1&live_sse=true")
+        |> fetch_query_params()
+        |> put_req_header("authorization", "Bearer sk_transport_wait_limit")
+        |> Endpoint.call(Endpoint.init([]))
+
+      assert conn.status == 200
+      assert header(conn, "content-type") =~ "text/event-stream"
     end
   end
 end

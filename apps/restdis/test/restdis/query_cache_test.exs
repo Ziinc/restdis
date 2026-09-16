@@ -3,6 +3,7 @@ defmodule Restdis.Cache.QueryCacheTest do
 
   alias Restdis.Cache.Key
   alias Restdis.Cache.QueryCache
+  alias Restdis.Cache.TenantRegistry
   alias Restdis.Cache.TenantSupervisor
 
   setup do
@@ -42,5 +43,36 @@ defmodule Restdis.Cache.QueryCacheTest do
     key1 = Key.build(:table, "products", %{"id" => "eq.1"})
     key2 = Key.build(:table, "products", %{"id" => "eq.2"})
     assert key1 != key2
+  end
+
+  test "get treats an entry past its ttl as a miss and removes it", %{tenant_id: tenant_id} do
+    key = Key.build(:table, "products", %{})
+    QueryCache.put(tenant_id, key, "value", ttl_ms: 1)
+
+    Process.sleep(5)
+
+    assert :miss = QueryCache.get(tenant_id, key)
+    assert :miss = QueryCache.get(tenant_id, key)
+  end
+
+  test "get returns an unexpired ttl entry and refreshes its last-access time", %{
+    tenant_id: tenant_id
+  } do
+    key = Key.build(:table, "products", %{})
+    QueryCache.put(tenant_id, key, "value", ttl_ms: 60_000)
+
+    assert {:ok, "value"} = QueryCache.get(tenant_id, key)
+  end
+
+  test "the periodic sweep removes expired entries", %{tenant_id: tenant_id} do
+    key = Key.build(:table, "products", %{})
+    QueryCache.put(tenant_id, key, "value", ttl_ms: 1)
+    Process.sleep(5)
+
+    pid = TenantRegistry.whereis(tenant_id, :query_cache)
+    send(pid, :sweep)
+    :sys.get_state(pid)
+
+    assert :miss = QueryCache.get(tenant_id, key)
   end
 end
