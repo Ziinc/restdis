@@ -21,10 +21,31 @@ defmodule Restdis.Cache.DiskCache do
 
   @doc """
   Reads `key` from the tenant's CubDB store.
+
+  Calls the CubDB process directly (rather than routing through the disk
+  cache's own GenServer) since CubDB already serves reads concurrently from
+  any process; going through the GenServer would needlessly serialize every
+  read behind whatever writes/evictions are in flight.
   """
   @spec get(String.t(), Key.t()) :: {:ok, term()} | :miss
   def get(tenant_id, key) do
-    GenServer.call(TenantRegistry.via(tenant_id, :disk_cache), {:get, key})
+    case :persistent_term.get({:sc_dc, tenant_id}, nil) do
+      nil ->
+        GenServer.call(TenantRegistry.via(tenant_id, :disk_cache), {:get, key})
+
+      cubdb ->
+        case fetch_live(cubdb, key) do
+          {:ok, value, _expires_at} ->
+            {:ok, value}
+
+          :expired ->
+            # Falls back so the removal goes through the process owning `state.bytes`.
+            GenServer.call(TenantRegistry.via(tenant_id, :disk_cache), {:get, key})
+
+          :miss ->
+            :miss
+        end
+    end
   end
 
   @doc """
@@ -67,10 +88,19 @@ defmodule Restdis.Cache.DiskCache do
 
   @doc """
   Returns the metadata of `key` without reading its value.
+
+  Calls the CubDB process directly for the same concurrency reason as
+  `get/2`.
   """
   @spec peek_meta(String.t(), Key.t()) :: {:ok, %{persist: boolean()}} | :miss
   def peek_meta(tenant_id, key) do
-    GenServer.call(TenantRegistry.via(tenant_id, :disk_cache), {:peek_meta, key})
+    case :persistent_term.get({:sc_dc, tenant_id}, nil) do
+      nil ->
+        GenServer.call(TenantRegistry.via(tenant_id, :disk_cache), {:peek_meta, key})
+
+      cubdb ->
+        fetch_meta(cubdb, key)
+    end
   end
 
   @doc """
@@ -137,6 +167,7 @@ defmodule Restdis.Cache.DiskCache do
     tenant_dir = Path.join(data_dir, tenant_id)
     File.mkdir_p!(tenant_dir)
     {:ok, cubdb} = CubDB.start_link(data_dir: tenant_dir)
+    :persistent_term.put({:sc_dc, tenant_id}, cubdb)
     {bytes, persist_count, evict_idx, persist_keys} = rebuild_index(cubdb)
     record_persist_count(tenant_id, persist_count)
 
@@ -149,6 +180,11 @@ defmodule Restdis.Cache.DiskCache do
        evict_idx: evict_idx,
        persist_keys: persist_keys
      }}
+  end
+
+  @impl GenServer
+  def terminate(_reason, %{tenant_id: tenant_id}) do
+    :persistent_term.erase({:sc_dc, tenant_id})
   end
 
   @impl GenServer
@@ -240,14 +276,7 @@ defmodule Restdis.Cache.DiskCache do
   end
 
   def handle_call({:peek_meta, key}, _from, %{cubdb: cubdb} = state) do
-    result =
-      case CubDB.fetch(cubdb, key) do
-        {:ok, {:v1, %{persist: persist}}} -> {:ok, %{persist: persist}}
-        {:ok, _} -> {:ok, %{persist: false}}
-        :error -> :miss
-      end
-
-    {:reply, result, state}
+    {:reply, fetch_meta(cubdb, key), state}
   end
 
   def handle_call(:persisted_entries, _from, %{cubdb: cubdb, persist_keys: persist_keys} = state) do
@@ -386,6 +415,14 @@ defmodule Restdis.Cache.DiskCache do
       :gb_sets.delete(element, set)
     else
       set
+    end
+  end
+
+  defp fetch_meta(cubdb, key) do
+    case CubDB.fetch(cubdb, key) do
+      {:ok, {:v1, %{persist: persist}}} -> {:ok, %{persist: persist}}
+      {:ok, _} -> {:ok, %{persist: false}}
+      :error -> :miss
     end
   end
 
