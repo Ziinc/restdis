@@ -177,8 +177,6 @@ defmodule Restdis.Cache.QueryCache do
 
     :persistent_term.put({:sc_qc, tenant_id}, tid)
     :persistent_term.put({:sc_qc_idx, tenant_id}, idx)
-    ref = :counters.new(1, [:atomics])
-    :persistent_term.put({:sc_persist, tenant_id}, ref)
     schedule_sweep()
     {:ok, %{tenant_id: tenant_id, tid: tid, idx: idx}}
   end

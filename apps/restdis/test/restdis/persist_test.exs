@@ -106,6 +106,41 @@ defmodule Restdis.Cache.PersistTest do
     assert 3 = Restdis.Cache.persist_count(tenant_id)
   end
 
+  test "put persisted key twice counts once", %{tenant_id: tenant_id} do
+    key = Key.build(:table, "rewarm", %{})
+
+    assert :ok = Restdis.Cache.put(tenant_id, key, "v1", persist: true)
+    assert 1 = Restdis.Cache.persist_count(tenant_id)
+
+    assert :ok = Restdis.Cache.put(tenant_id, key, "v2", persist: true)
+    assert 1 = Restdis.Cache.persist_count(tenant_id)
+  end
+
+  test "put persisted key then put over it as non-persist decrements count", %{
+    tenant_id: tenant_id
+  } do
+    key = Key.build(:table, "downgrade", %{})
+
+    assert :ok = Restdis.Cache.put(tenant_id, key, "v1", persist: true)
+    assert 1 = Restdis.Cache.persist_count(tenant_id)
+
+    assert :ok = Restdis.Cache.put(tenant_id, key, "v2", persist: false)
+    assert 0 = Restdis.Cache.persist_count(tenant_id)
+  end
+
+  test "QueryCache crash keeps persist_count", %{tenant_id: tenant_id} do
+    key = Key.build(:table, "survives_qc_crash", %{})
+
+    assert :ok = Restdis.Cache.put(tenant_id, key, "v1", persist: true)
+    assert 1 = Restdis.Cache.persist_count(tenant_id)
+
+    query_cache_pid = TenantRegistry.whereis(tenant_id, :query_cache)
+    Process.exit(query_cache_pid, :kill)
+    Process.sleep(50)
+
+    assert 1 = Restdis.Cache.persist_count(tenant_id)
+  end
+
   test "legacy un-wrapped disk values still read correctly", %{tenant_id: tenant_id} do
     key = Key.build(:table, "legacy", %{})
     raw_value = %{"id" => 99, "name" => "old"}
