@@ -5,6 +5,7 @@ defmodule RestdisServer.Commands.PgrstPolicy do
 
   alias Restdis.Cache.Key
   alias Restdis.Cache.QueryCache
+  alias RestdisServer.Commands.Support
   alias RestdisServer.PolicyStore
   alias RestdisServer.RESP.Encoder
   alias RestdisServer.Rewarm
@@ -39,7 +40,12 @@ defmodule RestdisServer.Commands.PgrstPolicy do
 
     persist_result =
       if new_policy.persist != existing_policy.persist do
-        Restdis.Cache.set_persist(state.tenant_id, key, new_policy.persist)
+        Restdis.Cache.set_persist(
+          state.tenant_id,
+          key,
+          new_policy.persist,
+          Support.persist_cap_opt(state.tenant_id)
+        )
       else
         :ok
       end
