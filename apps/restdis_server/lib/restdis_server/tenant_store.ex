@@ -9,6 +9,7 @@ defmodule RestdisServer.TenantStore do
   @type tenant_config :: %{
           tenant_id: tenant_id(),
           default_ttl_s: pos_integer(),
+          max_ttl_s: pos_integer(),
           persist_cap: pos_integer(),
           pgrst_base_url: String.t(),
           pgrst_api_key: String.t(),

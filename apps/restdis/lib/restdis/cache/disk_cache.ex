@@ -88,6 +88,14 @@ defmodule Restdis.Cache.DiskCache do
   end
 
   @doc """
+  Returns the number of entries held in the tenant's disk cache.
+  """
+  @spec count(String.t()) :: non_neg_integer()
+  def count(tenant_id) do
+    GenServer.call(TenantRegistry.via(tenant_id, :disk_cache), :count)
+  end
+
+  @doc """
   Returns the approximate on-disk footprint, in bytes, of the tenant's CubDB
   store.
 
@@ -184,6 +192,10 @@ defmodule Restdis.Cache.DiskCache do
 
   def handle_call(:disk_size_bytes, _from, %{bytes: bytes} = state) do
     {:reply, bytes, state}
+  end
+
+  def handle_call(:count, _from, %{cubdb: cubdb} = state) do
+    {:reply, CubDB.size(cubdb), state}
   end
 
   @impl GenServer

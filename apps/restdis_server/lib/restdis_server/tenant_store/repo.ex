@@ -44,6 +44,7 @@ defmodule RestdisServer.TenantStore.Repo do
     %{
       tenant_id: tenant.tenant_id,
       default_ttl_s: tenant.default_ttl_s,
+      max_ttl_s: tenant.max_ttl_s,
       persist_cap: tenant.persist_cap,
       pgrst_base_url: tenant.pgrst_base_url,
       pgrst_api_key: tenant.pgrst_api_key,

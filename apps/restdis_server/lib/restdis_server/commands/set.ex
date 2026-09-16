@@ -3,8 +3,8 @@ defmodule RestdisServer.Commands.Set do
   Handles the RESP `SET` command.
 
   `SET` writes a plain, user-managed key/value pair readable back via `GET`,
-  `MGET`, `TTL`, `EXISTS` and removable via `DEL`. It supports the standard
-  `SET key value [EX seconds]` form.
+  `MGET`, `TTL`, `EXISTS` and removable via `DEL`. It supports
+  `SET key value [EX seconds | PX milliseconds | KEEPTTL] [NX | XX]`.
 
   Two key namespaces are reserved and rejected by `SET`, since they are
   populated automatically elsewhere:
@@ -20,10 +20,12 @@ defmodule RestdisServer.Commands.Set do
 
   alias Restdis.Cache.Key
   alias Restdis.Cache.Router
+  alias RestdisServer.Commands.Support
   alias RestdisServer.RESP.Encoder
 
   @doc """
-  Stores `value` under `wire_key`, optionally with a TTL via `EX <seconds>`.
+  Stores `value` under `wire_key`, honouring `EX`/`PX`/`KEEPTTL` and
+  `NX`/`XX` options.
   """
   @spec run(map(), [binary()]) :: {iodata(), map()}
   def run(state, [wire_key, value | rest]) do
@@ -48,8 +50,51 @@ defmodule RestdisServer.Commands.Set do
 
   def run(state, _), do: {Encoder.error("ERR wrong number of arguments for 'set' command"), state}
 
+  defp put(state, _key, _value, %{nx: true, xx: true}) do
+    {Encoder.error("ERR syntax error"), state}
+  end
+
   defp put(state, key, value, opts) do
-    case Router.put(state.tenant_id, key, value, opts) do
+    case check_condition(state, key, opts) do
+      :ok -> write(state, key, value, resolve_ttl_ms(state, key, opts))
+      :skip -> {Encoder.bulk_string(nil), state}
+      :unreachable -> {Encoder.error("ERR cache node unreachable"), state}
+    end
+  end
+
+  defp check_condition(state, key, %{nx: true}) do
+    case Router.get(state.tenant_id, key) do
+      :miss -> :ok
+      {:ok, _} -> :skip
+      {:error, :unreachable} -> :unreachable
+    end
+  end
+
+  defp check_condition(state, key, %{xx: true}) do
+    case Router.get(state.tenant_id, key) do
+      {:ok, _} -> :ok
+      :miss -> :skip
+      {:error, :unreachable} -> :unreachable
+    end
+  end
+
+  defp check_condition(_state, _key, _opts), do: :ok
+
+  defp resolve_ttl_ms(_state, _key, %{ttl_ms: ttl_ms}), do: ttl_ms
+
+  defp resolve_ttl_ms(state, key, %{keepttl: true}) do
+    case Support.remaining_ttl_ms(state.tenant_id, key) do
+      ms when is_integer(ms) -> ms
+      _ -> nil
+    end
+  end
+
+  defp resolve_ttl_ms(_state, _key, _opts), do: nil
+
+  defp write(state, key, value, ttl_ms) do
+    put_opts = if ttl_ms, do: [ttl_ms: ttl_ms], else: []
+
+    case Router.put(state.tenant_id, key, value, put_opts) do
       :ok ->
         {Encoder.simple_string("OK"), state}
 
@@ -57,18 +102,30 @@ defmodule RestdisServer.Commands.Set do
         {Encoder.error("ERR persist cap reached for tenant"), state}
 
       {:error, :unreachable} ->
-        {Encoder.error("ERR origin unavailable"), state}
+        {Encoder.error("ERR cache node unreachable"), state}
     end
   end
 
-  defp parse_opts([]), do: {:ok, []}
+  defp parse_opts(rest), do: parse_opts(rest, %{})
 
-  defp parse_opts(["EX", seconds]) do
+  defp parse_opts([], acc), do: {:ok, acc}
+
+  defp parse_opts(["EX", seconds | rest], acc) do
     case Integer.parse(seconds) do
-      {n, ""} when n > 0 -> {:ok, [ttl_ms: n * 1000]}
+      {n, ""} when n > 0 -> parse_opts(rest, Map.put(acc, :ttl_ms, n * 1000))
       _ -> :error
     end
   end
 
-  defp parse_opts(_), do: :error
+  defp parse_opts(["PX", millis | rest], acc) do
+    case Integer.parse(millis) do
+      {n, ""} when n > 0 -> parse_opts(rest, Map.put(acc, :ttl_ms, n))
+      _ -> :error
+    end
+  end
+
+  defp parse_opts(["KEEPTTL" | rest], acc), do: parse_opts(rest, Map.put(acc, :keepttl, true))
+  defp parse_opts(["NX" | rest], acc), do: parse_opts(rest, Map.put(acc, :nx, true))
+  defp parse_opts(["XX" | rest], acc), do: parse_opts(rest, Map.put(acc, :xx, true))
+  defp parse_opts(_rest, _acc), do: :error
 end
