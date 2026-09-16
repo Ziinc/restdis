@@ -1,6 +1,6 @@
 # Development
 
-See `PRD.md` for scope and architecture, and `AGENT.md` for the development workflow.
+See `prds/PRD.md` for scope and architecture, and `AGENT.md` for the development workflow.
 
 ## Docker build
 

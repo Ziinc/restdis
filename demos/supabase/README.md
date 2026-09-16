@@ -1,20 +1,23 @@
-# Supabase demo stack
+# Supabase integration demo
 
 Runs Restdis (built from the root `Dockerfile`) against a real PostgREST and
 GoTrue, standing in for a self-hosted Supabase project. Verifies the
-integration points described in `SUPABASE_INTEGRATION_PRD.md` against real
-origins instead of stubs. Separate from the root `docker-compose.yml`, which
-is for local development against bare Postgres.
+integration points described in `prds/SUPABASE_INTEGRATION_PRD.md` against
+real origins instead of stubs. Separate from the root `docker-compose.yml`,
+which is for local development against bare Postgres, and from
+`demos/redis/docker-compose.yml`, which is a lighter stack for the
+RESP-protocol demo (no GoTrue, Prometheus, or Grafana).
 
 ## Running locally
 
 ```sh
-cd demo
+cd demos/supabase
 docker compose up -d --build
 cd tests
 npm install
 RESTDIS_URL=http://localhost:4041 npm test
-docker compose -f ../docker-compose.yml down -v
+cd ..
+docker compose down -v
 ```
 
 ## Ports
@@ -29,7 +32,8 @@ docker compose -f ../docker-compose.yml down -v
 | grafana  | 3001        |
 
 These are offset from the root `docker-compose.yml`'s ports (4040, 6380,
-5432) so both stacks can run side by side.
+5432) so both stacks can run side by side. They match `demos/redis`'s ports,
+so don't run both stacks at once.
 
 ## supabase-js wrapper
 
@@ -41,7 +45,7 @@ PostgREST - the point being to show the interception happening from an
 application's normal call shape, not a bespoke test client.
 
 ```sh
-cd demo/client
+cd demos/supabase/client
 npm install
 node demo.mjs
 ```
@@ -53,13 +57,13 @@ against a real client for the demo script and screen recording below.
 
 `grafana/dashboards/restdis-demo.json` is a compact, six-panel dashboard
 meant to sit open in a browser pane (e.g. on the left, next to the terminal
-running `scripts/demo.sh`) for the whole recording, with no scrolling and no
-manual import - Prometheus (2s scrape interval) and Grafana (1s dashboard
-refresh, anonymous viewer access) are both part of `docker-compose.yml` and
-provision themselves on `docker compose up`.
+running `demo.sh`) for the whole recording, with no scrolling and no manual
+import - Prometheus (2s scrape interval) and Grafana (1s dashboard refresh,
+anonymous viewer access) are both part of `docker-compose.yml` and provision
+themselves on `docker compose up`.
 
-Open http://localhost:3001/d/restdis-demo (`scripts/demo.sh` does this for
-you automatically at startup). It covers exactly the flow the demo script
+Open http://localhost:3001/d/restdis-demo (`demo.sh` does this for you
+automatically at startup). It covers exactly the flow the demo script
 drives - a write landing, the WAL tailer picking it up, the reverse index
 resolving what to bust, and the resulting invalidation latency:
 
@@ -80,32 +84,32 @@ recording needs on screen at once.
 
 ## Screen-recording walkthrough
 
-`scripts/demo.sh` is a narrated, pause-between-steps script for recording a
-demo: origin PostgREST query → cache miss through Restdis → cache hit →
-direct write to Postgres → WAL-driven cache bust → GoTrue reachability.
+`demo.sh` is a narrated, pause-between-steps script for recording a demo:
+origin PostgREST query -> cache miss through Restdis -> cache hit -> direct
+write to Postgres -> WAL-driven cache bust -> GoTrue reachability.
 
 ```sh
-cd demo
-./scripts/demo.sh              # brings the stack up, then walks through it,
-                                # pausing for enter between steps
-./scripts/demo.sh --no-up      # stack already running, skip straight to the walkthrough
-DEMO_AUTOPLAY=1 ./scripts/demo.sh   # no keypresses; sleeps between steps instead
+cd demos/supabase
+./demo.sh              # brings the stack up, then walks through it,
+                        # pausing for enter between steps
+./demo.sh --no-up      # stack already running, skip straight to the walkthrough
+DEMO_AUTOPLAY=1 ./demo.sh   # no keypresses; sleeps between steps instead
 ```
 
 Requires `curl`, `psql`, `node`, and `docker compose` on `PATH`.
 
 ## Load test: many tenants, many requests, high speed
 
-`scripts/load-test.mjs` seeds a batch of synthetic tenants (`load-tenant-0`,
+`load-test.mjs` seeds a batch of synthetic tenants (`load-tenant-0`,
 `load-tenant-1`, ...), all sharing the demo's `widgets` origin table, then
 fires many concurrent requests spread across all of them against Restdis's
 PGRST cache for a fixed duration - a live-load moment for the recording,
 timed right after the Grafana dashboard has been introduced and just before
-the GoTrue step. `scripts/demo.sh` runs it as step 8. Standalone:
+the GoTrue step. `demo.sh` runs it as step 8. Standalone:
 
 ```sh
-cd demo
-LOAD_TENANTS=10 LOAD_CONCURRENCY=50 LOAD_DURATION_S=15 node scripts/load-test.mjs
+cd demos/supabase
+LOAD_TENANTS=10 LOAD_CONCURRENCY=50 LOAD_DURATION_S=15 node load-test.mjs
 ```
 
 Prints live throughput (`req/s`) to the terminal; on the Grafana side, watch
@@ -119,6 +123,6 @@ required above) and uses the built-in `fetch`.
 ## CI
 
 `.github/workflows/supabase-integration.yml` builds this stack and runs
-`demo/tests` (its own Vitest config, `demo/tests/vitest.config.ts`) in a
-dedicated workflow, separate from the Elixir `mix test`/`mix check` gate and
-from the `@electric-sql/client` conformance check in `test/conformance`.
+`tests` (its own Vitest config, `tests/vitest.config.ts`) in a dedicated
+workflow, separate from the Elixir `mix test`/`mix check` gate and from the
+`@electric-sql/client` conformance check in `demos/electric/conformance`.
