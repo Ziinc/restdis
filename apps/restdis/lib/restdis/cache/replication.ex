@@ -19,6 +19,7 @@ defmodule Restdis.Cache.Replication do
   serving from its own layers until the next write for that key.
   """
 
+  alias Restdis.Cache.Cluster
   alias Restdis.Cache.Key
 
   @type event ::
@@ -59,7 +60,7 @@ defmodule Restdis.Cache.Replication do
     op = elem(event, 0)
 
     result =
-      if Restdis.Cache.Cluster.local?(tenant_id) do
+      if Cluster.local?(tenant_id) do
         do_apply(tenant_id, event)
       else
         {:error, :not_owner}
