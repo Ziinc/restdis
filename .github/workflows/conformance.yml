@@ -21,7 +21,7 @@ jobs:
   conformance:
     name: Real @electric-sql/client against Restdis (blocks merge on failure)
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 10
 
     steps:
       - uses: actions/checkout@v4
