@@ -191,15 +191,15 @@ are its documented environment variables.
 
 | Electric setting | Purpose | Restdis equivalent |
 | --- | --- | --- |
-| `ELECTRIC_DATABASE_URL` | Postgres connection Electric replicates from | `DATABASE_URL` (the control-plane/replication connection, `config/runtime.exs`) plus, per tenant, `pgrst_base_url`/`pgrst_api_key` (snapshot reads) and optionally `direct_pg_url` (`log=changes_only` snapshots and direct-Postgres reads) on the `tenants` table |
-| `ELECTRIC_STORAGE_DIR` | Where Electric persists shape logs on disk | No single directory: shape logs share Restdis's existing cache storage layer (CubDB today, per `prds/ELECTRIC_PRD.md`'s "How we store the shape log"), rooted at `CACHE_DATA_DIR` |
+| `ELECTRIC_DATABASE_URL` | Postgres connection Electric replicates from | `RESTDIS_DATABASE_URL` (the control-plane/replication connection, `config/runtime.exs`) plus, per tenant, `pgrst_base_url`/`pgrst_api_key` (snapshot reads) and optionally `direct_pg_url` (`log=changes_only` snapshots and direct-Postgres reads) on the `tenants` table |
+| `ELECTRIC_STORAGE_DIR` | Where Electric persists shape logs on disk | No single directory: shape logs share Restdis's existing cache storage layer (CubDB today, per `prds/ELECTRIC_PRD.md`'s "How we store the shape log"), rooted at `RESTDIS_CACHE_DATA_DIR` |
 | `ELECTRIC_MAX_SHAPES` (or an equivalent flat limit) | Caps shape count for the one Electric instance | Per tenant `max_shapes` column on `tenants`, enforced by `RestdisElectric.Limits.check_shapes/1` and returned as a `429` |
 | A per-instance limit on total log storage | Caps disk use for the one Electric instance | Per tenant `max_log_bytes` column on `tenants`, enforced by `RestdisElectric.Limits.check_log_bytes/3` and returned as a `429` |
 | A per-instance limit on concurrent long-polling clients | Caps waiting connections for the one Electric instance | Per tenant `max_waiting_clients` column on `tenants`, enforced by `RestdisElectric.Limits.enter_wait/1` and returned as a `429` |
 | Electric's unbounded log with compaction | Bounds how far back a client can resume | Per tenant `max_log_operations` column on `tenants` as the default, overridable per shape via a `retention` query parameter: `RestdisElectric.Log` truncates a shape's log to its effective retention (`RestdisElectric.Limits.effective_retention/2`), and a client that resumes at or below the truncated boundary gets a `409` (see "How we store the shape log" in `prds/ELECTRIC_PRD.md`) |
-| `ELECTRIC_PORT` / listen address | HTTP port Electric serves on | `HTTP_PORT` (`config/runtime.exs`), shared with every other Restdis HTTP endpoint |
+| `ELECTRIC_PORT` / listen address | HTTP port Electric serves on | `RESTDIS_HTTP_PORT` (`config/runtime.exs`), shared with every other Restdis HTTP endpoint |
 | `ELECTRIC_LOG_LEVEL` / log format | Electric's own logging | Restdis's own logger config; `RESTDIS_JSON_LOGGER=true` switches to JSON output (`config/runtime.exs`) |
-| A replication slot name/publication, one per Electric instance | Electric's logical replication bookmark | `WAL_SLOT_NAME` / `WAL_PUBLICATION_NAME` (`config/runtime.exs`), shared with cache invalidation across the whole cluster, not one slot per shape server |
+| A replication slot name/publication, one per Electric instance | Electric's logical replication bookmark | `RESTDIS_WAL_SLOT_NAME` / `RESTDIS_WAL_PUBLICATION_NAME` (`config/runtime.exs`), shared with cache invalidation across the whole cluster, not one slot per shape server |
 | No tenant concept | Electric runs one instance per customer | Restdis's `tenants` table (`apps/restdis_repo`): one deployment, many tenants, one API key and one configuration row each |
 | Metrics endpoint (Electric exposes its own) | Operational visibility | `GET /metrics` (Prometheus exposition, `RestdisServer.Metrics`); see the Grafana dashboard at `grafana/restdis-dashboard.json` |
 

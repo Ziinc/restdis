@@ -98,7 +98,7 @@ defmodule RestdisElectric.SnapshotConsistencyTest do
     alias RestdisElectric.TestUtils
     alias RestdisElectric.WAL
 
-    @direct_pg_url "postgres://postgres:postgres@#{System.get_env("POSTGRES_HOSTNAME", "localhost")}:5432/restdis_test"
+    @direct_pg_url "postgres://postgres:postgres@#{System.get_env("RESTDIS_POSTGRES_HOSTNAME", "localhost")}:5432/restdis_test"
 
     setup do
       {:ok, conn} = Postgrex.start_link(DirectPostgres.connect_opts(@direct_pg_url))

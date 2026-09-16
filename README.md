@@ -45,7 +45,7 @@ Run the prebuilt image against your own logical-replication-enabled Postgres:
 
 ```sh
 docker run --rm \
-  -e DATABASE_URL=postgres://postgres:postgres@localhost:5432/restdis_dev \
+  -e RESTDIS_DATABASE_URL=postgres://postgres:postgres@localhost:5432/restdis_dev \
   -e RELEASE_COOKIE=some_secret_cookie \
   -p 4040:4040 -p 6380:6380 \
   restdis:latest
