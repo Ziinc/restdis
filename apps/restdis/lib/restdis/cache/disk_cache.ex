@@ -34,10 +34,18 @@ defmodule Restdis.Cache.DiskCache do
         GenServer.call(TenantRegistry.via(tenant_id, :disk_cache), {:get, key})
 
       cubdb ->
-        case CubDB.fetch(cubdb, key) do
-          {:ok, {:v1, %{value: value}}} -> {:ok, value}
-          {:ok, value} -> {:ok, value}
-          :error -> :miss
+        case fetch_live(cubdb, key) do
+          {:ok, value, _expires_at} ->
+            {:ok, value}
+
+          :expired ->
+            # Falls back to the GenServer so the expired entry's removal goes
+            # through the process that owns `state.bytes`, keeping the disk
+            # size tally accurate.
+            GenServer.call(TenantRegistry.via(tenant_id, :disk_cache), {:get, key})
+
+          :miss ->
+            :miss
         end
     end
   end
@@ -93,11 +101,7 @@ defmodule Restdis.Cache.DiskCache do
         GenServer.call(TenantRegistry.via(tenant_id, :disk_cache), {:peek_meta, key})
 
       cubdb ->
-        case CubDB.fetch(cubdb, key) do
-          {:ok, {:v1, %{persist: persist}}} -> {:ok, %{persist: persist}}
-          {:ok, _} -> {:ok, %{persist: false}}
-          :error -> :miss
-        end
+        fetch_meta(cubdb, key)
     end
   end
 
@@ -274,14 +278,7 @@ defmodule Restdis.Cache.DiskCache do
   end
 
   def handle_call({:peek_meta, key}, _from, %{cubdb: cubdb} = state) do
-    result =
-      case CubDB.fetch(cubdb, key) do
-        {:ok, {:v1, %{persist: persist}}} -> {:ok, %{persist: persist}}
-        {:ok, _} -> {:ok, %{persist: false}}
-        :error -> :miss
-      end
-
-    {:reply, result, state}
+    {:reply, fetch_meta(cubdb, key), state}
   end
 
   def handle_call(:persisted_entries, _from, %{cubdb: cubdb, persist_keys: persist_keys} = state) do
@@ -420,6 +417,14 @@ defmodule Restdis.Cache.DiskCache do
       :gb_sets.delete(element, set)
     else
       set
+    end
+  end
+
+  defp fetch_meta(cubdb, key) do
+    case CubDB.fetch(cubdb, key) do
+      {:ok, {:v1, %{persist: persist}}} -> {:ok, %{persist: persist}}
+      {:ok, _} -> {:ok, %{persist: false}}
+      :error -> :miss
     end
   end
 
