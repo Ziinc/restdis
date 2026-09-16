@@ -39,7 +39,7 @@ defmodule RestdisServer.Commands.SetArgumentErrorsTest do
   test "SET with an unrecognized trailing option replies with a syntax error", %{
     tenant_id: tenant_id
   } do
-    {reply, _state} = Set.run(state(tenant_id), ["mykey", "value", "NX"])
+    {reply, _state} = Set.run(state(tenant_id), ["mykey", "value", "BADOPT"])
     assert IO.iodata_to_binary(reply) == "-ERR syntax error\r\n"
   end
 end
