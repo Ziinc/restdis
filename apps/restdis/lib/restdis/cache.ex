@@ -125,6 +125,33 @@ defmodule Restdis.Cache do
   end
 
   @doc """
+  Invalidates every list-scoped cache key recorded for `table`.
+
+  Used on row insert: a new row's primary key was never indexed, so it
+  can't be purged via `invalidate_by_row/3`. Single-row cache entries are
+  left untouched since an insert cannot affect them.
+  """
+  @spec invalidate_lists(tenant_id(), String.t()) :: :ok
+  def invalidate_lists(tenant_id, table) do
+    TenantId.cast!(tenant_id)
+
+    case TenantRegistry.whereis(tenant_id, :reverse_index) do
+      nil ->
+        :ok
+
+      _ ->
+        cache_keys = ReverseIndex.purge_list_keys(tenant_id, table)
+
+        Enum.each(cache_keys, fn key ->
+          QueryCache.delete(tenant_id, key)
+          DiskCache.delete(tenant_id, key)
+        end)
+
+        :ok
+    end
+  end
+
+  @doc """
   Invalidates every cache key that depends on the row `{table, pk}`.
   """
   @spec invalidate_by_row(tenant_id(), String.t(), primary_key()) :: :ok
@@ -237,9 +264,9 @@ defmodule Restdis.Cache do
   end
 
   defp disk_get_and_promote(tenant_id, key) do
-    case DiskCache.get(tenant_id, key) do
-      {:ok, value} ->
-        QueryCache.put(tenant_id, key, value)
+    case DiskCache.get_with_ttl(tenant_id, key) do
+      {:ok, value, ttl_ms} ->
+        QueryCache.put(tenant_id, key, value, ttl_ms: ttl_ms)
         {:ok, value}
 
       :miss ->
@@ -263,6 +290,7 @@ defmodule Restdis.Cache do
   defp do_put(tenant_id, key, value, opts) do
     persist = Keyword.get(opts, :persist, false)
     persist_cap = Keyword.get(opts, :persist_cap, 50_000)
+    ttl_ms = Keyword.get(opts, :ttl_ms)
 
     if persist do
       ref = :persistent_term.get({:sc_persist, tenant_id})
@@ -279,7 +307,7 @@ defmodule Restdis.Cache do
         {:error, :persist_cap}
       else
         QueryCache.put(tenant_id, key, value, opts)
-        DiskCache.put(tenant_id, key, value, persist: true)
+        DiskCache.put(tenant_id, key, value, persist: true, ttl_ms: ttl_ms)
         index_value(tenant_id, key, value, opts)
 
         :telemetry.execute([:restdis, :persist, :count], %{count: new_count}, %{
@@ -292,7 +320,7 @@ defmodule Restdis.Cache do
       end
     else
       QueryCache.put(tenant_id, key, value, opts)
-      DiskCache.put(tenant_id, key, value)
+      DiskCache.put(tenant_id, key, value, ttl_ms: ttl_ms)
       index_value(tenant_id, key, value, opts)
       :ok
     end
@@ -311,6 +339,8 @@ defmodule Restdis.Cache do
     Enum.each(pks, fn pk ->
       ReverseIndex.add(tenant_id, table, pk, key)
     end)
+
+    if is_list(value), do: ReverseIndex.add_list_key(tenant_id, table, key)
   end
 
   defp extract_pks(value, pk_column) when is_map(value) do

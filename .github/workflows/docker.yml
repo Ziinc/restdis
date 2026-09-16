@@ -19,6 +19,7 @@ jobs:
   build:
     name: Build image and smoke test the release
     runs-on: ubuntu-latest
+    timeout-minutes: 10
 
     steps:
       - uses: actions/checkout@v4

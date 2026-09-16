@@ -3,8 +3,31 @@ defmodule Restdis.Cache.TenantTest do
 
   alias Restdis.Cache.DiskCache
   alias Restdis.Cache.Key
+  alias Restdis.Cache.QueryCache
   alias Restdis.Cache.TenantRegistry
   alias Restdis.Cache.TenantSupervisor
+
+  test "ensure_started uses the Registry fast path once the tenant is warm" do
+    tenant_id = "ensure_started_fast_path_#{System.unique_integer([:positive])}"
+
+    TenantSupervisor.ensure_started(tenant_id)
+    reverse_index_pid = TenantRegistry.whereis(tenant_id, :reverse_index)
+    tenant_sup_pid = TenantRegistry.whereis(tenant_id, :tenant)
+    assert is_pid(reverse_index_pid)
+
+    :erlang.trace(Process.whereis(TenantSupervisor), true, [:receive])
+
+    TenantSupervisor.ensure_started(tenant_id)
+
+    refute_receive {:trace, _pid, :receive, {:"$gen_call", _from, {:start_child, _}}}, 100
+
+    :erlang.trace(Process.whereis(TenantSupervisor), false, [:receive])
+
+    assert TenantRegistry.whereis(tenant_id, :tenant) == tenant_sup_pid
+    assert TenantRegistry.whereis(tenant_id, :reverse_index) == reverse_index_pid
+
+    Restdis.Cache.flush_tenant(tenant_id)
+  end
 
   @tag :restart
   test "CubDB serves warm data after tenant supervisor restart" do
@@ -38,6 +61,33 @@ defmodule Restdis.Cache.TenantTest do
 
     TenantSupervisor.ensure_started(tenant_id)
     assert :miss = DiskCache.get(tenant_id, key)
+
+    Restdis.Cache.flush_tenant(tenant_id)
+  end
+
+  test "peek reports a miss once a ttl_ms entry expires, instead of serving stale disk data" do
+    tenant_id = "ttl_#{System.unique_integer([:positive])}"
+    key = Key.build(:table, "products", %{})
+    value = [%{"id" => 1}]
+
+    Restdis.Cache.put(tenant_id, key, value, ttl_ms: -1)
+
+    assert :miss = Restdis.Cache.peek(tenant_id, key)
+    assert :miss = DiskCache.get(tenant_id, key)
+
+    Restdis.Cache.flush_tenant(tenant_id)
+  end
+
+  test "peek re-promotes a still-live ttl_ms entry from disk with its remaining ttl" do
+    tenant_id = "ttl_live_#{System.unique_integer([:positive])}"
+    key = Key.build(:table, "products", %{})
+    value = [%{"id" => 1}]
+
+    Restdis.Cache.put(tenant_id, key, value, ttl_ms: 60_000)
+    QueryCache.delete(tenant_id, key)
+
+    assert {:ok, ^value} = Restdis.Cache.peek(tenant_id, key)
+    assert {:ok, ^value} = QueryCache.get(tenant_id, key)
 
     Restdis.Cache.flush_tenant(tenant_id)
   end

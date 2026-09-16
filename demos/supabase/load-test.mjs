@@ -7,7 +7,7 @@
 // benchmark, and result quality depends entirely on the host machine.
 //
 // No npm dependencies: shells out to `psql` (already required by
-// demo/scripts/demo.sh) for seeding and uses the built-in `fetch` for load.
+// demos/supabase/demo.sh) for seeding and uses the built-in `fetch` for load.
 //
 // Usage: node load-test.mjs
 // Env:   LOAD_TENANTS (default 10), LOAD_CONCURRENCY (default 50),

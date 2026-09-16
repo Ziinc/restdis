@@ -22,6 +22,9 @@ defmodule RestdisBuster.Worker.CoalesceSweeperTest do
       send(:coalesce_sweeper_test, {:flush_table, tenant_id, table})
       :ok
     end
+
+    @impl Restdis.Wal.Handler
+    def invalidate_lists(_tenant_id, _table), do: :ok
   end
 
   setup do

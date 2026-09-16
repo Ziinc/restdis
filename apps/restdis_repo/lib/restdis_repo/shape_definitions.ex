@@ -1,7 +1,7 @@
 defmodule RestdisRepo.ShapeDefinitions do
   @moduledoc """
   A named shape, configured server-side for a tenant running in gatekeeper
-  mode (`ELECTRIC_PRD.md`'s "Authentication" section).
+  mode (`prds/ELECTRIC_PRD.md`'s "Authentication" section).
 
   Gatekeeper mode binds a shape name to its table, `where`, `columns`, and
   `replica`, so the client sends only the name and protocol parameters, never

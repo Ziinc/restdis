@@ -2,7 +2,7 @@ import Config
 
 postgres_hostname = System.get_env("POSTGRES_HOSTNAME", "localhost")
 
-# The Electric conformance harness (test/conformance) has no PostgREST instance to read snapshots through, so it points this at a tenant's `direct_pg_url` instead; every other `dev` run keeps the default `config/config.exs` PostgREST reader.
+# The Electric conformance harness (demos/electric/conformance) has no PostgREST instance to read snapshots through, so it points this at a tenant's `direct_pg_url` instead; every other `dev` run keeps the default `config/config.exs` PostgREST reader.
 if System.get_env("RESTDIS_SNAPSHOT_READER") == "direct_postgres" do
   config :restdis_electric, snapshot_reader: RestdisElectric.Snapshotter.DirectPostgres
 end
