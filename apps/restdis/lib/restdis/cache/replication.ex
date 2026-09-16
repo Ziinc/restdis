@@ -7,6 +7,14 @@ defmodule Restdis.Cache.Replication do
   `replicated: true` so a peer never re-broadcasts, which bounds every event to
   a single hop.
 
+  A receiving node only applies an event for tenants it owns on the current
+  hash ring (PRD Phase 6, step 2). This keeps replication and rebalancing from
+  fighting each other: a non-owner would otherwise start a full tenant
+  aggregate just to have `Cluster.Migration.rebalance/1` flush it again on the
+  next membership change. Events for tenants the node does not own are
+  dropped; the owner already has (or will get, via `Migration.migrate/2`) the
+  authoritative copy.
+
   Replication is async and best-effort: a peer that misses an event keeps
   serving from its own layers until the next write for that key.
   """
@@ -46,10 +54,16 @@ defmodule Restdis.Cache.Replication do
   Applies a peer's `event` to the local cache layers without re-broadcasting it.
   """
   @spec apply_event(Restdis.Cache.tenant_id(), event()) ::
-          :ok | {:error, :persist_cap | :not_found}
+          :ok | {:error, :persist_cap | :not_found | :not_owner}
   def apply_event(tenant_id, event) do
-    result = do_apply(tenant_id, event)
     op = elem(event, 0)
+
+    result =
+      if Restdis.Cache.Cluster.local?(tenant_id) do
+        do_apply(tenant_id, event)
+      else
+        {:error, :not_owner}
+      end
 
     case result do
       :ok ->

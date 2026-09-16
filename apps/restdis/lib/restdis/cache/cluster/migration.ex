@@ -5,6 +5,12 @@ defmodule Restdis.Cache.Cluster.Migration do
   A tenant whose ring position moved to another node ships its `persist` entries
   to that node and then drops its local ETS table and CubDB instance. Non-persist
   entries are not migrated: they are re-fetched from the origin on the new owner.
+
+  Entries are shipped with a synchronous `:erpc.call/5` and the local copy is
+  only flushed once every entry is confirmed applied on the new owner. A
+  timeout, a dropped message, or a rejected put (e.g. the peer's persist cap)
+  aborts the flush for that tenant, so the node stays the fallback owner and
+  the next rebalance retries the handoff instead of silently losing data.
   """
 
   alias Restdis.Cache.Cluster.HashRing
@@ -29,25 +35,45 @@ defmodule Restdis.Cache.Cluster.Migration do
     end)
   end
 
+  @migrate_timeout_ms 5_000
+
   defp migrate(tenant_id, owner) do
     entries = DiskCache.persisted_entries(tenant_id)
 
-    Enum.each(entries, fn {key, value} ->
-      :erpc.cast(owner, Restdis.Cache, :put, [
-        tenant_id,
-        key,
-        value,
-        [persist: true, replicated: true]
-      ])
-    end)
+    if Enum.all?(entries, &ship_entry(owner, tenant_id, &1)) do
+      :telemetry.execute(
+        [:restdis, :cluster, :migrated],
+        %{count: 1, entries: length(entries)},
+        %{tenant_id: tenant_id, owner: owner}
+      )
 
-    :telemetry.execute(
-      [:restdis, :cluster, :migrated],
-      %{count: 1, entries: length(entries)},
-      %{tenant_id: tenant_id, owner: owner}
-    )
+      Restdis.Cache.flush_tenant(tenant_id)
+      [tenant_id]
+    else
+      :telemetry.execute(
+        [:restdis, :cluster, :migration_failed],
+        %{count: 1, entries: length(entries)},
+        %{tenant_id: tenant_id, owner: owner}
+      )
 
-    Restdis.Cache.flush_tenant(tenant_id)
-    [tenant_id]
+      []
+    end
+  end
+
+  defp ship_entry(owner, tenant_id, {key, value}) do
+    case :erpc.call(
+           owner,
+           Restdis.Cache,
+           :put,
+           [tenant_id, key, value, [persist: true, replicated: true]],
+           @migrate_timeout_ms
+         ) do
+      :ok -> true
+      _other -> false
+    end
+  rescue
+    _ -> false
+  catch
+    :exit, _ -> false
   end
 end
