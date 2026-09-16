@@ -83,10 +83,28 @@ defmodule Restdis.Cache.QueryCacheTest do
     assert TenantRegistry.get_value(Restdis.Cache, tenant_id, :qc_persist)
 
     pid = TenantRegistry.whereis(Restdis.Cache, tenant_id, :tenant)
+    ref = Process.monitor(pid)
     Supervisor.stop(pid, :normal)
+    assert_receive {:DOWN, ^ref, :process, ^pid, :normal}
 
-    refute TenantRegistry.whereis(Restdis.Cache, tenant_id, :query_cache)
-    refute TenantRegistry.get_value(Restdis.Cache, tenant_id, :qc_table)
-    refute TenantRegistry.get_value(Restdis.Cache, tenant_id, :qc_persist)
+    # Registry removes a died process's entries via its own monitor, which
+    # runs asynchronously relative to the supervisor confirming the child's
+    # exit above, so poll briefly instead of asserting immediately.
+    assert_eventually(fn -> TenantRegistry.whereis(Restdis.Cache, tenant_id, :query_cache) end)
+    assert_eventually(fn -> TenantRegistry.get_value(Restdis.Cache, tenant_id, :qc_table) end)
+    assert_eventually(fn -> TenantRegistry.get_value(Restdis.Cache, tenant_id, :qc_persist) end)
+  end
+
+  defp assert_eventually(fun, attempts \\ 20) do
+    if attempts <= 0 do
+      refute fun.()
+    else
+      if fun.() do
+        Process.sleep(10)
+        assert_eventually(fun, attempts - 1)
+      else
+        refute fun.()
+      end
+    end
   end
 end
