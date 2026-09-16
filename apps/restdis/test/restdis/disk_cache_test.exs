@@ -62,6 +62,34 @@ defmodule Restdis.Cache.DiskCacheTest do
     assert :not_found = DiskCache.set_persist(tenant_id, key, true)
   end
 
+  test "get_with_ttl returns the remaining ttl for a ttl-bearing entry", %{tenant_id: tenant_id} do
+    key = Key.build(:table, "products", %{})
+    value = [%{"id" => 1}]
+
+    DiskCache.put(tenant_id, key, value, ttl_ms: 60_000)
+
+    assert {:ok, ^value, ttl_ms} = DiskCache.get_with_ttl(tenant_id, key)
+    assert is_integer(ttl_ms)
+    assert ttl_ms > 0 and ttl_ms <= 60_000
+  end
+
+  test "get_with_ttl returns nil ttl for an entry stored without ttl_ms", %{
+    tenant_id: tenant_id
+  } do
+    key = Key.build(:table, "products", %{})
+    DiskCache.put(tenant_id, key, "val")
+
+    assert {:ok, "val", nil} = DiskCache.get_with_ttl(tenant_id, key)
+  end
+
+  test "get treats an expired ttl_ms entry as a miss and removes it", %{tenant_id: tenant_id} do
+    key = Key.build(:table, "products", %{})
+    DiskCache.put(tenant_id, key, "val", ttl_ms: -1)
+
+    assert :miss = DiskCache.get(tenant_id, key)
+    assert :miss = DiskCache.get_with_ttl(tenant_id, key)
+  end
+
   test "over-cap put with nothing evictable keeps every persisted entry", %{
     tenant_id: tenant_id
   } do
