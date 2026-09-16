@@ -18,7 +18,9 @@ config :restdis_buster,
   tenant_table_config_cache: [
     data_dir: System.tmp_dir!() <> "/restdis_test/control_plane",
     ttl_ms: 60_000
-  ]
+  ],
+  cache_data_dir: System.tmp_dir!() <> "/restdis_test",
+  cache_origin: Restdis.Cache.Origin.Stub
 
 config :restdis_replicator,
   origin: RestdisReplicator.Origin.Stub,
@@ -26,7 +28,9 @@ config :restdis_replicator,
   page_delay_ms: 0,
   reconcile_stagger_ms: 0,
   dataset_source: nil,
-  tenant_config_lookup: nil
+  tenant_config_lookup: nil,
+  cache_data_dir: System.tmp_dir!() <> "/restdis_test",
+  cache_origin: Restdis.Cache.Origin.Stub
 
 config :restdis,
   tenant_config_lookup: nil,

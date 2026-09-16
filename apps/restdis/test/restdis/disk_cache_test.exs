@@ -54,7 +54,8 @@ defmodule Restdis.Cache.DiskCacheTest do
     DiskCache.put(Restdis.Cache, tenant_id, persisted_key, "persisted-value", persist: true)
     DiskCache.put(Restdis.Cache, tenant_id, plain_key, "plain-value")
 
-    assert [{^persisted_key, "persisted-value"}] = DiskCache.persisted_entries(Restdis.Cache, tenant_id)
+    assert [{^persisted_key, "persisted-value"}] =
+             DiskCache.persisted_entries(Restdis.Cache, tenant_id)
   end
 
   test "set_persist/3 returns :not_found for a missing key", %{tenant_id: tenant_id} do

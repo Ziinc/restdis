@@ -14,7 +14,9 @@ config :restdis_buster,
   ],
   tenant_table_config_cache: [data_dir: "./cache_data/control_plane", ttl_ms: 60_000],
   replication_dispatcher: RestdisReplicator.Dispatcher,
-  failover_reconciler: RestdisReplicator.Reconciler
+  failover_reconciler: RestdisReplicator.Reconciler,
+  cache_data_dir: "./cache_data",
+  cache_origin: Restdis.Cache.Origin.Stub
 
 config :restdis,
   tenant_config_lookup: {RestdisServer.TenantConfig, :lookup_by_tenant_id, []}
@@ -41,7 +43,9 @@ config :restdis_replicator,
   page_delay_ms: 50,
   reconcile_stagger_ms: 1000,
   dataset_source: {RestdisReplicator.Datasets.Repo, :list_replicated, []},
-  tenant_config_lookup: {RestdisServer.TenantConfig, :lookup_by_tenant_id, []}
+  tenant_config_lookup: {RestdisServer.TenantConfig, :lookup_by_tenant_id, []},
+  cache_data_dir: "./cache_data",
+  cache_origin: Restdis.Cache.Origin.Stub
 
 config :restdis_repo,
   ecto_repos: [RestdisRepo]

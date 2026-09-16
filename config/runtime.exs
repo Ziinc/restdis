@@ -57,12 +57,16 @@ if config_env() == :prod do
   config :restdis_server,
     cache_data_dir: System.get_env("CACHE_DATA_DIR", "/var/lib/restdis/cache")
 
+  config :restdis_buster,
+    cache_data_dir: System.get_env("CACHE_DATA_DIR", "/var/lib/restdis/cache")
+
   config :restdis_replicator,
     origin: RestdisReplicator.Origin.PostgREST,
     page_size: String.to_integer(System.get_env("REPLICATION_PAGE_SIZE", "1000")),
     page_delay_ms: String.to_integer(System.get_env("REPLICATION_PAGE_DELAY_MS", "50")),
     reconcile_stagger_ms:
-      String.to_integer(System.get_env("REPLICATION_RECONCILE_STAGGER_MS", "1000"))
+      String.to_integer(System.get_env("REPLICATION_RECONCILE_STAGGER_MS", "1000")),
+    cache_data_dir: System.get_env("CACHE_DATA_DIR", "/var/lib/restdis/cache")
 
   config :restdis_server,
     topologies: topologies,

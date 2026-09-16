@@ -28,8 +28,11 @@ defmodule Restdis.Cache.ChildSpecTest do
                origin: Restdis.Cache.Origin.Stub
              )
 
+    # Unlinked so this test process's own exit can't race the on_exit stop below.
+    Process.unlink(pid)
+
     on_exit(fn ->
-      Supervisor.stop(pid, :normal)
+      if Process.alive?(pid), do: GenServer.stop(pid, :normal, :infinity)
       File.rm_rf!(data_dir)
     end)
 

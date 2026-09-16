@@ -390,7 +390,7 @@ defmodule Restdis.Cache do
       ReverseIndex.add(name, tenant_id, table, pk, key)
     end)
 
-    if is_list(value), do: ReverseIndex.add_list_key(tenant_id, table, key)
+    if is_list(value), do: ReverseIndex.add_list_key(name, tenant_id, table, key)
   end
 
   defp extract_pks(value, pk_column) when is_map(value) do

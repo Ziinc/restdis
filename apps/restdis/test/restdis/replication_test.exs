@@ -31,7 +31,7 @@ defmodule Restdis.Cache.ReplicationTest do
       assert :ok = Restdis.Cache.put(tenant_id, key, value, persist: true)
 
       assert_receive {:replicated,
-                       {:sc_replication, Restdis.Cache, ^tenant_id, {:put, ^key, ^value, opts}}}
+                      {:sc_replication, Restdis.Cache, ^tenant_id, {:put, ^key, ^value, opts}}}
 
       assert Keyword.fetch!(opts, :persist)
     end
@@ -51,7 +51,7 @@ defmodule Restdis.Cache.ReplicationTest do
       assert :ok = Restdis.Cache.put(tenant_id, key1, "v1", persist: true, persist_cap: 1)
 
       assert_receive {:replicated,
-                       {:sc_replication, Restdis.Cache, ^tenant_id, {:put, ^key1, _, _}}}
+                      {:sc_replication, Restdis.Cache, ^tenant_id, {:put, ^key1, _, _}}}
 
       assert {:error, :persist_cap} =
                Restdis.Cache.put(tenant_id, key2, "v2", persist: true, persist_cap: 1)
@@ -64,7 +64,7 @@ defmodule Restdis.Cache.ReplicationTest do
       assert :ok = Restdis.Cache.put(tenant_id, key, "v", persist: true)
 
       assert_receive {:replicated,
-                       {:sc_replication, Restdis.Cache, ^tenant_id, {:put, ^key, _, _}}}
+                      {:sc_replication, Restdis.Cache, ^tenant_id, {:put, ^key, _, _}}}
 
       assert :ok = Restdis.Cache.delete(tenant_id, key)
 
@@ -90,7 +90,7 @@ defmodule Restdis.Cache.ReplicationTest do
       assert :ok = Restdis.Cache.set_persist(tenant_id, key, true)
 
       assert_receive {:replicated,
-                       {:sc_replication, Restdis.Cache, ^tenant_id, {:put, ^key, ^value, opts}}}
+                      {:sc_replication, Restdis.Cache, ^tenant_id, {:put, ^key, ^value, opts}}}
 
       assert Keyword.fetch!(opts, :persist)
     end
@@ -100,12 +100,12 @@ defmodule Restdis.Cache.ReplicationTest do
       assert :ok = Restdis.Cache.put(tenant_id, key, "v", persist: true)
 
       assert_receive {:replicated,
-                       {:sc_replication, Restdis.Cache, ^tenant_id, {:put, ^key, _, _}}}
+                      {:sc_replication, Restdis.Cache, ^tenant_id, {:put, ^key, _, _}}}
 
       assert :ok = Restdis.Cache.set_persist(tenant_id, key, false)
 
       assert_receive {:replicated,
-                       {:sc_replication, Restdis.Cache, ^tenant_id, {:set_persist, ^key, false}}}
+                      {:sc_replication, Restdis.Cache, ^tenant_id, {:set_persist, ^key, false}}}
     end
 
     test "a nil transport disables replication", %{tenant_id: tenant_id} do
@@ -133,7 +133,11 @@ defmodule Restdis.Cache.ReplicationTest do
       value = %{"id" => 3}
 
       assert :ok =
-               Replication.apply_event(Restdis.Cache, tenant_id, {:put, key, value, persist: true})
+               Replication.apply_event(
+                 Restdis.Cache,
+                 tenant_id,
+                 {:put, key, value, persist: true}
+               )
 
       assert {:ok, ^value} = Restdis.Cache.peek(tenant_id, key)
       assert 1 = Restdis.Cache.persist_count(tenant_id)
@@ -155,7 +159,11 @@ defmodule Restdis.Cache.ReplicationTest do
       value = [%{"id" => 42}]
 
       assert :ok =
-               Replication.apply_event(Restdis.Cache, tenant_id, {:put, key, value, persist: true})
+               Replication.apply_event(
+                 Restdis.Cache,
+                 tenant_id,
+                 {:put, key, value, persist: true}
+               )
 
       assert :ok = Restdis.Cache.invalidate_by_row(tenant_id, "widgets", 42)
       Process.sleep(50)

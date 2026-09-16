@@ -10,21 +10,25 @@ defmodule Restdis.Cache.TenantTest do
   test "ensure_started uses the Registry fast path once the tenant is warm" do
     tenant_id = "ensure_started_fast_path_#{System.unique_integer([:positive])}"
 
-    TenantSupervisor.ensure_started(tenant_id)
-    reverse_index_pid = TenantRegistry.whereis(tenant_id, :reverse_index)
-    tenant_sup_pid = TenantRegistry.whereis(tenant_id, :tenant)
+    TenantSupervisor.ensure_started(Restdis.Cache, tenant_id)
+    reverse_index_pid = TenantRegistry.whereis(Restdis.Cache, tenant_id, :reverse_index)
+    tenant_sup_pid = TenantRegistry.whereis(Restdis.Cache, tenant_id, :tenant)
     assert is_pid(reverse_index_pid)
 
-    :erlang.trace(Process.whereis(TenantSupervisor), true, [:receive])
+    :erlang.trace(Process.whereis(TenantSupervisor.supervisor_name(Restdis.Cache)), true, [
+      :receive
+    ])
 
-    TenantSupervisor.ensure_started(tenant_id)
+    TenantSupervisor.ensure_started(Restdis.Cache, tenant_id)
 
     refute_receive {:trace, _pid, :receive, {:"$gen_call", _from, {:start_child, _}}}, 100
 
-    :erlang.trace(Process.whereis(TenantSupervisor), false, [:receive])
+    :erlang.trace(Process.whereis(TenantSupervisor.supervisor_name(Restdis.Cache)), false, [
+      :receive
+    ])
 
-    assert TenantRegistry.whereis(tenant_id, :tenant) == tenant_sup_pid
-    assert TenantRegistry.whereis(tenant_id, :reverse_index) == reverse_index_pid
+    assert TenantRegistry.whereis(Restdis.Cache, tenant_id, :tenant) == tenant_sup_pid
+    assert TenantRegistry.whereis(Restdis.Cache, tenant_id, :reverse_index) == reverse_index_pid
 
     Restdis.Cache.flush_tenant(tenant_id)
   end

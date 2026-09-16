@@ -65,17 +65,20 @@ defmodule Restdis.Cache.ReverseIndex do
   A newly inserted row has no primary key entry to purge by, so list-scoped
   keys are tracked separately to let inserts bust them.
   """
-  @spec add_list_key(String.t(), table_name(), Key.t()) :: :ok
-  def add_list_key(tenant_id, table, key) do
-    GenServer.cast(TenantRegistry.via(tenant_id, :reverse_index), {:add_list_key, table, key})
+  @spec add_list_key(atom(), String.t(), table_name(), Key.t()) :: :ok
+  def add_list_key(name, tenant_id, table, key) do
+    GenServer.cast(
+      TenantRegistry.via(name, tenant_id, :reverse_index),
+      {:add_list_key, table, key}
+    )
   end
 
   @doc """
   Drops every list key recorded for `table` and returns the cache keys that depended on them.
   """
-  @spec purge_list_keys(String.t(), table_name()) :: [Key.t()]
-  def purge_list_keys(tenant_id, table) do
-    GenServer.call(TenantRegistry.via(tenant_id, :reverse_index), {:purge_list_keys, table})
+  @spec purge_list_keys(atom(), String.t(), table_name()) :: [Key.t()]
+  def purge_list_keys(name, tenant_id, table) do
+    GenServer.call(TenantRegistry.via(name, tenant_id, :reverse_index), {:purge_list_keys, table})
   end
 
   @impl GenServer
