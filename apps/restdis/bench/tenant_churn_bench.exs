@@ -116,9 +116,9 @@ alias Restdis.Bench.TenantChurn, as: B
 
 {:ok, _} = Registry.start_link(keys: :unique, name: Restdis.Bench.ChurnRegistry)
 
-bystander_count = 50
-duration_ms = 2_000
-churn_rounds = 500
+bystander_count = 100
+duration_ms = 3_000
+churn_rounds = 1_000
 
 report = fn label, iterations ->
   IO.puts("#{label}: #{iterations} bystander iterations in #{duration_ms}ms")
