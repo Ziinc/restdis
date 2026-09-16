@@ -5,7 +5,7 @@ const DIRECT_PG_URL =
 
 // Restdis's control-plane tables (tenants, api_keys, tenant_table_config) are
 // created by its own release migrations on boot, which may finish after
-// demos/seed.sql's initdb-time insert attempt no-ops. Re-applying the same
+// demos/supabase/seed.sql's initdb-time insert attempt no-ops. Re-applying the same
 // upserts here, once Restdis is confirmed healthy, guarantees the demo
 // tenant exists regardless of startup ordering between the `db` and
 // `restdis` containers.

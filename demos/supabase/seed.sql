@@ -1,4 +1,4 @@
--- Seed fixture for the Supabase demo stack (demo/docker-compose.yml).
+-- Seed fixture for the Supabase demo stack (demos/supabase/docker-compose.yml).
 --
 -- Runs once, at Postgres initdb time, via docker-entrypoint-initdb.d. Restdis
 -- itself runs its own control-plane migrations (tenants, api_keys,
@@ -8,7 +8,7 @@
 --
 -- Because initdb scripts run before Restdis's first boot, the control-plane
 -- inserts below are wrapped in a DO block that no-ops if the tables don't
--- exist yet; demo/tests/setup.ts re-applies them after Restdis is healthy to
+-- exist yet; demos/supabase/tests/globalSetup.ts re-applies them after Restdis is healthy to
 -- guarantee the tenant exists regardless of startup ordering.
 
 CREATE SCHEMA IF NOT EXISTS auth;

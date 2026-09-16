@@ -1,15 +1,18 @@
 #!/bin/sh
-# RESP-protocol walkthrough against the demo Supabase stack
-# (demos/docker-compose.yml). Complements scripts/demo.sh, which drives
-# Restdis's HTTP endpoint; this one drives the Redis wire protocol directly
-# with redis-cli, covering the RESP command set, AUTH enforcement,
-# PGRST.POLICY, and PERSIST that the HTTP walkthrough doesn't exercise.
+# RESP-protocol walkthrough against a lightweight stack
+# (demos/redis/docker-compose.yml: Postgres + PostgREST + Restdis, no
+# GoTrue/Prometheus/Grafana - this demo never touches Auth or the
+# dashboard). Complements demos/supabase/demo.sh, which drives Restdis's
+# HTTP endpoint against the full Supabase stack; this one drives the Redis
+# wire protocol directly with redis-cli, covering the RESP command set, AUTH
+# enforcement, PGRST.POLICY, and PERSIST that the HTTP walkthrough doesn't
+# exercise.
 #
-# Usage: ./resp-demo.sh            (start the stack, run the whole script)
-#        ./resp-demo.sh --no-up    (stack is already running, skip straight in)
+# Usage: ./demo.sh            (start the stack, run the whole script)
+#        ./demo.sh --no-up    (stack is already running, skip straight in)
 set -eu
 
-cd "$(dirname "$0")/.."
+cd "$(dirname "$0")"
 
 RESP_HOST="${DEMO_RESP_HOST:-localhost}"
 RESP_PORT="${DEMO_RESP_PORT:-6381}"
@@ -33,7 +36,7 @@ rcli() {
 }
 
 if [ "${1:-}" != "--no-up" ]; then
-  step "Bringing up the demo Supabase stack (Postgres + PostgREST + GoTrue + Restdis)"
+  step "Bringing up the demo stack (Postgres + PostgREST + Restdis)"
   note "docker compose up -d --build"
   docker compose up -d --build
   note "waiting for Restdis to report healthy..."
@@ -44,7 +47,7 @@ if [ "${1:-}" != "--no-up" ]; then
   pause 3
 fi
 
-bold "=== Restdis's Redis wire protocol (RESP), against a real Supabase stack ==="
+bold "=== Restdis's Redis wire protocol (RESP), against a real PostgREST origin ==="
 note "redis-cli -h $RESP_HOST -p $RESP_PORT"
 pause
 
@@ -88,7 +91,7 @@ note "the key immortal, since every entry is still subject to disk cache evictio
 pause
 
 step "7. Rewarm: re-read the PGRST.QUERY entry before its 5s rewarm interval fires"
-note "watching the WAL/rewarm metrics (see Grafana, if scripts/demo.sh is also up)"
+note "watching the WAL/rewarm metrics (see Grafana, if demos/supabase/demo.sh is also up)"
 for _ in 1 2 3; do
   rcli -a "$API_KEY" --no-auth-warning GET "$key" > /dev/null
   sleep 2
@@ -98,5 +101,5 @@ note "background on the interval as long as reads keep arriving"
 pause
 
 step "Done. Tearing down is optional:"
-note "cd demos && docker compose down -v"
+note "cd demos/redis && docker compose down -v"
 bold "=== end of RESP demo ==="

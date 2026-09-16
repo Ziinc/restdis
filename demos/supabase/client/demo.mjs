@@ -1,7 +1,7 @@
 // Calls the wrapper in restdis-supabase.mjs against a running demo stack
 // (../docker-compose.yml). Run this after `docker compose up -d --build` in
-// the `demo` directory, or via `demo/scripts/demo.sh` which runs it as one
-// step of the full narrated walkthrough.
+// the `demos/supabase` directory, or via `demos/supabase/demo.sh` which runs
+// it as one step of the full narrated walkthrough.
 
 import { createRestdisClient } from "./restdis-supabase.mjs";
 

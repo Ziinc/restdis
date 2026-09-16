@@ -71,7 +71,7 @@ jobs:
           mix ecto.migrate --quiet
           DIRECT_PG_URL_OVERRIDE="postgres://postgres:postgres@localhost:5432/restdis_dev" \
             psql "postgresql://postgres:postgres@localhost:5432/restdis_dev" \
-            -v ON_ERROR_STOP=1 -f test/conformance/seed.sql
+            -v ON_ERROR_STOP=1 -f demos/electric/conformance/seed.sql
 
       - name: Start Restdis
         timeout-minutes: 2
@@ -86,7 +86,7 @@ jobs:
           exit 1
 
       - name: Install the pinned @electric-sql/client and run the conformance check
-        working-directory: test/conformance
+        working-directory: demos/electric/conformance
         timeout-minutes: 6
         run: |
           npm ci

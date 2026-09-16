@@ -4,7 +4,7 @@
 #
 # Not a substitute for `docker-compose.yml` at the repo root, which is for
 # local development against a bare Postgres. This stack is only for the
-# integration suite in `demos/tests` and the "Supabase integration" CI
+# integration suite in `demos/supabase/tests` and the "Supabase integration" CI
 # workflow.
 ########################################################################
 
@@ -96,7 +96,7 @@ services:
 
   # Single-page dashboard (grafana/dashboards/restdis-demo.json) provisioned
   # automatically on boot - open http://localhost:3001 alongside a terminal
-  # running demos/scripts/demo.sh.
+  # running demos/supabase/demo.sh.
   grafana:
     image: grafana/grafana:11.3.1
     depends_on:

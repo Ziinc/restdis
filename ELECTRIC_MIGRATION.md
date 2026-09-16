@@ -207,13 +207,13 @@ are its documented environment variables.
 
 ## The conformance suite
 
-`test/conformance/` runs the real, published `@electric-sql/client` (pinned
-in `test/conformance/package.json`, not a `^`-range) against a running
+`demos/electric/conformance/` runs the real, published `@electric-sql/client` (pinned
+in `demos/electric/conformance/package.json`, not a `^`-range) against a running
 Restdis instance: it subscribes to a snapshot, asserts the seeded row is
 there, writes a new row directly to Postgres, and asserts the live update
 reaches the client. `.github/workflows/conformance.yml` runs it in CI on
 every push and pull request and fails the build if it fails — see that
-workflow and `test/conformance/run.mjs` for the exact steps.
+workflow and `demos/electric/conformance/run.mjs` for the exact steps.
 
 As of this writing, that suite passes: the client subscribes, sees the
 seeded row, and receives the live write. It caught a real regression once

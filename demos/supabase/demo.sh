@@ -1,5 +1,5 @@
 #!/bin/sh
-# Narrated walkthrough of the demo Supabase stack (demos/docker-compose.yml)
+# Narrated walkthrough of the demo Supabase stack (demos/supabase/docker-compose.yml)
 # for a screen recording. Brings the stack up, then drives Restdis through
 # curl/psql, pausing between steps so a narrator can talk over each one.
 #
@@ -7,7 +7,7 @@
 #        ./demo.sh --no-up    (stack is already running, skip straight in)
 set -eu
 
-cd "$(dirname "$0")/.."
+cd "$(dirname "$0")"
 
 RESTDIS_URL="${RESTDIS_URL:-http://localhost:4041}"
 API_KEY="${DEMO_API_KEY:-sk_demo}"
@@ -124,12 +124,12 @@ note "(SUPABASE_INTEGRATION_PRD.md: Auth caching is planned, not yet proxied by 
 pause
 
 step "8. Load test: many tenants, many requests, high speed"
-note "scripts/load-test.mjs seeds ${LOAD_TENANTS:-10} tenants sharing the widgets table, then"
+note "load-test.mjs seeds ${LOAD_TENANTS:-10} tenants sharing the widgets table, then"
 note "fires ${LOAD_CONCURRENCY:-50} concurrent workers against them for ${LOAD_DURATION_S:-15}s"
 note "watch the Grafana dashboard: this is the moment to point at it live"
-RESTDIS_URL="$RESTDIS_URL" DEMO_DIRECT_PG_URL="$DIRECT_PG_URL" node scripts/load-test.mjs
+RESTDIS_URL="$RESTDIS_URL" DEMO_DIRECT_PG_URL="$DIRECT_PG_URL" node load-test.mjs
 pause
 
 step "Done. Tearing down is optional:"
-note "cd demo && docker compose down -v"
+note "cd demos/supabase && docker compose down -v"
 bold "=== end of demo ==="
