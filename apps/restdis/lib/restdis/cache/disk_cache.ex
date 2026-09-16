@@ -137,9 +137,18 @@ defmodule Restdis.Cache.DiskCache do
     tenant_dir = Path.join(data_dir, tenant_id)
     File.mkdir_p!(tenant_dir)
     {:ok, cubdb} = CubDB.start_link(data_dir: tenant_dir)
-    recount_persist(tenant_id, cubdb)
-    bytes = recount_bytes(cubdb)
-    {:ok, %{cubdb: cubdb, tenant_id: tenant_id, tenant_dir: tenant_dir, bytes: bytes}}
+    {bytes, persist_count, evict_idx, persist_keys} = rebuild_index(cubdb)
+    record_persist_count(tenant_id, persist_count)
+
+    {:ok,
+     %{
+       cubdb: cubdb,
+       tenant_id: tenant_id,
+       tenant_dir: tenant_dir,
+       bytes: bytes,
+       evict_idx: evict_idx,
+       persist_keys: persist_keys
+     }}
   end
 
   @impl GenServer
@@ -173,18 +182,22 @@ defmodule Restdis.Cache.DiskCache do
   end
 
   def handle_call({:put, key, value, persist, expires_at}, _from, %{cubdb: cubdb} = state) do
+    inserted_at = System.monotonic_time()
+
     entry =
       {:v1,
        %{
          value: value,
          persist: persist,
-         inserted_at: System.monotonic_time(),
+         inserted_at: inserted_at,
          expires_at: expires_at
        }}
 
     old_size = entry_size(cubdb, key)
+    state = remove_from_index(state, key)
     :ok = CubDB.put(cubdb, key, entry)
     state = %{state | bytes: state.bytes - old_size + entry_size_of(key, entry)}
+    state = add_to_index(state, key, persist, inserted_at)
     state = evict_over_cap(state)
     {:reply, :ok, state}
   end
@@ -194,24 +207,31 @@ defmodule Restdis.Cache.DiskCache do
 
     case CubDB.fetch(cubdb, key) do
       {:ok, {:v1, %{value: value} = meta}} ->
+        inserted_at = Map.get(meta, :inserted_at, 0)
         new_meta = Map.merge(meta, %{value: value, persist: persist})
         new_entry = {:v1, new_meta}
+        state = remove_from_index(state, key)
         :ok = CubDB.put(cubdb, key, new_entry)
         state = %{state | bytes: state.bytes - old_size + entry_size_of(key, new_entry)}
+        state = add_to_index(state, key, persist, inserted_at)
         {:reply, :ok, state}
 
       {:ok, value} ->
+        inserted_at = System.monotonic_time()
+
         new_entry =
           {:v1,
            %{
              value: value,
              persist: persist,
-             inserted_at: System.monotonic_time(),
+             inserted_at: inserted_at,
              expires_at: :infinity
            }}
 
+        state = remove_from_index(state, key)
         :ok = CubDB.put(cubdb, key, new_entry)
         state = %{state | bytes: state.bytes - old_size + entry_size_of(key, new_entry)}
+        state = add_to_index(state, key, persist, inserted_at)
         {:reply, :ok, state}
 
       :error ->
@@ -230,19 +250,23 @@ defmodule Restdis.Cache.DiskCache do
     {:reply, result, state}
   end
 
-  def handle_call(:persisted_entries, _from, %{cubdb: cubdb} = state) do
+  def handle_call(:persisted_entries, _from, %{cubdb: cubdb, persist_keys: persist_keys} = state) do
     entries =
-      cubdb
-      |> CubDB.select()
-      |> Stream.filter(&match?({_key, {:v1, %{persist: true}}}, &1))
-      |> Enum.map(fn {key, {:v1, %{value: value}}} -> {key, value} end)
+      persist_keys
+      |> Enum.flat_map(fn key ->
+        case CubDB.fetch(cubdb, key) do
+          {:ok, {:v1, %{value: value}}} -> [{key, value}]
+          _ -> []
+        end
+      end)
 
     {:reply, entries, state}
   end
 
   def handle_call(:flush, _from, %{cubdb: cubdb} = state) do
     CubDB.clear(cubdb)
-    {:reply, :ok, %{state | bytes: 0}}
+
+    {:reply, :ok, %{state | bytes: 0, evict_idx: :gb_sets.empty(), persist_keys: MapSet.new()}}
   end
 
   def handle_call(:disk_size_bytes, _from, %{bytes: bytes} = state) do
@@ -256,6 +280,7 @@ defmodule Restdis.Cache.DiskCache do
   @impl GenServer
   def handle_call({:delete, key}, _from, %{cubdb: cubdb} = state) do
     old_size = entry_size(cubdb, key)
+    state = remove_from_index(state, key)
     CubDB.delete(cubdb, key)
     {:reply, :ok, %{state | bytes: max(state.bytes - old_size, 0)}}
   end
@@ -284,6 +309,7 @@ defmodule Restdis.Cache.DiskCache do
 
   defp expire_entry(key, %{cubdb: cubdb} = state) do
     old_size = entry_size(cubdb, key)
+    state = remove_from_index(state, key)
     CubDB.delete(cubdb, key)
     %{state | bytes: max(state.bytes - old_size, 0)}
   end
@@ -293,43 +319,73 @@ defmodule Restdis.Cache.DiskCache do
     do_evict_over_cap(bytes, cap, state)
   end
 
-  defp do_evict_over_cap(bytes, cap, %{cubdb: cubdb, tenant_id: tenant_id} = state) do
-    if bytes > cap do
-      case oldest_non_persist_key(cubdb) do
-        nil ->
-          %{state | bytes: bytes}
+  defp do_evict_over_cap(
+         bytes,
+         cap,
+         %{cubdb: cubdb, tenant_id: tenant_id, evict_idx: evict_idx} = state
+       ) do
+    if bytes > cap and not :gb_sets.is_empty(evict_idx) do
+      {{_inserted_at, evict_key}, rest_idx} = :gb_sets.take_smallest(evict_idx)
+      evict_size = entry_size(cubdb, evict_key)
+      CubDB.delete(cubdb, evict_key)
 
-        evict_key ->
-          evict_size = entry_size(cubdb, evict_key)
-          CubDB.delete(cubdb, evict_key)
+      :telemetry.execute([:restdis, :cache, :cubdb_evict], %{count: 1}, %{
+        tenant_id: tenant_id,
+        key: evict_key
+      })
 
-          :telemetry.execute([:restdis, :cache, :cubdb_evict], %{count: 1}, %{
-            tenant_id: tenant_id,
-            key: evict_key
-          })
-
-          new_bytes = max(bytes - evict_size, 0)
-          do_evict_over_cap(new_bytes, cap, state)
-      end
+      new_bytes = max(bytes - evict_size, 0)
+      state = %{state | evict_idx: rest_idx}
+      do_evict_over_cap(new_bytes, cap, state)
     else
       %{state | bytes: bytes}
     end
   end
 
-  defp oldest_non_persist_key(cubdb) do
-    cubdb
-    |> CubDB.select()
-    |> Stream.filter(fn
-      {_key, {:v1, %{persist: false}}} -> true
-      _ -> false
-    end)
-    |> Enum.min_by(
-      fn {_key, {:v1, meta}} -> Map.get(meta, :inserted_at, 0) end,
-      fn -> nil end
-    )
-    |> case do
-      nil -> nil
-      {key, _value} -> key
+  defp add_to_index(
+         %{evict_idx: evict_idx, persist_keys: persist_keys} = state,
+         key,
+         true,
+         _inserted_at
+       ) do
+    %{state | persist_keys: MapSet.put(persist_keys, key), evict_idx: evict_idx}
+  end
+
+  defp add_to_index(
+         %{evict_idx: evict_idx, persist_keys: persist_keys} = state,
+         key,
+         false,
+         inserted_at
+       ) do
+    %{
+      state
+      | evict_idx: :gb_sets.add({inserted_at, key}, evict_idx),
+        persist_keys: MapSet.delete(persist_keys, key)
+    }
+  end
+
+  defp remove_from_index(
+         %{cubdb: cubdb, evict_idx: evict_idx, persist_keys: persist_keys} = state,
+         key
+       ) do
+    case CubDB.fetch(cubdb, key) do
+      {:ok, {:v1, %{persist: false} = meta}} ->
+        inserted_at = Map.get(meta, :inserted_at, 0)
+        %{state | evict_idx: gb_sets_delete_any({inserted_at, key}, evict_idx)}
+
+      {:ok, {:v1, %{persist: true}}} ->
+        %{state | persist_keys: MapSet.delete(persist_keys, key)}
+
+      _ ->
+        state
+    end
+  end
+
+  defp gb_sets_delete_any(element, set) do
+    if :gb_sets.is_member(element, set) do
+      :gb_sets.delete(element, set)
+    else
+      set
     end
   end
 
@@ -344,23 +400,32 @@ defmodule Restdis.Cache.DiskCache do
     :erlang.external_size({key, entry})
   end
 
-  defp recount_bytes(cubdb) do
+  defp rebuild_index(cubdb) do
     cubdb
     |> CubDB.select()
-    |> Enum.reduce(0, fn {key, entry}, acc -> acc + entry_size_of(key, entry) end)
+    |> Enum.reduce({0, 0, :gb_sets.empty(), MapSet.new()}, fn {key, entry},
+                                                              {bytes, persist_count, evict_idx,
+                                                               persist_keys} ->
+      bytes = bytes + entry_size_of(key, entry)
+
+      case entry do
+        {:v1, %{persist: true}} ->
+          {bytes, persist_count + 1, evict_idx, MapSet.put(persist_keys, key)}
+
+        {:v1, %{persist: false} = meta} ->
+          inserted_at = Map.get(meta, :inserted_at, 0)
+          {bytes, persist_count, :gb_sets.add({inserted_at, key}, evict_idx), persist_keys}
+
+        _ ->
+          {bytes, persist_count, evict_idx, persist_keys}
+      end
+    end)
   end
 
-  defp recount_persist(tenant_id, cubdb) do
-    count =
-      CubDB.select(cubdb)
-      |> Stream.filter(fn {_k, v} ->
-        match?({:v1, %{persist: true}}, v)
-      end)
-      |> Enum.count()
+  defp record_persist_count(_tenant_id, 0), do: :ok
 
-    if count > 0 do
-      ref = :persistent_term.get({:sc_persist, tenant_id})
-      :counters.add(ref, 1, count)
-    end
+  defp record_persist_count(tenant_id, count) do
+    ref = :persistent_term.get({:sc_persist, tenant_id})
+    :counters.add(ref, 1, count)
   end
 end
