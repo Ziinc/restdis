@@ -89,30 +89,43 @@ defmodule RestdisElectric.Log do
   """
   @spec read(String.t(), String.t(), Offset.t()) :: {:ok, [Message.t()], Offset.t()} | :error
   def read(tenant_id, handle, from_offset) do
-    case Registry.lookup(@registry, {tenant_id, handle}) do
-      [{pid, _}] ->
-        call(pid, {tenant_id, handle}, {:read, from_offset})
-
-      [] ->
-        case load(tenant_id, handle) do
-          {:ok, _messages, _last_offset, _truncated_before} ->
-            {:ok, pid} = ensure_started(tenant_id, handle)
-            call(pid, {tenant_id, handle}, {:read, from_offset})
-
-          :error ->
-            :error
-        end
+    with {:ok, pid} <- resume(tenant_id, handle) do
+      call(pid, {tenant_id, handle}, {:read, from_offset})
     end
   end
 
-  # A log process that died between lookup and call lost nothing: its state is on disk, so retrying works.
+  # A log resumed from disk that died between resolution and call lost nothing: its state is
+  # on disk, so re-resolving (which re-checks disk) and retrying is safe. A log that was
+  # deleted or never persisted resolves to :error instead of resurrecting an empty process.
   defp call(pid, {tenant_id, handle} = shape, message, attempts \\ 5) do
     GenServer.call(pid, message)
   catch
-    :exit, {reason, _} when reason in [:noproc, :normal, :killed, :shutdown] and attempts > 0 ->
-      Process.sleep(10)
-      {:ok, restarted} = ensure_started(tenant_id, handle)
-      call(restarted, shape, message, attempts - 1)
+    :exit, {reason, _}
+    when attempts > 0 and
+           (reason in [:noproc, :normal, :killed, :shutdown] or
+              (is_tuple(reason) and elem(reason, 0) == :shutdown)) ->
+      case resume(tenant_id, handle) do
+        {:ok, restarted} -> call(restarted, shape, message, attempts - 1)
+        :error -> :error
+      end
+  end
+
+  # Resolves the process for an already-persisted log, starting it if needed. Unlike
+  # `ensure_started/2`, this never creates a log out of nothing: if there is no live process
+  # and nothing on disk, it returns `:error` so callers report `must_refetch` instead of
+  # resurrecting an empty log.
+  @spec resume(String.t(), String.t()) :: {:ok, pid()} | :error
+  defp resume(tenant_id, handle) do
+    case Registry.lookup(@registry, {tenant_id, handle}) do
+      [{pid, _}] ->
+        {:ok, pid}
+
+      [] ->
+        case load(tenant_id, handle) do
+          {:ok, _messages, _last_offset, _truncated_before} -> ensure_started(tenant_id, handle)
+          :error -> :error
+        end
+    end
   end
 
   @doc """
@@ -148,15 +161,9 @@ defmodule RestdisElectric.Log do
   """
   @spec truncated_before(String.t(), String.t()) :: Offset.t() | nil
   def truncated_before(tenant_id, handle) do
-    case Registry.lookup(@registry, {tenant_id, handle}) do
-      [{pid, _}] ->
-        call(pid, {tenant_id, handle}, :truncated_before)
-
-      [] ->
-        case load(tenant_id, handle) do
-          {:ok, _messages, _last_offset, truncated_before} -> truncated_before
-          :error -> nil
-        end
+    case resume(tenant_id, handle) do
+      {:ok, pid} -> call(pid, {tenant_id, handle}, :truncated_before)
+      :error -> nil
     end
   end
 
@@ -204,7 +211,7 @@ defmodule RestdisElectric.Log do
   @spec delete(String.t(), String.t()) :: :ok
   def delete(tenant_id, handle) do
     case Registry.lookup(@registry, {tenant_id, handle}) do
-      [{pid, _}] -> GenServer.stop(pid, :normal)
+      [{pid, _}] -> GenServer.stop(pid, {:shutdown, :deleted})
       [] -> :ok
     end
 
@@ -285,6 +292,14 @@ defmodule RestdisElectric.Log do
         {:noreply, %{state | waiters: pending}}
     end
   end
+
+  @impl GenServer
+  def terminate({:shutdown, :deleted}, state) do
+    Cache.delete(state.tenant_id, cache_key(state.handle))
+    :ok
+  end
+
+  def terminate(_reason, _state), do: :ok
 
   defp do_append(new_messages, state) do
     messages = state.messages ++ new_messages
