@@ -94,9 +94,7 @@ defmodule RestdisElectric.Log do
     end
   end
 
-  # A log resumed from disk that died between resolution and call lost nothing: its state is
-  # on disk, so re-resolving (which re-checks disk) and retrying is safe. A log that was
-  # deleted or never persisted resolves to :error instead of resurrecting an empty process.
+  # Re-resolving through resume/2 on a dead pid is safe: it re-checks disk instead of resurrecting.
   defp call(pid, {tenant_id, handle} = shape, message, attempts \\ 5) do
     GenServer.call(pid, message)
   catch
@@ -104,16 +102,15 @@ defmodule RestdisElectric.Log do
     when attempts > 0 and
            (reason in [:noproc, :normal, :killed, :shutdown] or
               (is_tuple(reason) and elem(reason, 0) == :shutdown)) ->
+      Process.sleep(10)
+
       case resume(tenant_id, handle) do
         {:ok, restarted} -> call(restarted, shape, message, attempts - 1)
         :error -> :error
       end
   end
 
-  # Resolves the process for an already-persisted log, starting it if needed. Unlike
-  # `ensure_started/2`, this never creates a log out of nothing: if there is no live process
-  # and nothing on disk, it returns `:error` so callers report `must_refetch` instead of
-  # resurrecting an empty log.
+  # Unlike ensure_started/2, never creates a log out of nothing: no live process and nothing on disk is :error.
   @spec resume(String.t(), String.t()) :: {:ok, pid()} | :error
   defp resume(tenant_id, handle) do
     case Registry.lookup(@registry, {tenant_id, handle}) do
