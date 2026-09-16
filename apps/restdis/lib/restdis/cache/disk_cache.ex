@@ -39,9 +39,7 @@ defmodule Restdis.Cache.DiskCache do
             {:ok, value}
 
           :expired ->
-            # Falls back to the GenServer so the expired entry's removal goes
-            # through the process that owns `state.bytes`, keeping the disk
-            # size tally accurate.
+            # Falls back so the removal goes through the process owning `state.bytes`.
             GenServer.call(TenantRegistry.via(tenant_id, :disk_cache), {:get, key})
 
           :miss ->
