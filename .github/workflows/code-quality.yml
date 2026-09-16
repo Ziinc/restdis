@@ -19,6 +19,7 @@ jobs:
   compile:
     name: Compile (warnings as errors)
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
       - uses: erlef/setup-beam@v1
@@ -38,6 +39,7 @@ jobs:
   format:
     name: Format
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
       - uses: erlef/setup-beam@v1
@@ -49,6 +51,7 @@ jobs:
   credo:
     name: Credo (strict)
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
       - uses: erlef/setup-beam@v1
@@ -68,6 +71,7 @@ jobs:
   ast-grep:
     name: ast-grep
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -79,6 +83,7 @@ jobs:
   restdis:
     name: restdis (check + test)
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     defaults:
       run:
         working-directory: apps/restdis
@@ -115,6 +120,7 @@ jobs:
   coverage:
     name: Umbrella coverage
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     env:
       POSTGRES_HOSTNAME: localhost
     steps:
