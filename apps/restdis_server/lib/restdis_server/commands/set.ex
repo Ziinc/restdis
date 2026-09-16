@@ -22,7 +22,6 @@ defmodule RestdisServer.Commands.Set do
   alias Restdis.Cache.Router
   alias RestdisServer.Commands.Support
   alias RestdisServer.RESP.Encoder
-  alias RestdisServer.TenantConfig
 
   @doc """
   Stores `value` under `wire_key`, honouring `EX`/`PX`/`KEEPTTL` and
@@ -94,7 +93,7 @@ defmodule RestdisServer.Commands.Set do
 
   defp write(state, key, value, ttl_ms) do
     put_opts = if ttl_ms, do: [ttl_ms: ttl_ms], else: []
-    put_opts = put_opts ++ persist_cap_opt(state.tenant_id)
+    put_opts = put_opts ++ Support.persist_cap_opt(state.tenant_id)
 
     case Router.put(state.tenant_id, key, value, put_opts) do
       :ok ->
@@ -105,17 +104,6 @@ defmodule RestdisServer.Commands.Set do
 
       {:error, :unreachable} ->
         {Encoder.error("ERR cache node unreachable"), state}
-    end
-  end
-
-  # Threads the tenant's `persist_cap` to `Restdis.Cache` (default 50,000 only applies if none passed).
-  defp persist_cap_opt(tenant_id) do
-    case TenantConfig.lookup_by_tenant_id(tenant_id) do
-      {:ok, %{persist_cap: persist_cap}} when is_integer(persist_cap) ->
-        [persist_cap: persist_cap]
-
-      _ ->
-        []
     end
   end
 

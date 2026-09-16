@@ -15,6 +15,9 @@ defmodule Restdis.Cache do
   @type tenant_id :: String.t()
   @type primary_key :: term()
 
+  # Fallback for callers that omit `persist_cap:`; in-tree callers thread the tenant's actual cap instead.
+  @default_persist_cap 50_000
+
   @doc """
   Child spec mounting the cache's supervision tree in a host's own
   supervisor, e.g. `{Restdis.Cache, []}`.
@@ -198,6 +201,7 @@ defmodule Restdis.Cache do
   @spec set_persist(tenant_id(), Key.t(), boolean(), keyword()) ::
           :ok | {:error, :persist_cap | :not_found}
   def set_persist(tenant_id, key, persist, opts \\ []) do
+    persist_cap = Keyword.get(opts, :persist_cap, @default_persist_cap)
     TenantId.cast!(tenant_id)
     TenantSupervisor.ensure_started(tenant_id)
 
@@ -209,12 +213,11 @@ defmodule Restdis.Cache do
         :ok
 
       {:ok, %{persist: false}} ->
-        cap = 50_000
         ref = :persistent_term.get({:sc_persist, tenant_id})
         :counters.add(ref, 1, 1)
         new_count = :counters.get(ref, 1)
 
-        if new_count > cap do
+        if new_count > persist_cap do
           :counters.sub(ref, 1, 1)
 
           :telemetry.execute([:restdis, :persist, :cap_reached], %{count: 1}, %{
@@ -289,7 +292,7 @@ defmodule Restdis.Cache do
 
   defp do_put(tenant_id, key, value, opts) do
     persist = Keyword.get(opts, :persist, false)
-    persist_cap = Keyword.get(opts, :persist_cap, 50_000)
+    persist_cap = Keyword.get(opts, :persist_cap, @default_persist_cap)
     ttl_ms = Keyword.get(opts, :ttl_ms)
 
     if persist do

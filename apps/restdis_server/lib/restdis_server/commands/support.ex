@@ -6,6 +6,7 @@ defmodule RestdisServer.Commands.Support do
 
   alias Restdis.Cache.Key
   alias RestdisServer.RESP.Encoder
+  alias RestdisServer.TenantConfig
 
   @doc """
   Decodes `wire_key`, rejecting `pgrst:*` and `<table>:<primary_key>` keys.
@@ -56,6 +57,23 @@ defmodule RestdisServer.Commands.Support do
           [] ->
             :miss
         end
+    end
+  end
+
+  @doc """
+  Returns `[persist_cap: cap]` for the tenant's configured `persist_cap`, or
+  `[]` if the tenant isn't found. Threads through to `Restdis.Cache.put/4`
+  and `Restdis.Cache.set_persist/4` so the cap they enforce always reflects
+  the tenant's own `persist_cap` rather than the library's fallback default.
+  """
+  @spec persist_cap_opt(String.t()) :: keyword()
+  def persist_cap_opt(tenant_id) do
+    case TenantConfig.lookup_by_tenant_id(tenant_id) do
+      {:ok, %{persist_cap: persist_cap}} when is_integer(persist_cap) ->
+        [persist_cap: persist_cap]
+
+      _ ->
+        []
     end
   end
 end
