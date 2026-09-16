@@ -81,9 +81,7 @@ defmodule RestdisServer.HTTP.ElectricTransportTest do
     |> Endpoint.call(Endpoint.init([]))
   end
 
-  # Builds a conn the way the Endpoint pipeline would (query params parsed,
-  # authenticated, tenant assigns populated), but stops short of dispatch so
-  # a test can swap in `FlakyChunkAdapter` before calling `Electric` directly.
+  # Builds a conn like the Endpoint pipeline would, stopping short of dispatch so tests can swap in `FlakyChunkAdapter`.
   defp authed_conn(url) do
     :get
     |> conn(url)
@@ -304,8 +302,7 @@ defmodule RestdisServer.HTTP.ElectricTransportTest do
           request("/v1/shape?table=gadgets&offset=0_inf&handle=#{handle}&live_sse=true")
         end)
 
-      # Give the SSE loop time to start awaiting before the change lands, so it
-      # is delivered from within `sse_loop`, not the initial `send_events` call.
+      # Give the SSE loop time to start awaiting, so the change is delivered from `sse_loop`, not `send_events`.
       Process.sleep(10)
       append_change(50, %{"id" => 4, "name" => "d"})
 
@@ -384,9 +381,7 @@ defmodule RestdisServer.HTTP.ElectricTransportTest do
   end
 
   describe "SSE client disconnect" do
-    # `Plug.Test`'s harness cannot make a chunked write fail, so these drive
-    # `Electric.get_shape/1` directly against a conn wired to
-    # `FlakyChunkAdapter`, which fails `chunk/2` once its allowance runs out.
+    # `Plug.Test` can't fail a chunked write, so these drive `Electric.get_shape/1` on a `FlakyChunkAdapter`-wired conn.
     test "a chunk failure while flushing the initial events ends the stream, not a crash" do
       {handle, _} = snapshot()
       append_change(10, %{"id" => 2, "name" => "b"})
@@ -408,8 +403,7 @@ defmodule RestdisServer.HTTP.ElectricTransportTest do
       conn =
         "/v1/shape?table=gadgets&offset=0_inf&handle=#{handle}&live_sse=true"
         |> authed_conn()
-        # Allows the single "up-to-date" control-message chunk through, then
-        # fails the keepalive chunk written from inside `sse_loop/4`.
+        # Allows the "up-to-date" control chunk through, then fails the keepalive chunk from `sse_loop/4`.
         |> FlakyChunkAdapter.install(1)
 
       result = Electric.get_shape(conn)
@@ -426,8 +420,7 @@ defmodule RestdisServer.HTTP.ElectricTransportTest do
           conn =
             "/v1/shape?table=gadgets&offset=0_inf&handle=#{handle}&live_sse=true"
             |> authed_conn()
-            # Allows the initial "up-to-date" control message through, then
-            # fails the chunk carrying the live-inserted row.
+            # Allows the "up-to-date" control message through, then fails the chunk carrying the live-inserted row.
             |> FlakyChunkAdapter.install(1)
 
           Electric.get_shape(conn)

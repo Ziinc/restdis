@@ -90,12 +90,7 @@ defmodule RestdisBuster.SingletonTest do
   end
 
   describe "handle_info/2 (direct callback invocation)" do
-    # The application's own `RestdisBuster.Singleton` already owns
-    # `{:wal, :wal_tailer}` for the real `RestdisBuster.Tailer`. Calling the
-    # (public, `@impl`) `handle_info/2` callback directly - rather than via
-    # message-passing to the running GenServer - lets us exercise its
-    # branches deterministically without disturbing that real singleton's
-    # own state.
+    # Calls `handle_info/2` directly to exercise branches without disturbing the real running singleton.
 
     test ":try_register loses the election to the already-registered winner and monitors it" do
       assert {pid, _meta} = :syn.lookup(:wal, :wal_tailer)

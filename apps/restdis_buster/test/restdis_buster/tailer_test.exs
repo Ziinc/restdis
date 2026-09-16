@@ -1,8 +1,10 @@
 defmodule RestdisBuster.TailerTest do
-  # `Tailer` callbacks are pure functions we can invoke directly (no need to
-  # open a real replication connection for most branches). `stream/1`
-  # touches the DB via `SlotConfig`/`LsnStore`, both of which are available
-  # in the test environment.
+  @moduledoc """
+  `Tailer` callbacks are pure functions we can invoke directly (no need to
+  open a real replication connection for most branches). `stream/1`
+  touches the DB via `SlotConfig`/`LsnStore`, both of which are available
+  in the test environment.
+  """
   use ExUnit.Case, async: true
 
   alias RestdisBuster.Tailer
@@ -56,8 +58,8 @@ defmodule RestdisBuster.TailerTest do
   describe "handle_data/2" do
     test "decodes an XLogData WAL record and dispatches events" do
       wal_end = 42
-      # An unrecognized pgoutput message type decodes to no events, but still
-      # exercises the XLogData parsing/telemetry/dispatch path.
+
+      # An unrecognized pgoutput message decodes to no events but still exercises the XLogData dispatch path.
       frame = <<?w, 0::64, wal_end::64, 0::64, "?"::binary>>
 
       assert {:noreply, new_state} = Tailer.handle_data(frame, base_state(:streaming))

@@ -67,8 +67,7 @@ defmodule RestdisBuster.Worker.CoalesceSweeperTest do
   end
 
   test "init/1 schedules the periodic sweep and returns interval state" do
-    # A long interval so the scheduled `:timer.send_interval` message doesn't
-    # actually land in this (short-lived) test process's mailbox.
+    # A long interval keeps the scheduled `:timer.send_interval` message out of this short-lived test process's mailbox.
     assert {:ok, %{interval_ms: 3_600_000}} = CoalesceSweeper.init(interval_ms: 3_600_000)
   end
 

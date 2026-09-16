@@ -17,11 +17,7 @@ defmodule RestdisElectric.TableInfo.PostgresTest do
   end
 
   setup do
-    # `start_link/1` links the repo's supervisor to the calling test process. Since every test in
-    # this file shares the one `TestRepo`, an abnormal exit in any one test (e.g. a `SQL.query!`
-    # raising on a genuine SQL error) would otherwise propagate through that link and take the
-    # shared repo down with it, breaking every test that runs after. Unlinking keeps each test's
-    # own failure from cascading into the others.
+    # Unlink so one test's abnormal exit (e.g. a genuine SQL error) can't take down the shared `TestRepo`.
     pid =
       case TestRepo.start_link(
              hostname: System.get_env("POSTGRES_HOSTNAME", "localhost"),
