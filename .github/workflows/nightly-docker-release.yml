@@ -13,6 +13,7 @@ jobs:
   check-changes:
     name: Check for new commits since last release
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     outputs:
       has-changes: ${{ steps.check.outputs.has-changes }}
     steps:
@@ -52,6 +53,7 @@ jobs:
     needs: check-changes
     if: needs.check-changes.outputs.has-changes == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     permissions:
       contents: read
       packages: write

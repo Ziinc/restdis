@@ -18,6 +18,7 @@ jobs:
   integration:
     name: Restdis against a real Supabase stack (demo/docker-compose.yml)
     runs-on: ubuntu-latest
+    timeout-minutes: 10
 
     steps:
       - uses: actions/checkout@v4
