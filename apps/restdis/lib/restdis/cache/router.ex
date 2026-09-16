@@ -66,9 +66,17 @@ defmodule Restdis.Cache.Router do
 
     :erpc.call(owner, Restdis.Cache, fun, args, @timeout_ms)
   rescue
-    ErlangError -> unreachable(tenant_id, owner, fun)
+    e in ErlangError ->
+      case e.original do
+        {:erpc, reason} when reason in [:timeout, :noconnection] ->
+          unreachable(tenant_id, owner, fun)
+
+        _ ->
+          reraise e, __STACKTRACE__
+      end
   catch
-    :exit, _reason -> unreachable(tenant_id, owner, fun)
+    :exit, {:erpc, reason} when reason in [:timeout, :noconnection] ->
+      unreachable(tenant_id, owner, fun)
   end
 
   defp unreachable(tenant_id, owner, fun) do
