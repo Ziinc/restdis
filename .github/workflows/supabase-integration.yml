@@ -16,7 +16,7 @@ concurrency:
 
 jobs:
   integration:
-    name: Restdis against a real Supabase stack (demo/docker-compose.yml)
+    name: Restdis against a real Supabase stack (demos/docker-compose.yml)
     runs-on: ubuntu-latest
 
     steps:
@@ -29,7 +29,7 @@ jobs:
           node-version: "22"
 
       - name: Build and start the demo Supabase stack
-        working-directory: demo
+        working-directory: demos
         run: docker compose up -d --build
 
       - name: Wait for Restdis to become healthy
@@ -51,7 +51,7 @@ jobs:
           exit 1
 
       - name: Install dependencies and run the integration suite
-        working-directory: demo/tests
+        working-directory: demos/tests
         run: |
           npm install
           npm test
@@ -62,7 +62,7 @@ jobs:
           DEMO_AUTH_URL: http://localhost:9999
 
       - name: Run the supabase-js wrapper demo
-        working-directory: demo/client
+        working-directory: demos/client
         run: |
           npm install
           node demo.mjs
@@ -89,7 +89,7 @@ jobs:
           curl -fsS http://localhost:3001/api/dashboards/uid/restdis-demo | grep -q '"title":"Restdis Demo: live internals"'
 
       - name: Run the load test (short duration, proves the many-tenants path)
-        working-directory: demo
+        working-directory: demos
         run: node scripts/load-test.mjs
         env:
           RESTDIS_URL: http://localhost:4041
@@ -100,10 +100,10 @@ jobs:
 
       - name: Dump service logs
         if: always()
-        working-directory: demo
+        working-directory: demos
         run: docker compose logs
 
       - name: Tear down
         if: always()
-        working-directory: demo
+        working-directory: demos
         run: docker compose down -v

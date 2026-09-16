@@ -5,9 +5,9 @@ All coding agents working in this repo MUST follow the workflow below. These rul
 
 ## Source of Truth
 
-`PRD.md` is the authoritative reference for Restdis's scope, architecture, naming, phase boundaries, invalidation modes, and limits. When a requirement is ambiguous:
+`prds/PRD.md` is the authoritative reference for Restdis's scope, architecture, naming, phase boundaries, invalidation modes, and limits. When a requirement is ambiguous:
 
-1. Consult `PRD.md` first. Quote the relevant section in the task notes or PR description when a decision rests on it.
+1. Consult `prds/PRD.md` first. Quote the relevant section in the task notes or PR description when a decision rests on it.
 2. Never introduce behavior that contradicts the PRD.
 3. If the PRD is silent on the question, ask the user before assuming. Do not invent.
 
@@ -19,7 +19,7 @@ DDD is required for every change in this repo.
 - `restdis` (`apps/restdis`) — cache engine, reverse index, per-tenant ETS and CubDB,
   built and versioned as a standalone library under the `Restdis` namespace despite living
   alongside the other umbrella children. It must never reference an umbrella module;
-  `mix check.boundary` enforces this. See `LIB_PRD.md`.
+  `mix check.boundary` enforces this. See `prds/LIB_PRD.md`.
 - `restdis_server` — Redis RESP protocol, HTTP endpoint, rewarm scheduling.
 - `restdis_buster` — WAL ingestion and invalidation/refresh dispatch.
 - `restdis_replicator` — always-live KV datasets.

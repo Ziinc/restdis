@@ -2,14 +2,14 @@
 
 Runs Restdis (built from the root `Dockerfile`) against a real PostgREST and
 GoTrue, standing in for a self-hosted Supabase project. Verifies the
-integration points described in `SUPABASE_INTEGRATION_PRD.md` against real
+integration points described in `prds/SUPABASE_INTEGRATION_PRD.md` against real
 origins instead of stubs. Separate from the root `docker-compose.yml`, which
 is for local development against bare Postgres.
 
 ## Running locally
 
 ```sh
-cd demo
+cd demos
 docker compose up -d --build
 cd tests
 npm install
@@ -41,7 +41,7 @@ PostgREST - the point being to show the interception happening from an
 application's normal call shape, not a bespoke test client.
 
 ```sh
-cd demo/client
+cd demos/client
 npm install
 node demo.mjs
 ```
@@ -85,7 +85,7 @@ demo: origin PostgREST query → cache miss through Restdis → cache hit →
 direct write to Postgres → WAL-driven cache bust → GoTrue reachability.
 
 ```sh
-cd demo
+cd demos
 ./scripts/demo.sh              # brings the stack up, then walks through it,
                                 # pausing for enter between steps
 ./scripts/demo.sh --no-up      # stack already running, skip straight to the walkthrough
@@ -93,6 +93,24 @@ DEMO_AUTOPLAY=1 ./scripts/demo.sh   # no keypresses; sleeps between steps instea
 ```
 
 Requires `curl`, `psql`, `node`, and `docker compose` on `PATH`.
+
+## RESP-protocol walkthrough
+
+`scripts/resp-demo.sh` covers the Redis wire protocol directly (`redis-cli`
+against port 6381), which `scripts/demo.sh` doesn't touch since that one
+drives the HTTP endpoint: unauthenticated `NOAUTH` rejection, `AUTH` with a
+Supabase API key, plain Redis commands (`SET`/`GET`/`EXPIRE`/`TTL`),
+`PGRST.QUERY` and `PGRST.POLICY` over RESP, `PERSIST`, and the rewarm
+interval on a `PGRST.QUERY` entry.
+
+```sh
+cd demos
+./scripts/resp-demo.sh              # brings the stack up, then walks through it
+./scripts/resp-demo.sh --no-up      # stack already running
+DEMO_AUTOPLAY=1 ./scripts/resp-demo.sh   # no keypresses
+```
+
+Requires `redis-cli` and `docker compose` on `PATH`.
 
 ## Load test: many tenants, many requests, high speed
 
@@ -104,7 +122,7 @@ timed right after the Grafana dashboard has been introduced and just before
 the GoTrue step. `scripts/demo.sh` runs it as step 8. Standalone:
 
 ```sh
-cd demo
+cd demos
 LOAD_TENANTS=10 LOAD_CONCURRENCY=50 LOAD_DURATION_S=15 node scripts/load-test.mjs
 ```
 
@@ -119,6 +137,6 @@ required above) and uses the built-in `fetch`.
 ## CI
 
 `.github/workflows/supabase-integration.yml` builds this stack and runs
-`demo/tests` (its own Vitest config, `demo/tests/vitest.config.ts`) in a
+`demos/tests` (its own Vitest config, `demos/tests/vitest.config.ts`) in a
 dedicated workflow, separate from the Elixir `mix test`/`mix check` gate and
 from the `@electric-sql/client` conformance check in `test/conformance`.

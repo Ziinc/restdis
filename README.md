@@ -34,10 +34,10 @@ to it and use it exactly as it would use Redis, with no code changes.
 - **Electric-compatible shape API** — serves ElectricSQL's `GET /v1/shape` protocol directly
   from Restdis, so apps using `@electric-sql/client`, `@electric-sql/react`, or
   `@tanstack/electric-db-collection` work unchanged after pointing their `url` at Restdis. See
-  [Electric compatibility](#electric-compatibility) below and [`ELECTRIC_PRD.md`](ELECTRIC_PRD.md).
+  [Electric compatibility](#electric-compatibility) below and [`ELECTRIC_PRD.md`](prds/ELECTRIC_PRD.md).
 - **Caching across the rest of the Supabase stack [WIP]** — extend the same cache-and-invalidate
   mechanism to Realtime, Storage, Auth, and Edge Functions. See
-  [`SUPABASE_INTEGRATION_PRD.md`](SUPABASE_INTEGRATION_PRD.md).
+  [`SUPABASE_INTEGRATION_PRD.md`](prds/SUPABASE_INTEGRATION_PRD.md).
 
 ## Quickstart
 
@@ -223,5 +223,6 @@ times out, exactly as it would against a real Electric server.
 ## Learn more
 
 - [`docs/self-hosting.md`](docs/self-hosting.md) — environment variable reference.
+- [`PRD.md`](prds/PRD.md) — scope, architecture, and design decisions.
 - [`DEVELOPMENT.md`](DEVELOPMENT.md) — building the Docker image, running the release, and
   local development setup.

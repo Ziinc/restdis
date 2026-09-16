@@ -3,7 +3,7 @@ defmodule RestdisRepo.Repo.Migrations.CreateDdlDropTableEventTrigger do
 
   @moduledoc """
   Emits a logical-decoding message on `DROP TABLE` so `RestdisBuster.Worker`
-  can flush the affected tenant's cache entries (see PRD.md, "DROP TABLE
+  can flush the affected tenant's cache entries (see prds/PRD.md, "DROP TABLE
   flushes all cache entries").
 
   The event trigger function fires on `ddl_command_end` for `sql_drop` and

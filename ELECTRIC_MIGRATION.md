@@ -7,13 +7,13 @@ and maps Electric's operational settings onto their Restdis equivalents for
 whoever operates the deployment.
 
 It describes this branch's code as it actually behaves, not the target state
-in `ELECTRIC_PRD.md`. Where the two differ, this document says so.
+in `prds/ELECTRIC_PRD.md`. Where the two differ, this document says so.
 
 ---
 
 ## Terms used in this document
 
-See "Terms used in this document" in `ELECTRIC_PRD.md`. This guide uses the
+See "Terms used in this document" in `prds/ELECTRIC_PRD.md`. This guide uses the
 same vocabulary: shape, shape log, offset, handle, snapshot.
 
 ---
@@ -74,7 +74,7 @@ created.
 against the code," further down, for how this was checked):
 
 - **`where` clauses combining more than one subquery, or a subquery under a
-  top-level `NOT` alongside another predicate** (`ELECTRIC_PRD.md` Phase 6
+  top-level `NOT` alongside another predicate** (`prds/ELECTRIC_PRD.md` Phase 6
   item 1). The bare form — `field IN (subquery)` or `field NOT IN
   (subquery)` as the shape's *entire* filter — and that same clause combined
   with exactly one subquery-free predicate over a top-level `AND` or `OR`
@@ -140,9 +140,9 @@ Verified directly against `RestdisElectric.Eval.compile/2` and its `@comparison`
 | `ANY` / `ALL` with a comparison operator | Supported |
 | `lower`, `upper`, `coalesce`, `greatest`, `least` | Supported |
 | `$1`-style placeholders bound from `params` | Supported |
-| **`field IN (subquery)`, `field NOT IN (subquery)`** as the shape's entire filter, or combined with exactly one subquery-free predicate over a top-level `AND` or `OR` (`ELECTRIC_PRD.md` Phase 6 item 1) | **Supported** — `RestdisElectric.SubqueryTracker` incrementally tracks the subquery's table and emits `insert`/`delete` when a value's membership flips, even though the outer row itself did not change; when combined, the rest of the clause is re-checked against the affected row before emitting. Requires the tenant's `direct_pg_url`, like `log=changes_only`. |
+| **`field IN (subquery)`, `field NOT IN (subquery)`** as the shape's entire filter, or combined with exactly one subquery-free predicate over a top-level `AND` or `OR` (`prds/ELECTRIC_PRD.md` Phase 6 item 1) | **Supported** — `RestdisElectric.SubqueryTracker` incrementally tracks the subquery's table and emits `insert`/`delete` when a value's membership flips, even though the outer row itself did not change; when combined, the rest of the clause is re-checked against the affected row before emitting. Requires the tenant's `direct_pg_url`, like `log=changes_only`. |
 | More than one subquery in a clause, or a subquery under a top-level `NOT` alongside another predicate | **Not supported** — rejected as an unsupported construct at `400`. |
-| JSONB operators, full-text search, geometric/network types, range operators, casts, volatile functions (`now()`, etc.) | Not supported, and never will be: `ELECTRIC_PRD.md` scopes Restdis to exactly Electric's documented subset on purpose, so a shape that works on Restdis and fails on Electric would make the migration one-way. |
+| JSONB operators, full-text search, geometric/network types, range operators, casts, volatile functions (`now()`, etc.) | Not supported, and never will be: `prds/ELECTRIC_PRD.md` scopes Restdis to exactly Electric's documented subset on purpose, so a shape that works on Restdis and fails on Electric would make the migration one-way. |
 
 ### Client libraries
 
@@ -181,7 +181,7 @@ pattern. Restdis authenticates directly:
 
 ## Operational settings: Electric to Restdis
 
-`ELECTRIC_PRD.md`'s "boundary of compatibility" section is explicit that
+`prds/ELECTRIC_PRD.md`'s "boundary of compatibility" section is explicit that
 Restdis reads no `ELECTRIC_*` environment variable and does not try to look
 like Electric to an operator. This table exists so an operator migrating a
 deployment (not a client) knows which Restdis setting serves the same
@@ -192,11 +192,11 @@ are its documented environment variables.
 | Electric setting | Purpose | Restdis equivalent |
 | --- | --- | --- |
 | `ELECTRIC_DATABASE_URL` | Postgres connection Electric replicates from | `DATABASE_URL` (the control-plane/replication connection, `config/runtime.exs`) plus, per tenant, `pgrst_base_url`/`pgrst_api_key` (snapshot reads) and optionally `direct_pg_url` (`log=changes_only` snapshots and direct-Postgres reads) on the `tenants` table |
-| `ELECTRIC_STORAGE_DIR` | Where Electric persists shape logs on disk | No single directory: shape logs share Restdis's existing cache storage layer (CubDB today, per `ELECTRIC_PRD.md`'s "How we store the shape log"), rooted at `CACHE_DATA_DIR` |
+| `ELECTRIC_STORAGE_DIR` | Where Electric persists shape logs on disk | No single directory: shape logs share Restdis's existing cache storage layer (CubDB today, per `prds/ELECTRIC_PRD.md`'s "How we store the shape log"), rooted at `CACHE_DATA_DIR` |
 | `ELECTRIC_MAX_SHAPES` (or an equivalent flat limit) | Caps shape count for the one Electric instance | Per tenant `max_shapes` column on `tenants`, enforced by `RestdisElectric.Limits.check_shapes/1` and returned as a `429` |
 | A per-instance limit on total log storage | Caps disk use for the one Electric instance | Per tenant `max_log_bytes` column on `tenants`, enforced by `RestdisElectric.Limits.check_log_bytes/3` and returned as a `429` |
 | A per-instance limit on concurrent long-polling clients | Caps waiting connections for the one Electric instance | Per tenant `max_waiting_clients` column on `tenants`, enforced by `RestdisElectric.Limits.enter_wait/1` and returned as a `429` |
-| Electric's unbounded log with compaction | Bounds how far back a client can resume | Per tenant `max_log_operations` column on `tenants` as the default, overridable per shape via a `retention` query parameter: `RestdisElectric.Log` truncates a shape's log to its effective retention (`RestdisElectric.Limits.effective_retention/2`), and a client that resumes at or below the truncated boundary gets a `409` (see "How we store the shape log" in `ELECTRIC_PRD.md`) |
+| Electric's unbounded log with compaction | Bounds how far back a client can resume | Per tenant `max_log_operations` column on `tenants` as the default, overridable per shape via a `retention` query parameter: `RestdisElectric.Log` truncates a shape's log to its effective retention (`RestdisElectric.Limits.effective_retention/2`), and a client that resumes at or below the truncated boundary gets a `409` (see "How we store the shape log" in `prds/ELECTRIC_PRD.md`) |
 | `ELECTRIC_PORT` / listen address | HTTP port Electric serves on | `HTTP_PORT` (`config/runtime.exs`), shared with every other Restdis HTTP endpoint |
 | `ELECTRIC_LOG_LEVEL` / log format | Electric's own logging | Restdis's own logger config; `RESTDIS_JSON_LOGGER=true` switches to JSON output (`config/runtime.exs`) |
 | A replication slot name/publication, one per Electric instance | Electric's logical replication bookmark | `WAL_SLOT_NAME` / `WAL_PUBLICATION_NAME` (`config/runtime.exs`), shared with cache invalidation across the whole cluster, not one slot per shape server |
@@ -217,7 +217,7 @@ workflow and `test/conformance/run.mjs` for the exact steps.
 
 As of this writing, that suite passes: the client subscribes, sees the
 seeded row, and receives the live write. It caught a real regression once
-before — gatekeeper mode's `auth_mode` default (`ELECTRIC_PRD.md` Phase 7)
+before — gatekeeper mode's `auth_mode` default (`prds/ELECTRIC_PRD.md` Phase 7)
 started rejecting the fixture's client-supplied `table` parameter, since the
 fixture's tenant never set `auth_mode='open'`. That is the suite doing its
 job: it is supposed to fail when the client and the server disagree about

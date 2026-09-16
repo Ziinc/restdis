@@ -1,5 +1,5 @@
 #!/bin/sh
-# Narrated walkthrough of the demo Supabase stack (demo/docker-compose.yml)
+# Narrated walkthrough of the demo Supabase stack (demos/docker-compose.yml)
 # for a screen recording. Brings the stack up, then drives Restdis through
 # curl/psql, pausing between steps so a narrator can talk over each one.
 #
