@@ -77,7 +77,7 @@ defmodule Restdis.Cache.TenantTest do
     Restdis.Cache.put(tenant_id, key, value, ttl_ms: -1)
 
     assert :miss = Restdis.Cache.peek(tenant_id, key)
-    assert :miss = DiskCache.get(tenant_id, key)
+    assert :miss = DiskCache.get(Restdis.Cache, tenant_id, key)
 
     Restdis.Cache.flush_tenant(tenant_id)
   end
@@ -88,10 +88,10 @@ defmodule Restdis.Cache.TenantTest do
     value = [%{"id" => 1}]
 
     Restdis.Cache.put(tenant_id, key, value, ttl_ms: 60_000)
-    QueryCache.delete(tenant_id, key)
+    QueryCache.delete(Restdis.Cache, tenant_id, key)
 
     assert {:ok, ^value} = Restdis.Cache.peek(tenant_id, key)
-    assert {:ok, ^value} = QueryCache.get(tenant_id, key)
+    assert {:ok, ^value} = QueryCache.get(Restdis.Cache, tenant_id, key)
 
     Restdis.Cache.flush_tenant(tenant_id)
   end
