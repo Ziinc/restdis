@@ -28,12 +28,33 @@ defmodule Restdis.Cache.DiskCache do
   end
 
   @doc """
-  Writes `value` under `key`, persisting it when `opts[:persist]` is true.
+  Writes `value` under `key`, persisting it when `opts[:persist]` is true and
+  expiring it after `opts[:ttl_ms]`, if given.
   """
   @spec put(String.t(), Key.t(), term(), keyword()) :: :ok
   def put(tenant_id, key, value, opts \\ []) do
     persist = Keyword.get(opts, :persist, false)
-    GenServer.call(TenantRegistry.via(tenant_id, :disk_cache), {:put, key, value, persist})
+
+    expires_at =
+      case opts[:ttl_ms] do
+        nil -> :infinity
+        ms -> System.system_time(:millisecond) + ms
+      end
+
+    GenServer.call(
+      TenantRegistry.via(tenant_id, :disk_cache),
+      {:put, key, value, persist, expires_at}
+    )
+  end
+
+  @doc """
+  Reads `key`, returning its remaining ttl in milliseconds (or `nil` when the
+  entry carries no ttl) alongside its value. Treats an expired entry as a
+  miss, the same as `get/2`.
+  """
+  @spec get_with_ttl(String.t(), Key.t()) :: {:ok, term(), pos_integer() | nil} | :miss
+  def get_with_ttl(tenant_id, key) do
+    GenServer.call(TenantRegistry.via(tenant_id, :disk_cache), {:get_with_ttl, key})
   end
 
   @doc """
@@ -123,18 +144,44 @@ defmodule Restdis.Cache.DiskCache do
 
   @impl GenServer
   def handle_call({:get, key}, _from, %{cubdb: cubdb} = state) do
-    result =
-      case CubDB.fetch(cubdb, key) do
-        {:ok, {:v1, %{value: value}}} -> {:ok, value}
-        {:ok, value} -> {:ok, value}
-        :error -> :miss
-      end
+    case fetch_live(cubdb, key) do
+      {:ok, value, _expires_at} ->
+        {:reply, {:ok, value}, state}
 
-    {:reply, result, state}
+      :expired ->
+        {:reply, :miss, expire_entry(key, state)}
+
+      :miss ->
+        {:reply, :miss, state}
+    end
   end
 
-  def handle_call({:put, key, value, persist}, _from, %{cubdb: cubdb} = state) do
-    entry = {:v1, %{value: value, persist: persist, inserted_at: System.monotonic_time()}}
+  def handle_call({:get_with_ttl, key}, _from, %{cubdb: cubdb} = state) do
+    case fetch_live(cubdb, key) do
+      {:ok, value, :infinity} ->
+        {:reply, {:ok, value, nil}, state}
+
+      {:ok, value, expires_at} ->
+        {:reply, {:ok, value, expires_at - System.system_time(:millisecond)}, state}
+
+      :expired ->
+        {:reply, :miss, expire_entry(key, state)}
+
+      :miss ->
+        {:reply, :miss, state}
+    end
+  end
+
+  def handle_call({:put, key, value, persist, expires_at}, _from, %{cubdb: cubdb} = state) do
+    entry =
+      {:v1,
+       %{
+         value: value,
+         persist: persist,
+         inserted_at: System.monotonic_time(),
+         expires_at: expires_at
+       }}
+
     old_size = entry_size(cubdb, key)
     :ok = CubDB.put(cubdb, key, entry)
     state = %{state | bytes: state.bytes - old_size + entry_size_of(key, entry)}
@@ -154,7 +201,15 @@ defmodule Restdis.Cache.DiskCache do
         {:reply, :ok, state}
 
       {:ok, value} ->
-        new_entry = {:v1, %{value: value, persist: persist, inserted_at: System.monotonic_time()}}
+        new_entry =
+          {:v1,
+           %{
+             value: value,
+             persist: persist,
+             inserted_at: System.monotonic_time(),
+             expires_at: :infinity
+           }}
+
         :ok = CubDB.put(cubdb, key, new_entry)
         state = %{state | bytes: state.bytes - old_size + entry_size_of(key, new_entry)}
         {:reply, :ok, state}
@@ -203,6 +258,34 @@ defmodule Restdis.Cache.DiskCache do
     old_size = entry_size(cubdb, key)
     CubDB.delete(cubdb, key)
     {:reply, :ok, %{state | bytes: max(state.bytes - old_size, 0)}}
+  end
+
+  defp fetch_live(cubdb, key) do
+    case CubDB.fetch(cubdb, key) do
+      {:ok, {:v1, %{value: value} = meta}} ->
+        expires_at = Map.get(meta, :expires_at, :infinity)
+
+        if expired?(expires_at) do
+          :expired
+        else
+          {:ok, value, expires_at}
+        end
+
+      {:ok, value} ->
+        {:ok, value, :infinity}
+
+      :error ->
+        :miss
+    end
+  end
+
+  defp expired?(:infinity), do: false
+  defp expired?(expires_at), do: expires_at <= System.system_time(:millisecond)
+
+  defp expire_entry(key, %{cubdb: cubdb} = state) do
+    old_size = entry_size(cubdb, key)
+    CubDB.delete(cubdb, key)
+    %{state | bytes: max(state.bytes - old_size, 0)}
   end
 
   defp evict_over_cap(%{bytes: bytes} = state) do

@@ -264,9 +264,9 @@ defmodule Restdis.Cache do
   end
 
   defp disk_get_and_promote(tenant_id, key) do
-    case DiskCache.get(tenant_id, key) do
-      {:ok, value} ->
-        QueryCache.put(tenant_id, key, value)
+    case DiskCache.get_with_ttl(tenant_id, key) do
+      {:ok, value, ttl_ms} ->
+        QueryCache.put(tenant_id, key, value, ttl_ms: ttl_ms)
         {:ok, value}
 
       :miss ->
@@ -290,6 +290,7 @@ defmodule Restdis.Cache do
   defp do_put(tenant_id, key, value, opts) do
     persist = Keyword.get(opts, :persist, false)
     persist_cap = Keyword.get(opts, :persist_cap, 50_000)
+    ttl_ms = Keyword.get(opts, :ttl_ms)
 
     if persist do
       ref = :persistent_term.get({:sc_persist, tenant_id})
@@ -306,7 +307,7 @@ defmodule Restdis.Cache do
         {:error, :persist_cap}
       else
         QueryCache.put(tenant_id, key, value, opts)
-        DiskCache.put(tenant_id, key, value, persist: true)
+        DiskCache.put(tenant_id, key, value, persist: true, ttl_ms: ttl_ms)
         index_value(tenant_id, key, value, opts)
 
         :telemetry.execute([:restdis, :persist, :count], %{count: new_count}, %{
@@ -319,7 +320,7 @@ defmodule Restdis.Cache do
       end
     else
       QueryCache.put(tenant_id, key, value, opts)
-      DiskCache.put(tenant_id, key, value)
+      DiskCache.put(tenant_id, key, value, ttl_ms: ttl_ms)
       index_value(tenant_id, key, value, opts)
       :ok
     end
