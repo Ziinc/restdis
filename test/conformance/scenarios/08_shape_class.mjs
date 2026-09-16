@@ -2,13 +2,16 @@
 // the primitive the TS docs recommend building framework hooks on top of.
 
 import { Shape } from "@electric-sql/client";
-import { newStream, waitUntil, assert, pgQuery } from "../lib/helpers.mjs";
+import { newStream, waitUntil, withTimeout, assert, pgQuery } from "../lib/helpers.mjs";
 
 export default async function run() {
   const stream = newStream({ table: "conformance_items", where: "id >= 80 AND id < 90" });
   const shape = new Shape(stream);
 
-  const initialRows = await shape.rows;
+  const initialRows = await withTimeout(shape.rows, {
+    timeoutMs: 15_000,
+    message: "timed out waiting for Shape.rows to resolve the initial snapshot",
+  });
   assert(Array.isArray(initialRows), "Shape.rows did not resolve to an array");
 
   await pgQuery(

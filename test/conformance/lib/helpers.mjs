@@ -43,6 +43,26 @@ export async function waitUntil(predicate, { timeoutMs = 15_000, intervalMs = 10
   }
 }
 
+// Races a promise that isn't itself poll-based (unlike waitUntil) against a
+// deadline, so a stream that never converges fails the scenario instead of
+// hanging `npm test` forever.
+export async function withTimeout(promise, { timeoutMs = 15_000, message } = {}) {
+  let timer;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise((_, reject) => {
+        timer = setTimeout(
+          () => reject(new ConformanceError(message ?? `timed out after ${timeoutMs}ms`)),
+          timeoutMs
+        );
+      }),
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 export async function withPg(fn) {
   const client = new pg.Client({ connectionString: DATABASE_URL });
   await client.connect();
