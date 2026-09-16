@@ -38,20 +38,21 @@ defmodule Restdis.Cache.QueryCache do
   """
   @spec get(String.t(), Key.t()) :: {:ok, term()} | :miss
   def get(tenant_id, key) do
-    tid = table(tenant_id)
+    {tid, idx} = tables(tenant_id)
     now = System.monotonic_time(:millisecond)
 
     case :ets.lookup(tid, key) do
-      [{^key, value, :infinity, _last_access}] ->
-        touch(tid, key)
+      [{^key, value, :infinity, last_access}] ->
+        touch(tid, idx, key, last_access)
         {:ok, value}
 
-      [{^key, value, expires_at, _last_access}] when expires_at > now ->
-        touch(tid, key)
+      [{^key, value, expires_at, last_access}] when expires_at > now ->
+        touch(tid, idx, key, last_access)
         {:ok, value}
 
-      [{^key, _, _, _}] ->
+      [{^key, _, _, last_access}] ->
         :ets.delete(tid, key)
+        :ets.delete(idx, {last_access, key})
         :miss
 
       [] ->
@@ -68,7 +69,7 @@ defmodule Restdis.Cache.QueryCache do
   """
   @spec put(String.t(), Key.t(), term(), keyword()) :: :ok
   def put(tenant_id, key, value, opts \\ []) do
-    tid = table(tenant_id)
+    {tid, idx} = tables(tenant_id)
 
     expires_at =
       case opts[:ttl_ms] do
@@ -76,8 +77,16 @@ defmodule Restdis.Cache.QueryCache do
         ms -> System.monotonic_time(:millisecond) + ms
       end
 
-    :ets.insert(tid, {key, value, expires_at, System.monotonic_time()})
-    evict_over_cap(tenant_id, tid)
+    now = System.monotonic_time()
+
+    case :ets.lookup(tid, key) do
+      [{^key, _, _, old_last_access}] -> :ets.delete(idx, {old_last_access, key})
+      [] -> :ok
+    end
+
+    :ets.insert(tid, {key, value, expires_at, now})
+    :ets.insert(idx, {{now, key}})
+    evict_over_cap(tenant_id, tid, idx)
     :ok
   end
 
@@ -87,57 +96,43 @@ defmodule Restdis.Cache.QueryCache do
   """
   @spec memory_bytes(String.t()) :: non_neg_integer()
   def memory_bytes(tenant_id) do
-    tid = table(tenant_id)
+    {tid, _idx} = tables(tenant_id)
     :ets.info(tid, :memory) * :erlang.system_info(:wordsize)
   end
 
-  defp touch(tid, key) do
-    :ets.update_element(tid, key, {4, System.monotonic_time()})
+  defp touch(tid, idx, key, old_last_access) do
+    new_last_access = System.monotonic_time()
+    :ets.delete(idx, {old_last_access, key})
+    :ets.insert(idx, {{new_last_access, key}})
+    :ets.update_element(tid, key, {4, new_last_access})
   end
 
-  defp evict_over_cap(tenant_id, tid) do
+  defp evict_over_cap(tenant_id, tid, idx) do
     cap = Application.get_env(:restdis, :ets_cap_bytes, @default_ets_cap_bytes)
-    do_evict_over_cap(tenant_id, tid, cap)
+    do_evict_over_cap(tenant_id, tid, idx, cap)
   end
 
-  defp do_evict_over_cap(tenant_id, tid, cap) do
+  defp do_evict_over_cap(tenant_id, tid, idx, cap) do
     mem_bytes = :ets.info(tid, :memory) * :erlang.system_info(:wordsize)
 
     if mem_bytes > cap do
-      case oldest_entry(tid) do
-        nil ->
+      case :ets.first(idx) do
+        :"$end_of_table" ->
           :ok
 
-        lru_key ->
+        {_last_access, lru_key} = idx_entry ->
           :ets.delete(tid, lru_key)
+          :ets.delete(idx, idx_entry)
 
           :telemetry.execute([:restdis, :cache, :ets_evict], %{count: 1}, %{
             tenant_id: tenant_id,
             key: lru_key
           })
 
-          do_evict_over_cap(tenant_id, tid, cap)
+          do_evict_over_cap(tenant_id, tid, idx, cap)
       end
     else
       :ok
-    end
-  end
-
-  defp oldest_entry(tid) do
-    :ets.foldl(
-      fn {key, _value, _expires_at, last_access}, acc ->
-        case acc do
-          nil -> {key, last_access}
-          {_, acc_last_access} when last_access < acc_last_access -> {key, last_access}
-          _ -> acc
-        end
-      end,
-      nil,
-      tid
-    )
-    |> case do
-      nil -> nil
-      {key, _last_access} -> key
     end
   end
 
@@ -146,7 +141,14 @@ defmodule Restdis.Cache.QueryCache do
   """
   @spec delete(String.t(), Key.t()) :: :ok
   def delete(tenant_id, key) do
-    :ets.delete(table(tenant_id), key)
+    {tid, idx} = tables(tenant_id)
+
+    case :ets.lookup(tid, key) do
+      [{^key, _, _, last_access}] -> :ets.delete(idx, {last_access, key})
+      [] -> :ok
+    end
+
+    :ets.delete(tid, key)
     :ok
   end
 
@@ -155,27 +157,46 @@ defmodule Restdis.Cache.QueryCache do
   """
   @spec flush(String.t()) :: :ok
   def flush(tenant_id) do
-    :ets.delete_all_objects(table(tenant_id))
+    {tid, idx} = tables(tenant_id)
+    :ets.delete_all_objects(tid)
+    :ets.delete_all_objects(idx)
     :ok
   end
 
   @impl GenServer
   def init(tenant_id) do
     tid = :ets.new(:query_cache, [:set, :public, read_concurrency: true, write_concurrency: true])
+
+    idx =
+      :ets.new(:query_cache_idx, [
+        :ordered_set,
+        :public,
+        read_concurrency: true,
+        write_concurrency: true
+      ])
+
     :persistent_term.put({:sc_qc, tenant_id}, tid)
+    :persistent_term.put({:sc_qc_idx, tenant_id}, idx)
     ref = :counters.new(1, [:atomics])
     :persistent_term.put({:sc_persist, tenant_id}, ref)
     schedule_sweep()
-    {:ok, %{tenant_id: tenant_id, tid: tid}}
+    {:ok, %{tenant_id: tenant_id, tid: tid, idx: idx}}
   end
 
   @impl GenServer
-  def handle_info(:sweep, %{tid: tid} = state) do
+  def handle_info(:sweep, %{tid: tid, idx: idx} = state) do
     now = System.monotonic_time(:millisecond)
 
-    :ets.select_delete(tid, [
-      {{:_, :_, :"$1", :_}, [{:is_integer, :"$1"}, {:<, :"$1", {:const, now}}], [true]}
-    ])
+    expired =
+      :ets.select(tid, [
+        {{:"$1", :_, :"$2", :"$3"}, [{:is_integer, :"$2"}, {:<, :"$2", {:const, now}}],
+         [{{:"$1", :"$3"}}]}
+      ])
+
+    Enum.each(expired, fn {key, last_access} ->
+      :ets.delete(tid, key)
+      :ets.delete(idx, {last_access, key})
+    end)
 
     schedule_sweep()
     {:noreply, state}
@@ -184,10 +205,13 @@ defmodule Restdis.Cache.QueryCache do
   @impl GenServer
   def terminate(_reason, %{tenant_id: tenant_id}) do
     :persistent_term.erase({:sc_qc, tenant_id})
+    :persistent_term.erase({:sc_qc_idx, tenant_id})
     :persistent_term.erase({:sc_persist, tenant_id})
   end
 
-  defp table(tenant_id), do: :persistent_term.get({:sc_qc, tenant_id})
+  defp tables(tenant_id) do
+    {:persistent_term.get({:sc_qc, tenant_id}), :persistent_term.get({:sc_qc_idx, tenant_id})}
+  end
 
   defp schedule_sweep, do: Process.send_after(self(), :sweep, @sweep_interval_ms)
 end
