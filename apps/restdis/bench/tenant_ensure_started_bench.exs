@@ -18,6 +18,8 @@
 #
 #     mix run apps/restdis/bench/tenant_ensure_started_bench.exs
 
+{:ok, _pid} = Restdis.Cache.Supervisor.start_link([])
+
 alias Restdis.Cache.TenantSupervisor
 
 defmodule Restdis.Bench.EnsureStarted do
