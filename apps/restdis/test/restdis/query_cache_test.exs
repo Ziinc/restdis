@@ -87,9 +87,7 @@ defmodule Restdis.Cache.QueryCacheTest do
     Supervisor.stop(pid, :normal)
     assert_receive {:DOWN, ^ref, :process, ^pid, :normal}
 
-    # Registry removes a died process's entries via its own monitor, which
-    # runs asynchronously relative to the supervisor confirming the child's
-    # exit above, so poll briefly instead of asserting immediately.
+    # Registry clears a dead process's entries via its own async monitor, so poll briefly.
     assert_eventually(fn -> TenantRegistry.whereis(Restdis.Cache, tenant_id, :query_cache) end)
     assert_eventually(fn -> TenantRegistry.get_value(Restdis.Cache, tenant_id, :qc_table) end)
     assert_eventually(fn -> TenantRegistry.get_value(Restdis.Cache, tenant_id, :qc_persist) end)
