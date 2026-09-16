@@ -69,6 +69,8 @@ On a cache hit against an entry with a rewarm interval set, `restdis_server` sch
 
 Nodes form a cluster via `libcluster`, discovered by DNS (`CLUSTER_DNS_QUERY`; unset runs a single node). Tenants are placed on a consistent hash ring (`Restdis.Cache.Cluster.HashRing`) with 128 virtual nodes per node, so tenant ownership stays even and a join/leave only moves the tenants hashing into the affected arcs. The owning node serves a tenant's cache; other nodes forward the request over Erlang distribution, falling through to a direct PostgREST fetch if the owner is unreachable. Ring changes hand a tenant's `persist` entries to the new owner and drop the local copy.
 
+A `persist` entry lives only on the node that currently owns its tenant on the ring, never on every node: a receiving node applies a replicated event only when it owns that tenant, and drops events for tenants it does not own. On rebalance, `Cluster.Migration` ships `persist` entries to the new owner with a synchronous, confirmed handoff before flushing the local copy, so ownership routing and disk-cache replication never fight over which node holds the data.
+
 ## Tenant configuration
 
 Tenant config lives in Postgres (`tenants`, `tenant_table_config`, `api_keys`) and includes: default TTL, `max_ttl_s`, `persist_cap`, read replica URL, per-table invalidation mode, and (for `restdis_electric`) `auth_mode` and shape definitions. Authentication resolves a Supabase API key to a tenant via this config, both for RESP `AUTH` and the HTTP endpoint's auth plug.
