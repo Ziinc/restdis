@@ -4,6 +4,7 @@ defmodule Restdis.Cache do
   """
 
   alias Restdis.Cache.DiskCache
+  alias Restdis.Cache.HotCache
   alias Restdis.Cache.Key
   alias Restdis.Cache.QueryCache
   alias Restdis.Cache.Replication
@@ -55,7 +56,15 @@ defmodule Restdis.Cache do
   def put(tenant_id, key, value, opts \\ []) do
     TenantId.cast!(tenant_id)
     TenantSupervisor.ensure_started(tenant_id)
-    do_put(tenant_id, key, value, opts)
+
+    case do_put(tenant_id, key, value, opts) do
+      :ok ->
+        HotCache.delete(tenant_id, key)
+        :ok
+
+      error ->
+        error
+    end
   end
 
   @doc """
@@ -81,6 +90,7 @@ defmodule Restdis.Cache do
     QueryCache.delete(tenant_id, key)
     DiskCache.delete(tenant_id, key)
     ReverseIndex.purge_key(tenant_id, key)
+    HotCache.delete(tenant_id, key)
     :ok
   end
 
@@ -119,6 +129,7 @@ defmodule Restdis.Cache do
         Enum.each(cache_keys, fn key ->
           QueryCache.delete(tenant_id, key)
           DiskCache.delete(tenant_id, key)
+          HotCache.delete(tenant_id, key)
         end)
 
         :ok
@@ -164,6 +175,7 @@ defmodule Restdis.Cache do
     Enum.each(cache_keys, fn key ->
       QueryCache.delete(tenant_id, key)
       DiskCache.delete(tenant_id, key)
+      HotCache.delete(tenant_id, key)
     end)
 
     :ok

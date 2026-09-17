@@ -7,6 +7,7 @@ defmodule Restdis.Cache.TestUtils do
   alias Restdis.Cache.TenantSupervisor
 
   @target_key :sc_test_replication_target
+  @hot_cache_target_key :sc_test_hot_cache_target
 
   @spec start_tenant(String.t()) :: String.t()
   def start_tenant(prefix) do
@@ -55,5 +56,27 @@ defmodule Restdis.Cache.TestUtils do
   @spec put_transport(module() | nil) :: :ok
   def put_transport(transport) do
     Application.put_env(:restdis, :replication_transport, transport)
+  end
+
+  @spec capture_hot_cache(pid()) :: :ok
+  def capture_hot_cache(pid) do
+    :persistent_term.put(@hot_cache_target_key, pid)
+    :ok
+  end
+
+  @spec stop_capturing_hot_cache() :: :ok
+  def stop_capturing_hot_cache do
+    :persistent_term.erase(@hot_cache_target_key)
+    :ok
+  end
+
+  @spec hot_cache_target() :: pid() | nil
+  def hot_cache_target do
+    :persistent_term.get(@hot_cache_target_key, nil)
+  end
+
+  @spec put_hot_cache_transport(module() | nil) :: :ok
+  def put_hot_cache_transport(transport) do
+    Application.put_env(:restdis, :hot_cache_transport, transport)
   end
 end
