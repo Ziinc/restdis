@@ -52,15 +52,20 @@ defmodule Restdis.Cache.Supervisor do
   def init(opts) do
     name = Keyword.fetch!(opts, :name)
 
-    children = [
-      {Registry, keys: :unique, name: TenantRegistry.registry_name(name)},
-      {Restdis.Cache.TenantSupervisor, name: name},
-      {Restdis.Cache.Replication.Receiver, name: name},
-      Restdis.Cache.HotCache,
-      Restdis.Cache.HotCache.Receiver,
-      {Restdis.Cache.Cluster, name: name}
-    ]
+    children =
+      [
+        {Registry, keys: :unique, name: TenantRegistry.registry_name(name)},
+        {Restdis.Cache.TenantSupervisor, name: name},
+        {Restdis.Cache.Replication.Receiver, name: name},
+        {Restdis.Cache.Cluster, name: name}
+      ] ++ hot_cache_children(name)
 
     Supervisor.init(children, strategy: :one_for_one)
   end
+
+  # HotCache is a single cluster-wide layer, not scoped per instance, so only the default mounts it.
+  defp hot_cache_children(Restdis.Cache),
+    do: [Restdis.Cache.HotCache, Restdis.Cache.HotCache.Receiver]
+
+  defp hot_cache_children(_name), do: []
 end
