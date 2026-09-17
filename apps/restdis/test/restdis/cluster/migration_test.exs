@@ -16,7 +16,7 @@ defmodule Restdis.Cache.Cluster.MigrationTest do
     ring = HashRing.new([Node.self()])
 
     assert Migration.rebalance(ring) == []
-    assert TenantRegistry.whereis(tenant_id, :tenant)
+    assert TenantRegistry.whereis(Restdis.Cache, tenant_id, :tenant)
   end
 
   test "a tenant whose new owner is unreachable keeps serving locally" do
@@ -29,7 +29,7 @@ defmodule Restdis.Cache.Cluster.MigrationTest do
     ring = HashRing.new([@ghost])
 
     assert Migration.rebalance(ring) == []
-    assert TenantRegistry.whereis(tenant_id, :tenant)
+    assert TenantRegistry.whereis(Restdis.Cache, tenant_id, :tenant)
     assert {:ok, "v"} = Restdis.Cache.peek(tenant_id, key)
   end
 
@@ -37,6 +37,6 @@ defmodule Restdis.Cache.Cluster.MigrationTest do
     tenant_id = TestUtils.start_tenant("mig")
     on_exit(fn -> Restdis.Cache.flush_tenant(tenant_id) end)
 
-    assert tenant_id in TenantRegistry.local_tenants()
+    assert tenant_id in TenantRegistry.local_tenants(Restdis.Cache)
   end
 end

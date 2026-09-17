@@ -8,11 +8,9 @@ defmodule Restdis.Cache.Replication.Transport.Distribution do
 
   @behaviour Restdis.Cache.Replication.Transport
 
-  alias Restdis.Cache.Replication.Receiver
-
   @impl Restdis.Cache.Replication.Transport
-  def broadcast(message) do
-    GenServer.abcast(Node.list(), Receiver, {:sc_replication_stamped, message, now_us()})
+  def broadcast(receiver_name, message) do
+    GenServer.abcast(Node.list(), receiver_name, {:sc_replication_stamped, message, now_us()})
     :ok
   end
 

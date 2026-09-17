@@ -30,7 +30,7 @@ defmodule RestdisBuster.ReplicationModeTest do
       TestUtils.clear_table_config()
     end)
 
-    TenantSupervisor.ensure_started("repl_tenant")
+    TenantSupervisor.ensure_started(Restdis.Cache, "repl_tenant")
     on_exit(fn -> Restdis.Cache.flush_tenant("repl_tenant") end)
 
     TestUtils.seed_table_config(

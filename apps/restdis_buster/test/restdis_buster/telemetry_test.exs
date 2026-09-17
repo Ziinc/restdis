@@ -9,7 +9,7 @@ defmodule RestdisBuster.TelemetryTest do
   alias RestdisBuster.Worker
 
   setup do
-    TenantSupervisor.ensure_started("tel-tenant")
+    TenantSupervisor.ensure_started(Restdis.Cache, "tel-tenant")
     on_exit(fn -> Restdis.Cache.flush_tenant("tel-tenant") end)
     :ok
   end
@@ -130,7 +130,7 @@ defmodule RestdisBuster.TelemetryTest do
     key = Key.build(:table, "tel_hits", %{})
     Restdis.Cache.put("tel-tenant", key, %{"id" => 1}, primary_keys: [1])
 
-    ReverseIndex.purge_row("tel-tenant", "tel_hits", 1)
+    ReverseIndex.purge_row(Restdis.Cache, "tel-tenant", "tel_hits", 1)
 
     assert_receive {:telemetry, [:restdis, :reverse_index, :hit], measurements, metadata},
                    500
@@ -143,7 +143,7 @@ defmodule RestdisBuster.TelemetryTest do
   test "ReverseIndex emits :miss when no keys exist" do
     attach("test-rev-miss", [[:restdis, :reverse_index, :miss]])
 
-    ReverseIndex.purge_row("tel-tenant", "tel_unknown", 999)
+    ReverseIndex.purge_row(Restdis.Cache, "tel-tenant", "tel_unknown", 999)
 
     assert_receive {:telemetry, [:restdis, :reverse_index, :miss], %{count: 1}, metadata},
                    500

@@ -1,19 +1,30 @@
 defmodule Restdis.Cache.TenantSupervisor do
   @moduledoc """
   Dynamic supervisor starting one tenant aggregate per tenant.
+
+  Scoped by cache instance `name`, so a second `Restdis.Cache` instance in the
+  same VM gets its own dynamic supervisor rather than colliding with the first.
   """
 
   use DynamicSupervisor
 
+  alias Restdis.Cache.InstanceConfig
   alias Restdis.Cache.Tenant
   alias Restdis.Cache.TenantRegistry
 
   @doc """
-  Starts the supervisor of the tenant aggregates.
+  Returns the registered name of the tenant supervisor belonging to instance `name`.
+  """
+  @spec supervisor_name(atom()) :: atom()
+  def supervisor_name(name), do: Module.concat(name, __MODULE__)
+
+  @doc """
+  Starts the supervisor of the tenant aggregates for instance `:name`.
   """
   @spec start_link(keyword()) :: Supervisor.on_start()
   def start_link(opts) do
-    DynamicSupervisor.start_link(__MODULE__, opts, name: __MODULE__)
+    name = Keyword.fetch!(opts, :name)
+    DynamicSupervisor.start_link(__MODULE__, opts, name: supervisor_name(name))
   end
 
   @impl DynamicSupervisor
@@ -22,7 +33,8 @@ defmodule Restdis.Cache.TenantSupervisor do
   end
 
   @doc """
-  Starts the tenant aggregate for `tenant_id` unless it is already running.
+  Starts the tenant aggregate for `tenant_id` under instance `name`, unless it is
+  already running.
 
   Checks `TenantRegistry` for `:reverse_index` first — the last child
   `Tenant.init/1` starts, so finding it registered proves the whole tenant
@@ -36,19 +48,19 @@ defmodule Restdis.Cache.TenantSupervisor do
   therefore every grandchild's `init/1` — has returned, so racing callers
   cannot observe a half-started tenant.
   """
-  @spec ensure_started(String.t()) :: :ok
-  def ensure_started(tenant_id) do
-    case TenantRegistry.whereis(tenant_id, :reverse_index) do
-      nil -> start_tenant(tenant_id)
+  @spec ensure_started(atom(), String.t()) :: :ok
+  def ensure_started(name, tenant_id) do
+    case TenantRegistry.whereis(name, tenant_id, :reverse_index) do
+      nil -> start_tenant(name, tenant_id)
       _pid -> :ok
     end
   end
 
-  defp start_tenant(tenant_id) do
-    data_dir = Application.fetch_env!(:restdis, :cache_data_dir)
-    child_spec = {Tenant, tenant_id: tenant_id, data_dir: data_dir}
+  defp start_tenant(name, tenant_id) do
+    data_dir = InstanceConfig.fetch!(name).data_dir
+    child_spec = {Tenant, name: name, tenant_id: tenant_id, data_dir: data_dir}
 
-    case DynamicSupervisor.start_child(__MODULE__, child_spec) do
+    case DynamicSupervisor.start_child(supervisor_name(name), child_spec) do
       {:ok, _pid} -> :ok
       {:error, {:already_started, _pid}} -> :ok
     end

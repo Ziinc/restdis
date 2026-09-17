@@ -12,47 +12,51 @@ defmodule Restdis.Cache.ReverseIndex do
   @type primary_key :: term()
 
   @doc """
-  Starts the reverse index for the tenant given in `opts`.
+  Starts the reverse index for the tenant given in `opts` (`:name`, `:tenant_id`).
   """
   @spec start_link(keyword()) :: GenServer.on_start()
   def start_link(opts) do
+    name = Keyword.fetch!(opts, :name)
     tenant_id = Keyword.fetch!(opts, :tenant_id)
 
     GenServer.start_link(__MODULE__, tenant_id,
-      name: TenantRegistry.via(tenant_id, :reverse_index)
+      name: TenantRegistry.via(name, tenant_id, :reverse_index)
     )
   end
 
   @doc """
   Records that `key` depends on the row `{table, pk}`.
   """
-  @spec add(String.t(), table_name(), primary_key(), Key.t()) :: :ok
-  def add(tenant_id, table, pk, key) do
-    GenServer.call(TenantRegistry.via(tenant_id, :reverse_index), {:add, table, pk, key})
+  @spec add(atom(), String.t(), {table_name(), primary_key()}, Key.t()) :: :ok
+  def add(name, tenant_id, {table, pk}, key) do
+    GenServer.call(TenantRegistry.via(name, tenant_id, :reverse_index), {:add, table, pk, key})
   end
 
   @doc """
   Drops the row `{table, pk}` and returns the cache keys that depended on it.
   """
-  @spec purge_row(String.t(), table_name(), primary_key()) :: [Key.t()]
-  def purge_row(tenant_id, table, pk) do
-    GenServer.call(TenantRegistry.via(tenant_id, :reverse_index), {:purge_row, table, pk})
+  @spec purge_row(atom(), String.t(), table_name(), primary_key()) :: [Key.t()]
+  def purge_row(name, tenant_id, table, pk) do
+    GenServer.call(
+      TenantRegistry.via(name, tenant_id, :reverse_index),
+      {:purge_row, table, pk}
+    )
   end
 
   @doc """
   Drops every row dependency recorded for `key`.
   """
-  @spec purge_key(String.t(), Key.t()) :: :ok
-  def purge_key(tenant_id, key) do
-    GenServer.cast(TenantRegistry.via(tenant_id, :reverse_index), {:purge_key, key})
+  @spec purge_key(atom(), String.t(), Key.t()) :: :ok
+  def purge_key(name, tenant_id, key) do
+    GenServer.cast(TenantRegistry.via(name, tenant_id, :reverse_index), {:purge_key, key})
   end
 
   @doc """
   Drops every row of `table` and returns the cache keys that depended on them.
   """
-  @spec purge_table(String.t(), table_name()) :: [Key.t()]
-  def purge_table(tenant_id, table) do
-    GenServer.call(TenantRegistry.via(tenant_id, :reverse_index), {:purge_table, table})
+  @spec purge_table(atom(), String.t(), table_name()) :: [Key.t()]
+  def purge_table(name, tenant_id, table) do
+    GenServer.call(TenantRegistry.via(name, tenant_id, :reverse_index), {:purge_table, table})
   end
 
   @doc """
@@ -61,17 +65,20 @@ defmodule Restdis.Cache.ReverseIndex do
   A newly inserted row has no primary key entry to purge by, so list-scoped
   keys are tracked separately to let inserts bust them.
   """
-  @spec add_list_key(String.t(), table_name(), Key.t()) :: :ok
-  def add_list_key(tenant_id, table, key) do
-    GenServer.cast(TenantRegistry.via(tenant_id, :reverse_index), {:add_list_key, table, key})
+  @spec add_list_key(atom(), String.t(), table_name(), Key.t()) :: :ok
+  def add_list_key(name, tenant_id, table, key) do
+    GenServer.cast(
+      TenantRegistry.via(name, tenant_id, :reverse_index),
+      {:add_list_key, table, key}
+    )
   end
 
   @doc """
   Drops every list key recorded for `table` and returns the cache keys that depended on them.
   """
-  @spec purge_list_keys(String.t(), table_name()) :: [Key.t()]
-  def purge_list_keys(tenant_id, table) do
-    GenServer.call(TenantRegistry.via(tenant_id, :reverse_index), {:purge_list_keys, table})
+  @spec purge_list_keys(atom(), String.t(), table_name()) :: [Key.t()]
+  def purge_list_keys(name, tenant_id, table) do
+    GenServer.call(TenantRegistry.via(name, tenant_id, :reverse_index), {:purge_list_keys, table})
   end
 
   @impl GenServer

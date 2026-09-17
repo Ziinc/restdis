@@ -57,8 +57,8 @@ defmodule RestdisBuster.WorkerTest do
 
   setup do
     # Start tenants used in tests
-    TenantSupervisor.ensure_started("tenant1")
-    TenantSupervisor.ensure_started("tenant2")
+    TenantSupervisor.ensure_started(Restdis.Cache, "tenant1")
+    TenantSupervisor.ensure_started(Restdis.Cache, "tenant2")
 
     on_exit(fn ->
       Restdis.Cache.flush_tenant("tenant1")
@@ -130,7 +130,7 @@ defmodule RestdisBuster.WorkerTest do
 
   test "DML event for unconfigured table is a no-op" do
     key = Key.build(:table, "unknown_table", %{})
-    TenantSupervisor.ensure_started("some-tenant")
+    TenantSupervisor.ensure_started(Restdis.Cache, "some-tenant")
     Restdis.Cache.put("some-tenant", key, %{"id" => 1}, primary_keys: [1])
 
     event = TestUtils.insert_event("unknown_table")

@@ -30,19 +30,21 @@ defmodule Restdis.Cache.Tenant do
   """
   @spec start_link(keyword()) :: Supervisor.on_start()
   def start_link(opts) do
+    name = Keyword.fetch!(opts, :name)
     tenant_id = Keyword.fetch!(opts, :tenant_id)
-    Supervisor.start_link(__MODULE__, opts, name: TenantRegistry.via(tenant_id, :tenant))
+    Supervisor.start_link(__MODULE__, opts, name: TenantRegistry.via(name, tenant_id, :tenant))
   end
 
   @impl Supervisor
   def init(opts) do
+    name = Keyword.fetch!(opts, :name)
     tenant_id = Keyword.fetch!(opts, :tenant_id)
     data_dir = Keyword.fetch!(opts, :data_dir)
 
     children = [
-      QueryCache.child_spec(tenant_id),
-      {DiskCache, tenant_id: tenant_id, data_dir: data_dir},
-      {ReverseIndex, tenant_id: tenant_id}
+      QueryCache.child_spec(name, tenant_id),
+      {DiskCache, name: name, tenant_id: tenant_id, data_dir: data_dir},
+      {ReverseIndex, name: name, tenant_id: tenant_id}
     ]
 
     Supervisor.init(children, strategy: :one_for_one)

@@ -5,40 +5,41 @@ defmodule Restdis.Cache.QueryCache do
 
   use GenServer
 
+  alias Restdis.Cache.InstanceConfig
   alias Restdis.Cache.Key
   alias Restdis.Cache.TenantRegistry
 
   @sweep_interval_ms 30_000
 
   @doc """
-  Returns the child spec of the query cache for `tenant_id`.
+  Returns the child spec of the query cache for `tenant_id` under instance `name`.
   """
-  @spec child_spec(String.t()) :: Supervisor.child_spec()
-  def child_spec(tenant_id) do
+  @spec child_spec(atom(), String.t()) :: Supervisor.child_spec()
+  def child_spec(name, tenant_id) do
     %{
-      id: {__MODULE__, tenant_id},
-      start: {__MODULE__, :start_link, [tenant_id]},
+      id: {__MODULE__, name, tenant_id},
+      start: {__MODULE__, :start_link, [name, tenant_id]},
       type: :worker,
       restart: :permanent
     }
   end
 
   @doc """
-  Starts the query cache for `tenant_id`.
+  Starts the query cache for `tenant_id` under instance `name`.
   """
-  @spec start_link(String.t()) :: GenServer.on_start()
-  def start_link(tenant_id) do
-    GenServer.start_link(__MODULE__, tenant_id, name: TenantRegistry.via(tenant_id, :query_cache))
+  @spec start_link(atom(), String.t()) :: GenServer.on_start()
+  def start_link(name, tenant_id) do
+    GenServer.start_link(__MODULE__, {name, tenant_id},
+      name: TenantRegistry.via(name, tenant_id, :query_cache)
+    )
   end
-
-  @default_ets_cap_bytes 500 * 1024 * 1024
 
   @doc """
   Reads `key`, treating an expired entry as a miss.
   """
-  @spec get(String.t(), Key.t()) :: {:ok, term()} | :miss
-  def get(tenant_id, key) do
-    {tid, idx} = tables(tenant_id)
+  @spec get(atom(), String.t(), Key.t()) :: {:ok, term()} | :miss
+  def get(name, tenant_id, key) do
+    {tid, idx} = tables(name, tenant_id)
     now = System.monotonic_time(:millisecond)
 
     case :ets.lookup(tid, key) do
@@ -61,15 +62,18 @@ defmodule Restdis.Cache.QueryCache do
   end
 
   @doc """
-  Writes `value` under `key`, expiring it after `opts[:ttl_ms]`.
+  Writes `value` under `key`, expiring it after `opts[:ttl_ms]`. `opts[:name]`
+  selects the cache instance (required).
 
-  Enforces the per-tenant ETS memory cap (`Application.get_env(:restdis, :ets_cap_bytes)`,
-  defaulting to 500 MB) by evicting the least-recently-used entries when the
-  write pushes the tenant's table over the cap.
+  Enforces the per-instance ETS memory cap (`:ets_cap_bytes` in
+  `Restdis.Cache.InstanceConfig`, defaulting to 500 MB) by evicting the
+  least-recently-used entries when the write pushes the tenant's table over
+  the cap.
   """
   @spec put(String.t(), Key.t(), term(), keyword()) :: :ok
   def put(tenant_id, key, value, opts \\ []) do
-    {tid, idx} = tables(tenant_id)
+    name = Keyword.fetch!(opts, :name)
+    {tid, idx} = tables(name, tenant_id)
 
     expires_at =
       case opts[:ttl_ms] do
@@ -86,7 +90,7 @@ defmodule Restdis.Cache.QueryCache do
 
     :ets.insert(tid, {key, value, expires_at, now})
     :ets.insert(idx, {{now, key}})
-    evict_over_cap(tenant_id, tid, idx)
+    evict_over_cap(name, tenant_id, tid, idx)
     :ok
   end
 
@@ -96,9 +100,9 @@ defmodule Restdis.Cache.QueryCache do
 
   Unlike `get/2`, this does not touch the entry's LRU recency.
   """
-  @spec ttl_ms(String.t(), Key.t()) :: non_neg_integer() | :infinity | :miss
-  def ttl_ms(tenant_id, key) do
-    case TenantRegistry.get_value(tenant_id, :qc_table) do
+  @spec ttl_ms(atom(), String.t(), Key.t()) :: non_neg_integer() | :infinity | :miss
+  def ttl_ms(name, tenant_id, key) do
+    case TenantRegistry.get_value(name, tenant_id, :qc_table) do
       nil ->
         :miss
 
@@ -121,9 +125,9 @@ defmodule Restdis.Cache.QueryCache do
   Returns the approximate memory footprint, in bytes, of the tenant's ETS
   query cache table.
   """
-  @spec memory_bytes(String.t()) :: non_neg_integer()
-  def memory_bytes(tenant_id) do
-    {tid, _idx} = tables(tenant_id)
+  @spec memory_bytes(atom(), String.t()) :: non_neg_integer()
+  def memory_bytes(name, tenant_id) do
+    {tid, _idx} = tables(name, tenant_id)
     :ets.info(tid, :memory) * :erlang.system_info(:wordsize)
   end
 
@@ -134,8 +138,8 @@ defmodule Restdis.Cache.QueryCache do
     :ets.update_element(tid, key, {4, new_last_access})
   end
 
-  defp evict_over_cap(tenant_id, tid, idx) do
-    cap = Application.get_env(:restdis, :ets_cap_bytes, @default_ets_cap_bytes)
+  defp evict_over_cap(name, tenant_id, tid, idx) do
+    cap = InstanceConfig.get(name, :ets_cap_bytes, 500 * 1024 * 1024)
     do_evict_over_cap(tenant_id, tid, idx, cap)
   end
 
@@ -166,9 +170,9 @@ defmodule Restdis.Cache.QueryCache do
   @doc """
   Removes `key` from the query cache.
   """
-  @spec delete(String.t(), Key.t()) :: :ok
-  def delete(tenant_id, key) do
-    {tid, idx} = tables(tenant_id)
+  @spec delete(atom(), String.t(), Key.t()) :: :ok
+  def delete(name, tenant_id, key) do
+    {tid, idx} = tables(name, tenant_id)
 
     case :ets.lookup(tid, key) do
       [{^key, _, _, last_access}] -> :ets.delete(idx, {last_access, key})
@@ -182,16 +186,16 @@ defmodule Restdis.Cache.QueryCache do
   @doc """
   Removes every entry from the query cache.
   """
-  @spec flush(String.t()) :: :ok
-  def flush(tenant_id) do
-    {tid, idx} = tables(tenant_id)
+  @spec flush(atom(), String.t()) :: :ok
+  def flush(name, tenant_id) do
+    {tid, idx} = tables(name, tenant_id)
     :ets.delete_all_objects(tid)
     :ets.delete_all_objects(idx)
     :ok
   end
 
   @impl GenServer
-  def init(tenant_id) do
+  def init({name, tenant_id}) do
     tid = :ets.new(:query_cache, [:set, :public, read_concurrency: true, write_concurrency: true])
 
     idx =
@@ -202,10 +206,10 @@ defmodule Restdis.Cache.QueryCache do
         write_concurrency: true
       ])
 
-    TenantRegistry.put_value(tenant_id, :qc_table, tid)
-    TenantRegistry.put_value(tenant_id, :qc_table_idx, idx)
+    TenantRegistry.put_value(name, tenant_id, :qc_table, tid)
+    TenantRegistry.put_value(name, tenant_id, :qc_table_idx, idx)
     schedule_sweep()
-    {:ok, %{tenant_id: tenant_id, tid: tid, idx: idx}}
+    {:ok, %{name: name, tenant_id: tenant_id, tid: tid, idx: idx}}
   end
 
   @impl GenServer
@@ -227,9 +231,9 @@ defmodule Restdis.Cache.QueryCache do
     {:noreply, state}
   end
 
-  defp tables(tenant_id) do
-    {TenantRegistry.get_value(tenant_id, :qc_table),
-     TenantRegistry.get_value(tenant_id, :qc_table_idx)}
+  defp tables(name, tenant_id) do
+    {TenantRegistry.get_value(name, tenant_id, :qc_table),
+     TenantRegistry.get_value(name, tenant_id, :qc_table_idx)}
   end
 
   defp schedule_sweep, do: Process.send_after(self(), :sweep, @sweep_interval_ms)

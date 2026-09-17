@@ -17,13 +17,13 @@ defmodule Restdis.Cache.Router do
   @type unreachable :: {:error, :unreachable}
 
   @doc """
-  Returns the node owning `tenant_id`.
+  Returns the node owning `tenant_id` in instance `name`.
   """
-  @spec owner(Restdis.Cache.tenant_id()) :: node()
-  def owner(tenant_id), do: Cluster.owner(tenant_id)
+  @spec owner(Restdis.Cache.tenant_id(), atom()) :: node()
+  def owner(tenant_id, name \\ Restdis.Cache), do: Cluster.owner(tenant_id, name)
 
   @doc """
-  Routed `Restdis.Cache.get/2`.
+  Routed `Restdis.Cache.get/3`.
 
   Checked against the cluster-wide `Restdis.Cache.HotCache` layer first: a
   hit there is served with no cross-node hop at all, whichever node owns
@@ -31,14 +31,14 @@ defmodule Restdis.Cache.Router do
   a hit obtained that way is recorded so the key can turn hot and get
   gossiped to every peer.
   """
-  @spec get(Restdis.Cache.tenant_id(), Key.t()) :: {:ok, term()} | :miss | unreachable()
-  def get(tenant_id, key) do
+  @spec get(Restdis.Cache.tenant_id(), Key.t(), atom()) :: {:ok, term()} | :miss | unreachable()
+  def get(tenant_id, key, name \\ Restdis.Cache) do
     case HotCache.get(tenant_id, key) do
       {:ok, value} ->
         {:ok, value}
 
       :miss ->
-        case route(tenant_id, :get, [tenant_id, key]) do
+        case route(tenant_id, name, :get, [tenant_id, key, name]) do
           {:ok, value} = result ->
             HotCache.observe(tenant_id, key, value)
             result
@@ -50,27 +50,32 @@ defmodule Restdis.Cache.Router do
   end
 
   @doc """
-  Routed `Restdis.Cache.peek/2`.
+  Routed `Restdis.Cache.peek/3`.
   """
-  @spec peek(Restdis.Cache.tenant_id(), Key.t()) :: {:ok, term()} | :miss | unreachable()
-  def peek(tenant_id, key), do: route(tenant_id, :peek, [tenant_id, key])
+  @spec peek(Restdis.Cache.tenant_id(), Key.t(), atom()) :: {:ok, term()} | :miss | unreachable()
+  def peek(tenant_id, key, name \\ Restdis.Cache),
+    do: route(tenant_id, name, :peek, [tenant_id, key, name])
 
   @doc """
-  Routed `Restdis.Cache.put/4`.
+  Routed `Restdis.Cache.put/4`. Pass `:name` in `opts` to target a
+  non-default instance.
   """
   @spec put(Restdis.Cache.tenant_id(), Key.t(), term(), keyword()) ::
           :ok | {:error, :persist_cap} | unreachable()
-  def put(tenant_id, key, value, opts \\ []),
-    do: route(tenant_id, :put, [tenant_id, key, value, opts])
+  def put(tenant_id, key, value, opts \\ []) do
+    name = Keyword.get(opts, :name, Restdis.Cache)
+    route(tenant_id, name, :put, [tenant_id, key, value, opts])
+  end
 
   @doc """
-  Routed `Restdis.Cache.delete/3`.
+  Routed `Restdis.Cache.delete/4`.
   """
-  @spec delete(Restdis.Cache.tenant_id(), Key.t(), keyword()) :: :ok | unreachable()
-  def delete(tenant_id, key, opts \\ []), do: route(tenant_id, :delete, [tenant_id, key, opts])
+  @spec delete(Restdis.Cache.tenant_id(), Key.t(), keyword(), atom()) :: :ok | unreachable()
+  def delete(tenant_id, key, opts \\ [], name \\ Restdis.Cache),
+    do: route(tenant_id, name, :delete, [tenant_id, key, opts, name])
 
-  defp route(tenant_id, fun, args) do
-    owner = Cluster.owner(tenant_id)
+  defp route(tenant_id, name, fun, args) do
+    owner = Cluster.owner(tenant_id, name)
 
     if owner == Node.self() do
       apply(Restdis.Cache, fun, args)

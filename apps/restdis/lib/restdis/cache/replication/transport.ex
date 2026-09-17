@@ -3,7 +3,7 @@ defmodule Restdis.Cache.Replication.Transport do
   Transport used to broadcast `persist` disk cache writes to peer nodes.
   """
 
-  @type message :: {:sc_replication, Restdis.Cache.tenant_id(), tuple()}
+  @type message :: {:sc_replication, atom(), Restdis.Cache.tenant_id(), tuple()}
 
-  @callback broadcast(message()) :: :ok
+  @callback broadcast(receiver_name :: atom(), message()) :: :ok
 end

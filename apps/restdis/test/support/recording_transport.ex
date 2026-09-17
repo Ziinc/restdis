@@ -8,7 +8,7 @@ defmodule Restdis.Cache.TestUtils.RecordingTransport do
   alias Restdis.Cache.TestUtils
 
   @impl Restdis.Cache.Replication.Transport
-  def broadcast(message) do
+  def broadcast(_receiver_name, message) do
     case TestUtils.replication_target() do
       nil -> :ok
       pid -> send(pid, {:replicated, message})

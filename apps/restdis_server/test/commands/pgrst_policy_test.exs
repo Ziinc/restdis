@@ -83,7 +83,7 @@ defmodule RestdisServer.Commands.PgrstPolicyTest do
     Restdis.Cache.put(@tenant_id, key, [%{"id" => 2}], ttl_ms: 60_000)
 
     # Prime the same `:counters` ref so the next attempt tips over the cap, avoiding looping 50,000 times.
-    ref = TenantRegistry.get_value(@tenant_id, :qc_persist)
+    ref = TenantRegistry.get_value(Restdis.Cache, @tenant_id, :qc_persist)
     :counters.add(ref, 1, 50_000)
 
     {reply, _} = Dispatcher.dispatch(state, ["PGRST.POLICY", wire_key, "PERSIST"])

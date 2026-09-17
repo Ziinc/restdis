@@ -8,7 +8,7 @@ defmodule RestdisReplicator.Application do
   @impl Application
   def start(_type, _args) do
     children = [
-      Restdis.Cache,
+      cache_spec(),
       {Registry, keys: :unique, name: RestdisReplicator.Registry},
       RestdisReplicator.Subscription.Supervisor,
       RestdisReplicator.Reconciler
@@ -18,5 +18,13 @@ defmodule RestdisReplicator.Application do
       strategy: :one_for_one,
       name: RestdisReplicator.Supervisor
     )
+  end
+
+  defp cache_spec do
+    {Restdis.Cache,
+     data_dir: Application.get_env(:restdis_replicator, :cache_data_dir, "./cache_data"),
+     origin: Application.get_env(:restdis_replicator, :cache_origin, Restdis.Cache.Origin.Stub),
+     repo: RestdisRepo,
+     prefix: "restdis"}
   end
 end

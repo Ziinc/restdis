@@ -18,36 +18,37 @@ defmodule Restdis.Cache.Cluster.Migration do
   alias Restdis.Cache.TenantRegistry
 
   @doc """
-  Migrates every locally running tenant that `ring` assigns to another node.
+  Migrates every locally running tenant of instance `name` that `ring` assigns to
+  another node.
 
   Returns the tenant ids that were handed over.
   """
-  @spec rebalance(HashRing.t()) :: [String.t()]
-  def rebalance(ring) do
+  @spec rebalance(HashRing.t(), atom()) :: [String.t()]
+  def rebalance(ring, name \\ Restdis.Cache) do
     self_node = Node.self()
 
-    TenantRegistry.local_tenants()
+    TenantRegistry.local_tenants(name)
     |> Enum.filter(fn tenant_id -> HashRing.owner(ring, tenant_id) not in [nil, self_node] end)
     |> Enum.flat_map(fn tenant_id ->
       owner = HashRing.owner(ring, tenant_id)
 
-      if owner in Node.list(), do: migrate(tenant_id, owner), else: []
+      if owner in Node.list(), do: migrate(name, tenant_id, owner), else: []
     end)
   end
 
   @migrate_timeout_ms 5_000
 
-  defp migrate(tenant_id, owner) do
-    entries = DiskCache.persisted_entries(tenant_id)
+  defp migrate(name, tenant_id, owner) do
+    entries = DiskCache.persisted_entries(name, tenant_id)
 
-    if Enum.all?(entries, &ship_entry(owner, tenant_id, &1)) do
+    if Enum.all?(entries, &ship_entry(owner, tenant_id, name, &1)) do
       :telemetry.execute(
         [:restdis, :cluster, :migrated],
         %{count: 1, entries: length(entries)},
         %{tenant_id: tenant_id, owner: owner}
       )
 
-      Restdis.Cache.flush_tenant(tenant_id)
+      Restdis.Cache.flush_tenant(tenant_id, name)
       [tenant_id]
     else
       :telemetry.execute(
@@ -60,12 +61,12 @@ defmodule Restdis.Cache.Cluster.Migration do
     end
   end
 
-  defp ship_entry(owner, tenant_id, {key, value}) do
+  defp ship_entry(owner, tenant_id, name, {key, value}) do
     case :erpc.call(
            owner,
            Restdis.Cache,
            :put,
-           [tenant_id, key, value, [persist: true, replicated: true]],
+           [tenant_id, key, value, [persist: true, replicated: true, name: name]],
            @migrate_timeout_ms
          ) do
       :ok -> true

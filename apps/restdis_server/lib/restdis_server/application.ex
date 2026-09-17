@@ -22,7 +22,7 @@ defmodule RestdisServer.Application do
     children =
       cluster_formation() ++
         [
-          Restdis.Cache,
+          cache_spec(),
           RestdisElectric,
           tenant_config_cache_spec(),
           TenantConfig.Cache,
@@ -57,6 +57,14 @@ defmodule RestdisServer.Application do
       topologies ->
         [{Cluster.Supervisor, [topologies, [name: RestdisServer.ClusterFormation]]}]
     end
+  end
+
+  defp cache_spec do
+    {Restdis.Cache,
+     data_dir: Application.get_env(:restdis_server, :cache_data_dir, "./cache_data"),
+     origin: Application.get_env(:restdis_server, :cache_origin, Restdis.Cache.Origin.Stub),
+     repo: RestdisRepo,
+     prefix: "restdis"}
   end
 
   defp tenant_config_cache_spec do

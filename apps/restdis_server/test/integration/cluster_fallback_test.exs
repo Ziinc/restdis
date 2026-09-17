@@ -24,7 +24,7 @@ defmodule RestdisServer.ClusterFallbackTest do
     ])
 
     on_exit(fn ->
-      send(Cluster, {:nodedown, @ghost})
+      send(Cluster.process_name(Restdis.Cache), {:nodedown, @ghost})
       Cluster.sync()
       InMemory.clear()
       Restdis.Cache.flush_tenant(tenant_id)
@@ -137,7 +137,7 @@ defmodule RestdisServer.ClusterFallbackTest do
   end
 
   defp remote_tenant do
-    send(Cluster, {:nodeup, @ghost})
+    send(Cluster.process_name(Restdis.Cache), {:nodeup, @ghost})
     :ok = Cluster.sync()
 
     Enum.find_value(1..10_000, fn index ->

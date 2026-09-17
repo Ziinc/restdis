@@ -4,6 +4,7 @@ defmodule Restdis.Cache.TestUtils do
   """
 
   alias Restdis.Cache.Cluster
+  alias Restdis.Cache.InstanceConfig
   alias Restdis.Cache.TenantSupervisor
 
   @target_key :sc_test_replication_target
@@ -12,7 +13,7 @@ defmodule Restdis.Cache.TestUtils do
   @spec start_tenant(String.t()) :: String.t()
   def start_tenant(prefix) do
     tenant_id = "#{prefix}_#{System.unique_integer([:positive])}"
-    TenantSupervisor.ensure_started(tenant_id)
+    TenantSupervisor.ensure_started(Restdis.Cache, tenant_id)
     tenant_id
   end
 
@@ -35,13 +36,13 @@ defmodule Restdis.Cache.TestUtils do
 
   @spec add_cluster_node(node()) :: :ok
   def add_cluster_node(node) do
-    send(Cluster, {:nodeup, node})
+    send(Cluster.process_name(Restdis.Cache), {:nodeup, node})
     Cluster.sync()
   end
 
   @spec remove_cluster_node(node()) :: :ok
   def remove_cluster_node(node) do
-    send(Cluster, {:nodedown, node})
+    send(Cluster.process_name(Restdis.Cache), {:nodedown, node})
     Cluster.sync()
   end
 
@@ -55,7 +56,7 @@ defmodule Restdis.Cache.TestUtils do
 
   @spec put_transport(module() | nil) :: :ok
   def put_transport(transport) do
-    Application.put_env(:restdis, :replication_transport, transport)
+    InstanceConfig.put_field(Restdis.Cache, :replication_transport, transport)
   end
 
   @spec capture_hot_cache(pid()) :: :ok
