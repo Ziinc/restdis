@@ -77,6 +77,10 @@ defmodule Restdis.Cache.TestUtils do
   end
 
   @spec put_hot_cache_transport(module() | nil) :: :ok
+  def put_hot_cache_transport(nil) do
+    Application.delete_env(:restdis, :hot_cache_transport)
+  end
+
   def put_hot_cache_transport(transport) do
     Application.put_env(:restdis, :hot_cache_transport, transport)
   end
