@@ -92,6 +92,22 @@ defmodule RestdisBuster.SingletonTest do
   describe "handle_info/2 (direct callback invocation)" do
     # Calls `handle_info/2` directly to exercise branches without disturbing the real running singleton.
 
+    setup do
+      pid = start_supervised!(Singleton)
+      await_election(pid)
+
+      on_exit(fn ->
+        for {_, child_pid, _, _} <-
+              DynamicSupervisor.which_children(RestdisBuster.TailerSupervisor) do
+          DynamicSupervisor.terminate_child(RestdisBuster.TailerSupervisor, child_pid)
+        end
+
+        :syn.unregister(:wal, :wal_tailer)
+      end)
+
+      %{singleton_pid: pid}
+    end
+
     test ":try_register loses the election to the already-registered winner and monitors it" do
       assert {pid, _meta} = :syn.lookup(:wal, :wal_tailer)
 
@@ -128,6 +144,52 @@ defmodule RestdisBuster.SingletonTest do
 
     test "unrecognized messages are ignored" do
       assert {:noreply, %{some: :state}} = Singleton.handle_info(:whatever, %{some: :state})
+    end
+  end
+
+  test "start_tailer: false keeps the app from starting the singleton until it is asked for" do
+    refute Process.whereis(Singleton)
+
+    pid = start_supervised!(Singleton)
+    await_election(pid)
+
+    on_exit(fn ->
+      for {_, child_pid, _, _} <- DynamicSupervisor.which_children(RestdisBuster.TailerSupervisor) do
+        DynamicSupervisor.terminate_child(RestdisBuster.TailerSupervisor, child_pid)
+      end
+
+      :syn.unregister(:wal, :wal_tailer)
+    end)
+
+    assert {^pid, _meta} = :syn.lookup(:wal, :wal_tailer)
+    assert [_one_child] = await_tailer_child()
+  end
+
+  defp await_tailer_child(attempts \\ 50) do
+    case DynamicSupervisor.which_children(RestdisBuster.TailerSupervisor) do
+      [_one] = children ->
+        children
+
+      _other when attempts > 0 ->
+        Process.sleep(20)
+        await_tailer_child(attempts - 1)
+
+      other ->
+        flunk("RestdisBuster.TailerSupervisor never settled on one child: #{inspect(other)}")
+    end
+  end
+
+  defp await_election(pid, attempts \\ 50) do
+    case :syn.lookup(:wal, :wal_tailer) do
+      {^pid, _meta} ->
+        :ok
+
+      _other when attempts > 0 ->
+        Process.sleep(20)
+        await_election(pid, attempts - 1)
+
+      other ->
+        flunk("Singleton #{inspect(pid)} did not win the election in time: #{inspect(other)}")
     end
   end
 end

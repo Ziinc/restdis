@@ -3,6 +3,7 @@ import Config
 postgres_hostname = System.get_env("POSTGRES_HOSTNAME", "localhost")
 
 config :restdis_buster,
+  start_tailer: false,
   slot_name: "restdis_test_slot",
   publication_name: "restdis_pub",
   az: "test",

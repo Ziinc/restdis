@@ -7,6 +7,8 @@ defmodule RestdisBuster.DispatcherTest do
   import RestdisBuster.TestUtils, only: [assert_receive_eventually: 1]
 
   setup do
+    TestUtils.checkout_shared_repo!()
+
     # Join the test AZ group before each test
     az = Application.get_env(:restdis_buster, :az, "test")
     :syn.join(:wal_fanout, {:az, az}, self())

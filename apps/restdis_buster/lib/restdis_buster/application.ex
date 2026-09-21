@@ -1,6 +1,11 @@
 defmodule RestdisBuster.Application do
   @moduledoc """
   OTP application for the WAL ingestion and invalidation bounded context.
+
+  The `:start_tailer` config key (default `true`) controls whether
+  `RestdisBuster.Singleton` (and therefore the live WAL tailer) is started
+  as part of the application tree; set to `false` in tests to keep the
+  tailer from ingesting real writes made by other test suites.
   """
 
   use Application
@@ -12,18 +17,26 @@ defmodule RestdisBuster.Application do
   def start(_type, _args) do
     :ok = :syn.add_node_to_scopes([:wal, :wal_fanout])
 
-    children = [
-      cache_spec(),
-      {DynamicSupervisor, name: RestdisBuster.TailerSupervisor, strategy: :one_for_one},
-      table_config_cache_spec(),
-      RestdisBuster.Worker.Supervisor,
-      RestdisBuster.Worker.CoalesceSweeper,
-      RestdisBuster.FanoutSubscriber,
-      RestdisBuster.Infra.LsnStore,
-      RestdisBuster.Singleton
-    ]
+    children =
+      [
+        cache_spec(),
+        {DynamicSupervisor, name: RestdisBuster.TailerSupervisor, strategy: :one_for_one},
+        table_config_cache_spec(),
+        RestdisBuster.Worker.Supervisor,
+        RestdisBuster.Worker.CoalesceSweeper,
+        RestdisBuster.FanoutSubscriber,
+        RestdisBuster.Infra.LsnStore
+      ] ++ tailer_children()
 
     Supervisor.start_link(children, strategy: :one_for_one, name: RestdisBuster.Supervisor)
+  end
+
+  defp tailer_children do
+    if Application.get_env(:restdis_buster, :start_tailer, true) do
+      [RestdisBuster.Singleton]
+    else
+      []
+    end
   end
 
   defp cache_spec do

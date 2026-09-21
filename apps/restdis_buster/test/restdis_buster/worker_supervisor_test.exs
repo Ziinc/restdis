@@ -1,6 +1,8 @@
 defmodule RestdisBuster.Worker.SupervisorTest do
   use ExUnit.Case, async: false
 
+  import ExUnit.CaptureLog
+
   alias RestdisBuster.TestUtils
   alias RestdisBuster.WAL.Event
   alias RestdisBuster.Worker.Supervisor, as: WorkerSupervisor
@@ -52,6 +54,24 @@ defmodule RestdisBuster.Worker.SupervisorTest do
   test "an event for an unconfigured table is a no-op" do
     event = %Event{op: :insert, schema: "public", table: "no_such_table_at_all"}
     assert :ok = WorkerSupervisor.start_worker(event, &runner/1)
+    refute_receive {:ran, _}, 100
+  end
+
+  test "start_worker/2 drops the event and does not crash when the config lookup raises" do
+    event = %Event{op: :insert, schema: "public", table: "raises_lookup_table"}
+    previous_repo = Application.get_env(:restdis_buster, :repo, RestdisRepo)
+
+    clear_config()
+    Application.put_env(:restdis_buster, :repo, RestdisBuster.RaisingRepoStub)
+    on_exit(fn -> Application.put_env(:restdis_buster, :repo, previous_repo) end)
+
+    log =
+      capture_log(fn ->
+        assert :ok = WorkerSupervisor.start_worker(event, &runner/1)
+      end)
+
+    assert log =~ "TenantTableConfig.lookup failed"
+    assert log =~ "simulated repo failure"
     refute_receive {:ran, _}, 100
   end
 

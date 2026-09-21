@@ -1,3 +1,14 @@
+defmodule RestdisBuster.RaisingRepoStub do
+  @moduledoc """
+  A `:repo` stand-in for `RestdisBuster.TenantTableConfig.Cache` that raises on
+  every query, used to exercise the crash-proofing around config lookups.
+  """
+
+  @doc false
+  @spec one(any()) :: no_return()
+  def one(_queryable), do: raise("simulated repo failure")
+end
+
 defmodule RestdisBuster.TestUtils do
   @moduledoc false
 
