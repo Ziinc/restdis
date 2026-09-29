@@ -214,6 +214,21 @@ defmodule RestdisServer.Commands.PgrstQueryTest do
     assert IO.iodata_to_binary(reply) =~ "ERR"
   end
 
+  test "PGRST.QUERY with a sub-resource path replies with an error and skips the origin", %{
+    state: state
+  } do
+    call_count = :counters.new(1, [])
+
+    Req.Test.stub(RestdisServer.Finch, fn conn ->
+      :counters.add(call_count, 1, 1)
+      Req.Test.json(conn, [%{"id" => 1}])
+    end)
+
+    {reply, _} = Dispatcher.dispatch(state, ["PGRST.QUERY", "/widgets/extra"])
+    assert IO.iodata_to_binary(reply) =~ "ERR"
+    assert :counters.get(call_count, 1) == 0
+  end
+
   test "PGRST.QUERY surfaces a non-2xx upstream status as an error", %{state: state} do
     Req.Test.stub(RestdisServer.Finch, fn conn ->
       Plug.Conn.send_resp(conn, 500, Jason.encode!(%{message: "boom"}))

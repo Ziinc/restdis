@@ -21,7 +21,7 @@ Restdis is an Elixir umbrella application. Child apps:
 
 Reads resolve through three layers in order:
 
-1. **ETS (hot).** One table per tenant. Key: `(tenant, {table_or_rpc_or_view, params_hash})`, where `params_hash` is the first 128 bits of the SHA-256 of the canonical request: the path segments after the table/function name plus every query `{name, value}` pair (duplicates kept) and a SHA-256 fingerprint of the request's upstream credential (see Tenant configuration), sorted. The same path under two credentials is two cache keys; `table_or_rpc_or_view` is unchanged, so WAL-driven invalidation of a row hits the entries of every credential.
+1. **ETS (hot).** One table per tenant. Key: `(tenant, {table_or_rpc_or_view, params_hash})`, where `params_hash` is the first 128 bits of the SHA-256 of the canonical request: every query `{name, value}` pair (duplicates kept) plus a SHA-256 fingerprint of the request's upstream credential (see Tenant configuration), sorted. The same path under two credentials is two cache keys; `table_or_rpc_or_view` is unchanged, so WAL-driven invalidation of a row hits the entries of every credential.
 2. **CubDB (disk).** One instance per tenant, on local NVMe. Survives restarts.
 3. **PostgREST (origin).** Populates both layers above. Routes to the tenant's configured read replica when one is set; no automatic failover or lag detection — if the replica is unreachable, the request fails.
 

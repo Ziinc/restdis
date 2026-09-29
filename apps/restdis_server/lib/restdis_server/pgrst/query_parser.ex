@@ -20,15 +20,19 @@ defmodule RestdisServer.PGRST.QueryParser do
   representation) so that origin fetches issued later for this key -
   including cache-miss, rewarm, and fallback fetches - forward the original
   query string with the original credential to PostgREST.
+
+  Only `/<table_or_view>` and `/rpc/<function>` are accepted; any further
+  path segments return `{:error, :unsupported_path}`, since PostgREST
+  exposes no sub-resource paths.
   """
   @spec parse(String.t(), String.t(), String.t()) :: parse_result()
   def parse(tenant_id, path, credential)
       when is_binary(tenant_id) and is_binary(path) and is_binary(credential) do
     uri = URI.parse(path)
 
-    with {:ok, scope, ident, segments} <- split_path(uri.path) do
+    with {:ok, scope, ident} <- split_path(uri.path) do
       pairs = decode_pairs(uri.query)
-      key = Key.build(scope, ident, segments, [credential_pair(credential) | pairs])
+      key = Key.build(scope, ident, [], [credential_pair(credential) | pairs])
       QueryStore.put(tenant_id, Key.encode(key), uri.query || "", credential)
       {:ok, key, Map.new(pairs)}
     end
@@ -41,8 +45,10 @@ defmodule RestdisServer.PGRST.QueryParser do
 
   defp split_path(path) do
     case String.split(path, "/", trim: true) do
-      ["rpc", ident | segments] -> {:ok, :rpc, ident, segments}
-      [ident | segments] -> {:ok, :table, ident, segments}
+      ["rpc", ident] -> {:ok, :rpc, ident}
+      ["rpc", _ident | _rest] -> {:error, :unsupported_path}
+      [ident] -> {:ok, :table, ident}
+      [_ident | _rest] -> {:error, :unsupported_path}
       [] -> {:error, :empty_path}
     end
   end
