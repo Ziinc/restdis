@@ -14,9 +14,8 @@ defmodule Restdis.Cache.DiskCache do
 
   alias Restdis.Cache.InstanceConfig
   alias Restdis.Cache.Key
+  alias Restdis.Cache.ReverseIndexMeta
   alias Restdis.Cache.TenantRegistry
-
-  @type reverse_index_meta :: %{rows: [{String.t(), term()}], list?: boolean()}
 
   @store_file "store.feox"
   @default_cap_bytes 500 * 1024 * 1024
@@ -87,12 +86,13 @@ defmodule Restdis.Cache.DiskCache do
   end
 
   @doc """
-  Returns the reverse index metadata of every non-expired entry of the tenant.
+  Returns the reverse index metadata of every non-expired entry of the tenant,
+  deriving it from the stored value for entries written without it.
 
   Reads the store directly, for the same concurrency reason as `get/3`, so the
   rebuilding reverse index does not block the disk cache's GenServer.
   """
-  @spec reverse_index_entries(atom(), String.t()) :: [{Key.t(), reverse_index_meta()}]
+  @spec reverse_index_entries(atom(), String.t()) :: [{Key.t(), ReverseIndexMeta.t()}]
   def reverse_index_entries(name, tenant_id) do
     case TenantRegistry.get_value(name, tenant_id, :dc_store) do
       nil ->
@@ -102,8 +102,8 @@ defmodule Restdis.Cache.DiskCache do
         store
         |> FeoxDB.Term.stream()
         |> Enum.flat_map(fn
-          {key, {:v1, %{reverse_index: reverse_index} = meta}} ->
-            if expired?(meta.expires_at), do: [], else: [{key, reverse_index}]
+          {key, {:v1, meta}} ->
+            if expired?(meta.expires_at), do: [], else: [{key, reverse_index_of(key, meta)}]
 
           _ ->
             []
@@ -472,19 +472,16 @@ defmodule Restdis.Cache.DiskCache do
     div(size + @block_size - 1, @block_size) * @block_size
   end
 
-  # Drops entries lacking reverse index metadata, since WAL changes could never invalidate them.
   defp rebuild_index(store) do
     store
     |> FeoxDB.Term.stream()
-    |> Enum.reduce({0, 0, :gb_sets.empty(), MapSet.new()}, fn
-      {key, {:v1, %{reverse_index: _}} = entry}, index ->
-        index_entry(index, key, entry)
-
-      {key, _entry}, index ->
-        :ok = FeoxDB.Term.delete(store, key)
-        index
+    |> Enum.reduce({0, 0, :gb_sets.empty(), MapSet.new()}, fn {key, entry}, index ->
+      index_entry(index, key, entry)
     end)
   end
+
+  defp reverse_index_of(_key, %{reverse_index: reverse_index}), do: reverse_index
+  defp reverse_index_of(key, %{value: value}), do: ReverseIndexMeta.derive(key, value)
 
   defp index_entry({bytes, persist_count, evict_idx, persist_keys}, key, entry) do
     bytes = bytes + entry_size_of(key, entry)
