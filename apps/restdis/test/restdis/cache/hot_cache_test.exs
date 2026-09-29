@@ -20,7 +20,13 @@ defmodule Restdis.Cache.HotCacheTest do
 
     on_exit(fn ->
       TestUtils.stop_capturing_hot_cache()
-      TestUtils.put_hot_cache_transport(previous_transport)
+
+      if previous_transport do
+        TestUtils.put_hot_cache_transport(previous_transport)
+      else
+        Application.delete_env(:restdis, :hot_cache_transport)
+      end
+
       HotCache.flush()
     end)
 

@@ -37,11 +37,14 @@ jobs:
 
       - uses: actions/cache@v4
         with:
+          # The NIF .so and cargo target are cached with _build: an up-to-date cached SqlParser beam skips rustler, leaving priv/native empty.
           path: |
             deps
             _build
-          key: ${{ runner.os }}-restdis-conformance-${{ env.OTP_VERSION }}-${{ env.ELIXIR_VERSION }}-${{ hashFiles('apps/restdis/mix.lock') }}
-          restore-keys: ${{ runner.os }}-restdis-conformance-${{ env.OTP_VERSION }}-${{ env.ELIXIR_VERSION }}-
+            apps/restdis_electric/priv/native
+            apps/restdis_electric/native/restdis_electric_sql/target
+          key: ${{ runner.os }}-restdis-conformance-nif-${{ env.OTP_VERSION }}-${{ env.ELIXIR_VERSION }}-${{ hashFiles('apps/restdis/mix.lock') }}-${{ hashFiles('apps/restdis_electric/native/**/Cargo.lock', 'apps/restdis_electric/native/**/*.rs') }}
+          restore-keys: ${{ runner.os }}-restdis-conformance-nif-${{ env.OTP_VERSION }}-${{ env.ELIXIR_VERSION }}-
 
       # Started with `docker run`, not the `services:` block, because the shape
       # log needs a real logical replication slot (`wal_level=logical`), which
