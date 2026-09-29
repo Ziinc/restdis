@@ -58,6 +58,21 @@ defmodule Restdis.Cache do
   end
 
   @doc """
+  Like `get/3`, but also returns the entry's remaining TTL in milliseconds
+  (`:infinity` for no TTL) so `Restdis.Cache.Router` can bound its hot copy.
+  """
+  @spec get_with_ttl(tenant_id(), Key.t(), atom()) ::
+          {:ok, term(), non_neg_integer() | :infinity} | :miss
+  def get_with_ttl(tenant_id, key, name \\ __MODULE__) do
+    with {:ok, value} <- get(tenant_id, key, name) do
+      case QueryCache.ttl_ms(name, tenant_id, key) do
+        :miss -> {:ok, value, 0}
+        ttl_ms -> {:ok, value, ttl_ms}
+      end
+    end
+  end
+
+  @doc """
   Writes `value` under `key`. Pass `:ttl_ms` and `:persist` in `opts`, and
   `:name` to target a non-default instance.
   """
@@ -97,10 +112,8 @@ defmodule Restdis.Cache do
         :ok
     end
 
-    QueryCache.delete(name, tenant_id, key)
-    DiskCache.delete(name, tenant_id, key)
+    invalidate_key(name, tenant_id, key)
     ReverseIndex.purge_key(name, tenant_id, key)
-    HotCache.delete(tenant_id, key)
     :ok
   end
 
@@ -115,6 +128,8 @@ defmodule Restdis.Cache do
       nil -> :ok
       pid -> Supervisor.stop(pid, :normal)
     end
+
+    HotCache.delete_tenant(tenant_id)
 
     data_dir = InstanceConfig.fetch!(name).data_dir
     tenant_dir = Path.join(data_dir, tenant_id)
@@ -136,11 +151,7 @@ defmodule Restdis.Cache do
       _ ->
         cache_keys = ReverseIndex.purge_table(name, tenant_id, table)
 
-        Enum.each(cache_keys, fn key ->
-          QueryCache.delete(name, tenant_id, key)
-          DiskCache.delete(name, tenant_id, key)
-          HotCache.delete(tenant_id, key)
-        end)
+        Enum.each(cache_keys, &invalidate_key(name, tenant_id, &1))
 
         :ok
     end
@@ -164,10 +175,7 @@ defmodule Restdis.Cache do
       _ ->
         cache_keys = ReverseIndex.purge_list_keys(name, tenant_id, table)
 
-        Enum.each(cache_keys, fn key ->
-          QueryCache.delete(name, tenant_id, key)
-          DiskCache.delete(name, tenant_id, key)
-        end)
+        Enum.each(cache_keys, &invalidate_key(name, tenant_id, &1))
 
         :ok
     end
@@ -182,11 +190,7 @@ defmodule Restdis.Cache do
     TenantSupervisor.ensure_started(name, tenant_id)
     cache_keys = ReverseIndex.purge_row(name, tenant_id, table, pk)
 
-    Enum.each(cache_keys, fn key ->
-      QueryCache.delete(name, tenant_id, key)
-      DiskCache.delete(name, tenant_id, key)
-      HotCache.delete(tenant_id, key)
-    end)
+    Enum.each(cache_keys, &invalidate_key(name, tenant_id, &1))
 
     :ok
   end
@@ -296,6 +300,12 @@ defmodule Restdis.Cache do
   @spec ttl(tenant_id(), Key.t(), atom()) :: non_neg_integer() | :infinity | :miss
   def ttl(tenant_id, key, name \\ __MODULE__) do
     QueryCache.ttl_ms(name, tenant_id, key)
+  end
+
+  defp invalidate_key(name, tenant_id, key) do
+    QueryCache.delete(name, tenant_id, key)
+    DiskCache.delete(name, tenant_id, key)
+    HotCache.delete(tenant_id, key)
   end
 
   defp disk_get_and_promote(name, tenant_id, key) do
