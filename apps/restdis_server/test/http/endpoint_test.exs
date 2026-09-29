@@ -3,7 +3,10 @@ defmodule RestdisServer.HTTP.EndpointTest do
 
   alias Restdis.Cache.Key
   alias RestdisServer.HTTP.Endpoint
+  alias RestdisServer.PolicyStore
+  alias RestdisServer.Rewarm
   alias RestdisServer.TenantStore.InMemory
+  alias RestdisServer.TestUtils
 
   @tenant_id "test-http-tenant"
 
@@ -238,7 +241,8 @@ defmodule RestdisServer.HTTP.EndpointTest do
     assert Req.Response.get_header(resp, "sc-cache-rewarm") == ["deferred"]
   end
 
-  test "/pgrst/policy with a ttl but no cached value still acknowledges" do
+  test "/pgrst/policy on a key that is not cached returns 404 and writes nothing" do
+    Rewarm.stop_tenant(@tenant_id)
     key = Key.build(:table, "neverpersisted", %{"id" => "eq.9"})
     wire_key = Key.encode(key)
 
@@ -246,12 +250,44 @@ defmodule RestdisServer.HTTP.EndpointTest do
       Req.post(req(),
         url: "/pgrst/policy",
         headers: [{"authorization", "Bearer sk_http"}],
-        json: %{"key" => wire_key, "ttl_s" => 30},
+        json: %{"key" => wire_key, "ttl_s" => 30, "rewarm" => 1, "persist" => true},
         retry: false
       )
 
-    assert resp.status == 200
-    assert Jason.decode!(resp.body) == %{"ok" => true}
+    assert resp.status == 404
+    assert Jason.decode!(resp.body) == %{"error" => "no such key"}
+    assert PolicyStore.get(@tenant_id, wire_key) == %{rewarm_s: nil, persist: false}
+    assert Registry.lookup(RestdisServer.Rewarm.Registry, @tenant_id) == []
+    assert Restdis.Cache.peek(@tenant_id, key) == :miss
+  end
+
+  test "a crafted path traversal key or path over HTTP makes zero requests to the origin" do
+    on_exit(fn -> Rewarm.stop_tenant(@tenant_id) end)
+    TestUtils.stub_origin_to_report_requests()
+    TestUtils.allow_rewarm_origin_requests(@tenant_id)
+    auth = [{"authorization", "Bearer sk_http"}]
+    crafted_key = "pgrst:t:..%2F..%2Fauth%2Fv1%2Fadmin%2Fusers:0"
+
+    {:ok, policy_resp} =
+      Req.post(req(),
+        url: "/pgrst/policy",
+        headers: auth,
+        json: %{"key" => crafted_key, "rewarm" => 1},
+        retry: false
+      )
+
+    assert policy_resp.status == 400
+
+    {:ok, query_resp} =
+      Req.get(req(),
+        url: "/pgrst/query",
+        params: [path: "../../auth/v1/admin/users?x=1"],
+        headers: auth,
+        retry: false
+      )
+
+    assert query_resp.status == 400
+    refute_receive {:origin_request, _path}, 1500
   end
 
   # `Req.new(plug: ...)` fetches query params before invoking the plug (every other test here relies on that); this test builds the conn the way Bandit actually delivers it, unfetched, to catch a regression the rest of this file is blind to.

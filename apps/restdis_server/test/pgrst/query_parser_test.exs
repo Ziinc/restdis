@@ -52,4 +52,10 @@ defmodule RestdisServer.PGRST.QueryParserTest do
   test "an empty path is rejected" do
     assert {:error, :empty_path} = QueryParser.parse("t1", "/")
   end
+
+  for path <- ["../../auth/v1/x", "/./x", "/rpc/../auth", "/..%2F..%2Fauth", "/a%5Cb?x=1"] do
+    test "a path with an invalid ident is rejected: #{path}" do
+      assert {:error, :invalid_ident} = QueryParser.parse("t1", unquote(path))
+    end
+  end
 end

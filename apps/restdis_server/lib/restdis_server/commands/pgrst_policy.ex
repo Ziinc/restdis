@@ -5,30 +5,33 @@ defmodule RestdisServer.Commands.PgrstPolicy do
 
   alias Restdis.Cache.Key
   alias Restdis.Cache.QueryCache
+  alias Restdis.Cache.Router
   alias RestdisServer.Commands.Support
   alias RestdisServer.PolicyStore
   alias RestdisServer.RESP.Encoder
   alias RestdisServer.Rewarm
 
   @doc """
-  Applies TTL, rewarm and persist policy to a cache key.
+  Applies TTL, rewarm and persist policy to a currently cached key; a key
+  that is not cached replies `ERR no such key` and an unreachable owner node
+  replies `ERR owner node unreachable`, both changing nothing.
   """
   @spec run(map(), [binary()]) :: {iodata(), map()}
   def run(state, [wire_key | opts]) do
-    case Key.decode(wire_key) do
-      {:ok, key} ->
-        parsed = parse_opts(opts)
-        apply_policy(state, wire_key, key, parsed)
-
-      :error ->
-        {Encoder.error("ERR invalid cache key"), state}
+    with {:ok, key} <- Key.decode(wire_key),
+         {:ok, value} <- Router.peek(state.tenant_id, key) do
+      apply_policy(state, {wire_key, key, value}, parse_opts(opts))
+    else
+      :error -> {Encoder.error("ERR invalid cache key"), state}
+      :miss -> {Encoder.error("ERR no such key"), state}
+      {:error, :unreachable} -> {Encoder.error("ERR owner node unreachable"), state}
     end
   end
 
   def run(state, _),
     do: {Encoder.error("ERR wrong number of arguments for 'PGRST.POLICY' command"), state}
 
-  defp apply_policy(state, wire_key, key, parsed) do
+  defp apply_policy(state, {wire_key, key, value}, parsed) do
     existing_policy = PolicyStore.get(state.tenant_id, wire_key)
 
     new_policy = %{
@@ -56,23 +59,10 @@ defmodule RestdisServer.Commands.PgrstPolicy do
 
       _ ->
         if ttl_ms = parsed[:ttl_ms] do
-          QueryCache.put(
-            state.tenant_id,
-            key,
-            get_current_value(state.tenant_id, key),
-            name: Restdis.Cache,
-            ttl_ms: ttl_ms
-          )
+          QueryCache.put(state.tenant_id, key, value, name: Restdis.Cache, ttl_ms: ttl_ms)
         end
 
         {Encoder.simple_string("OK"), state}
-    end
-  end
-
-  defp get_current_value(tenant_id, key) do
-    case Restdis.Cache.peek(tenant_id, key) do
-      {:ok, value} -> value
-      :miss -> nil
     end
   end
 
