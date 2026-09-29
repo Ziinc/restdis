@@ -5,25 +5,32 @@ defmodule RestdisServer.Commands.Dispatcher do
 
   alias RestdisServer.Commands
   alias RestdisServer.RESP.Encoder
+  alias RestdisServer.RESP.Parser
 
   @noauth_commands ~w(PING AUTH)
 
   @doc """
-  Routes a parsed command to its handler, rejecting unauthenticated connections.
+  Routes a parsed command to its handler, rejecting null bulk strings and unauthenticated connections.
   """
-  @spec dispatch(map(), [binary()]) :: {iodata(), map()}
-  def dispatch(state, [cmd | args]) do
-    upcmd = String.upcase(cmd)
-
-    if not state.authenticated? and upcmd not in @noauth_commands do
-      {Encoder.error("NOAUTH Authentication required"), state}
+  @spec dispatch(map(), Parser.command()) :: {iodata(), map()}
+  def dispatch(state, [cmd | args] = command) do
+    if nil in command do
+      {Encoder.error("ERR invalid null bulk string in command"), state}
     else
-      run(state, upcmd, args)
+      authorize_and_run(state, String.upcase(cmd), args)
     end
   end
 
   def dispatch(state, []) do
     {Encoder.error("ERR empty command"), state}
+  end
+
+  defp authorize_and_run(state, upcmd, args) do
+    if not state.authenticated? and upcmd not in @noauth_commands do
+      {Encoder.error("NOAUTH Authentication required"), state}
+    else
+      run(state, upcmd, args)
+    end
   end
 
   defp run(state, "PING", args), do: Commands.Ping.run(state, args)
