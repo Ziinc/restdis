@@ -17,6 +17,16 @@ defmodule RestdisServer.Commands.DispatcherTest do
     assert state == %{authenticated?: true}
   end
 
+  test "dispatch/2 with a nil command name replies with an error" do
+    {reply, _state} = Dispatcher.dispatch(%{authenticated?: false}, [nil])
+    assert IO.iodata_to_binary(reply) == "-ERR invalid null bulk string in command\r\n"
+  end
+
+  test "dispatch/2 with a nil argument replies with an error", %{tenant_id: tenant_id} do
+    {reply, _state} = Dispatcher.dispatch(state(tenant_id), ["GET", nil])
+    assert IO.iodata_to_binary(reply) == "-ERR invalid null bulk string in command\r\n"
+  end
+
   test "dispatch/2 lowercases the command name", %{tenant_id: tenant_id} do
     {reply, _state} = Dispatcher.dispatch(state(tenant_id), ["ping"])
     assert IO.iodata_to_binary(reply) == "+PONG\r\n"
