@@ -31,7 +31,13 @@ defmodule RestdisServer.ClusterFallbackTest do
     end)
 
     {:ok,
-     tenant_id: tenant_id, state: %{authenticated?: true, tenant_id: tenant_id, buffer: <<>>}}
+     tenant_id: tenant_id,
+     state: %{
+       authenticated?: true,
+       tenant_id: tenant_id,
+       buffer: <<>>,
+       pgrst_credential: "svc_key"
+     }}
   end
 
   test "PGRST.QUERY falls through to PostgREST when the owning node is unreachable", %{

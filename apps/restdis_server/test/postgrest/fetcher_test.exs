@@ -11,11 +11,14 @@ defmodule RestdisServer.PostgREST.FetcherTest do
     %{
       pgrst_base_url: "http://localhost:9999",
       pgrst_api_key: "test_api_key",
+      pgrst_credential: "test_api_key",
       replica_url: nil
     }
   end
 
   defp stub_name, do: RestdisServer.Finch
+
+  @jwt "eyJhbGciOiJIUzI1NiJ9.eyJyb2xlIjoiYW5vbiJ9.c2lnbmF0dXJl"
 
   describe "path_for/1" do
     test "table scope produces /ident" do
@@ -203,11 +206,30 @@ defmodule RestdisServer.PostgREST.FetcherTest do
       {:ok, key_a, _} = QueryParser.parse(@tenant_id, "/widgets?id=eq.1", "cred-a")
       {:ok, key_b, _} = QueryParser.parse(@tenant_id, "/widgets?id=eq.1", "cred-b")
 
-      assert {:ok, %{"apikey" => ["cred-a"], "authorization" => ["Bearer cred-a"]}} =
-               FetcherReq.fetch(@tenant_id, key_a, base_config())
+      assert {:ok, %{"apikey" => ["cred-a"]}} =
+               FetcherReq.fetch(@tenant_id, key_a, Map.delete(base_config(), :pgrst_credential))
 
-      assert {:ok, %{"apikey" => ["cred-b"], "authorization" => ["Bearer cred-b"]}} =
-               FetcherReq.fetch(@tenant_id, key_b, base_config())
+      assert {:ok, %{"apikey" => ["cred-b"]}} =
+               FetcherReq.fetch(@tenant_id, key_b, Map.delete(base_config(), :pgrst_credential))
+    end
+
+    test "a JWT-shaped credential is sent as both apikey and Authorization: Bearer" do
+      echo_credential_stub()
+      {:ok, key, _} = QueryParser.parse(@tenant_id, "/widgets?id=eq.jwt", @jwt)
+
+      assert {:ok, %{"apikey" => [@jwt], "authorization" => ["Bearer " <> @jwt]}} =
+               FetcherReq.fetch(@tenant_id, key, base_config())
+    end
+
+    for credential <- ["sb_publishable_x", "unused"] do
+      test "a non-JWT credential #{credential} is sent as apikey without an Authorization header" do
+        echo_credential_stub()
+        credential = unquote(credential)
+        {:ok, key, _} = QueryParser.parse(@tenant_id, "/widgets?id=eq.opaque", credential)
+
+        assert {:ok, %{"apikey" => [^credential], "authorization" => []}} =
+                 FetcherReq.fetch(@tenant_id, key, base_config())
+      end
     end
 
     test "an unrecorded key sends the request's pgrst_credential" do
@@ -215,16 +237,22 @@ defmodule RestdisServer.PostgREST.FetcherTest do
       key = %Key{scope: :table, ident: "unrecorded", params_hash: 0}
       config = Map.put(base_config(), :pgrst_credential, "caller-cred")
 
-      assert {:ok, %{"apikey" => ["caller-cred"], "authorization" => ["Bearer caller-cred"]}} =
-               FetcherReq.fetch(@tenant_id, key, config)
+      assert {:ok, %{"apikey" => ["caller-cred"]}} = FetcherReq.fetch(@tenant_id, key, config)
     end
 
-    test "an unrecorded key without a request credential sends the tenant pgrst_api_key" do
-      echo_credential_stub()
-      key = %Key{scope: :table, ident: "unrecorded", params_hash: 0}
+    test "an unrecorded key without a request credential is refused without an upstream request" do
+      test_pid = self()
 
-      assert {:ok, %{"apikey" => ["test_api_key"], "authorization" => ["Bearer test_api_key"]}} =
-               FetcherReq.fetch(@tenant_id, key, base_config())
+      Req.Test.stub(stub_name(), fn conn ->
+        send(test_pid, :upstream_request)
+        Req.Test.json(conn, [])
+      end)
+
+      key = %Key{scope: :table, ident: "unrecorded", params_hash: 0}
+      config = Map.delete(base_config(), :pgrst_credential)
+
+      assert {:error, :unknown_query} = FetcherReq.fetch(@tenant_id, key, config)
+      refute_received :upstream_request
     end
   end
 end
