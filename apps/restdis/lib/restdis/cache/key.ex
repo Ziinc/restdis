@@ -17,11 +17,26 @@ defmodule Restdis.Cache.Key do
   @wire_to_scope %{"t" => :table, "r" => :rpc, "v" => :view, "s" => :shape}
 
   @doc """
-  Builds a cache key from a scope, identifier and query params.
+  Builds a cache key from a scope, identifier and query params map.
+
+  Equivalent to `build/4` with no path segments and the map's `{name, value}` pairs.
   """
   @spec build(scope(), String.t(), map()) :: t()
-  def build(scope, ident, params) when scope in [:table, :rpc, :view, :shape] do
-    %__MODULE__{scope: scope, ident: ident, params_hash: :erlang.phash2(params)}
+  def build(scope, ident, params) when is_map(params) do
+    build(scope, ident, [], Map.to_list(params))
+  end
+
+  @doc """
+  Builds a cache key from a scope, identifier, the path segments after the
+  identifier and the full list of query `{name, value}` pairs (duplicates kept).
+
+  `params_hash` is the first 128 bits of the SHA-256 of the deterministic
+  encoding of `{segments, Enum.sort(pairs)}`, so pair order does not matter.
+  """
+  @spec build(scope(), String.t(), [String.t()], [{term(), term()}]) :: t()
+  def build(scope, ident, segments, pairs)
+      when scope in [:table, :rpc, :view, :shape] and is_list(segments) and is_list(pairs) do
+    %__MODULE__{scope: scope, ident: ident, params_hash: hash({segments, Enum.sort(pairs)})}
   end
 
   @doc """
@@ -72,4 +87,10 @@ defmodule Restdis.Cache.Key do
   end
 
   def decode(_), do: :error
+
+  defp hash(canonical) do
+    digest = :crypto.hash(:sha256, :erlang.term_to_binary(canonical, [:deterministic]))
+    <<hash::unsigned-big-integer-size(128), _::binary>> = digest
+    hash
+  end
 end
