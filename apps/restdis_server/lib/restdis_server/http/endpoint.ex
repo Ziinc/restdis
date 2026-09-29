@@ -154,18 +154,18 @@ defmodule RestdisServer.HTTP.Endpoint do
   defp handle_pgrst_policy(conn, params) do
     wire_key = params["key"]
 
-    case wire_key && Key.decode(wire_key) do
-      {:ok, key} ->
-        conn
-        |> apply_policy(wire_key, key, params)
-        |> send_resp(200, Jason.encode!(%{ok: true}))
-
-      _ ->
-        send_resp(conn, 400, Jason.encode!(%{error: "invalid or missing 'key'"}))
+    with {:ok, key} <- is_binary(wire_key) && Key.decode(wire_key),
+         {:ok, value} <- Restdis.Cache.peek(conn.assigns.tenant_id, key) do
+      conn
+      |> apply_policy({wire_key, key, value}, params)
+      |> send_resp(200, Jason.encode!(%{ok: true}))
+    else
+      :miss -> send_resp(conn, 404, Jason.encode!(%{error: "no such key"}))
+      _ -> send_resp(conn, 400, Jason.encode!(%{error: "invalid or missing 'key'"}))
     end
   end
 
-  defp apply_policy(conn, wire_key, key, params) do
+  defp apply_policy(conn, {wire_key, key, value}, params) do
     tenant_id = conn.assigns.tenant_id
     rewarm = params["rewarm"]
     persist = params["persist"]
@@ -179,19 +179,15 @@ defmodule RestdisServer.HTTP.Endpoint do
     PolicyStore.put(tenant_id, wire_key, new_policy)
     Rewarm.policy_changed(tenant_id, wire_key, key, new_policy)
 
-    apply_ttl(conn, tenant_id, key, params["ttl_s"])
+    apply_ttl(conn, {tenant_id, key, value}, params["ttl_s"])
   end
 
-  defp apply_ttl(conn, tenant_id, key, ttl_s) when is_integer(ttl_s) and ttl_s > 0 do
-    case Restdis.Cache.peek(tenant_id, key) do
-      {:ok, value} -> Restdis.Cache.put(tenant_id, key, value, ttl_ms: ttl_s * 1000)
-      :miss -> :ok
-    end
-
+  defp apply_ttl(conn, {tenant_id, key, value}, ttl_s) when is_integer(ttl_s) and ttl_s > 0 do
+    Restdis.Cache.put(tenant_id, key, value, ttl_ms: ttl_s * 1000)
     CacheHeaders.put_policy_ok(conn, ttl_s)
   end
 
-  defp apply_ttl(conn, _tenant_id, _key, _ttl_s), do: conn
+  defp apply_ttl(conn, _entry, _ttl_s), do: conn
 
   defp maybe_cold_read(tenant_id, wire_key) do
     policy = PolicyStore.get(tenant_id, wire_key)

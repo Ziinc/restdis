@@ -38,6 +38,14 @@ defmodule RestdisServer.PostgREST.FetcherTest do
       assert Fetcher.path_for(key) == "/my%20table"
     end
 
+    test "percent-encodes path separators and dot segments so no ident can escape its segment" do
+      key = %Key{scope: :table, ident: "../../auth/v1/admin/users"}
+      assert Fetcher.path_for(key) == "/..%2F..%2Fauth%2Fv1%2Fadmin%2Fusers"
+
+      rpc_key = %Key{scope: :rpc, ident: "..\\x?y#z"}
+      assert Fetcher.path_for(rpc_key, "a=1") == "/rpc/..%5Cx%3Fy%23z?a=1"
+    end
+
     test "includes query string when present" do
       key = %Key{scope: :table, ident: "users"}
       assert Fetcher.path_for(key, "id=eq.1") == "/users?id=eq.1"

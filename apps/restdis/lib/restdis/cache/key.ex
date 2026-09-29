@@ -18,11 +18,26 @@ defmodule Restdis.Cache.Key do
 
   @doc """
   Builds a cache key from a scope, identifier and query params.
+
+  Raises `ArgumentError` when `ident` is not a `valid_ident?/1`.
   """
   @spec build(scope(), String.t(), map()) :: t()
   def build(scope, ident, params) when scope in [:table, :rpc, :view, :shape] do
+    if not valid_ident?(ident),
+      do: raise(ArgumentError, "invalid cache key ident: #{inspect(ident)}")
+
     %__MODULE__{scope: scope, ident: ident, params_hash: :erlang.phash2(params)}
   end
+
+  @doc """
+  Returns whether `ident` can address a single PostgREST path segment: it is
+  non-empty, not `.` or `..`, and holds no `/`, `\\`, `?`, `#`, `%` or control
+  character.
+  """
+  @spec valid_ident?(term()) :: boolean()
+  def valid_ident?(ident) when ident in ["", ".", ".."], do: false
+  def valid_ident?(ident) when is_binary(ident), do: not (ident =~ ~r/[\/\\?#%\x00-\x1F\x7F]/)
+  def valid_ident?(_ident), do: false
 
   @doc """
   Encodes a key into its wire representation.
@@ -38,7 +53,8 @@ defmodule Restdis.Cache.Key do
   Decodes a wire key back into a `t:t/0`.
 
   Keys prefixed `pgrst:` decode into the canonical `table`/`rpc`/`view`/`shape`
-  scopes used by `PGRST.QUERY`/`PGRST.POLICY` and shape logs. Any other
+  scopes used by `PGRST.QUERY`/`PGRST.POLICY` and shape logs, and fail to
+  decode unless their URI-decoded ident is a `valid_ident?/1`. Any other
   colon-free string decodes as
   a `:raw` key: a plain, user-managed key written via `SET` and readable via
   `GET`/`MGET`/`TTL`/`EXISTS`/`DEL`. Keys containing a colon but lacking the
@@ -52,8 +68,9 @@ defmodule Restdis.Cache.Key do
       [wire_scope, encoded_ident, hash_str] ->
         with {:ok, scope} <- Map.fetch(@wire_to_scope, wire_scope),
              true <- hash_str =~ ~r/^\d+$/,
-             {hash, ""} <- Integer.parse(hash_str) do
-          {:ok, %__MODULE__{scope: scope, ident: URI.decode(encoded_ident), params_hash: hash}}
+             {hash, ""} <- Integer.parse(hash_str),
+             {:ok, ident} <- decode_ident(encoded_ident) do
+          {:ok, %__MODULE__{scope: scope, ident: ident, params_hash: hash}}
         else
           _ -> :error
         end
@@ -72,4 +89,11 @@ defmodule Restdis.Cache.Key do
   end
 
   def decode(_), do: :error
+
+  defp decode_ident(encoded_ident) do
+    ident = URI.decode(encoded_ident)
+    if valid_ident?(ident), do: {:ok, ident}, else: :error
+  rescue
+    ArgumentError -> :error
+  end
 end

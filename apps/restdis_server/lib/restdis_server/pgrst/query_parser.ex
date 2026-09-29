@@ -16,6 +16,9 @@ defmodule RestdisServer.PGRST.QueryParser do
   representation) so that origin fetches issued later for this key -
   including cache-miss, rewarm, and fallback fetches - can forward the
   original query string to PostgREST.
+
+  Returns `{:error, :invalid_ident}` when the path's table or function name is
+  not a `Restdis.Cache.Key.valid_ident?/1`, such as a `.`/`..` segment.
   """
   @spec parse(String.t(), String.t()) :: parse_result()
   def parse(tenant_id, path) when is_binary(tenant_id) and is_binary(path) do
@@ -34,10 +37,14 @@ defmodule RestdisServer.PGRST.QueryParser do
 
   defp extract_ident(path) do
     case String.split(path, "/", trim: true) do
-      ["rpc", ident | _] -> {:ok, ident}
-      [ident | _] -> {:ok, ident}
+      ["rpc", ident | _] -> validate_ident(ident)
+      [ident | _] -> validate_ident(ident)
       [] -> {:error, :empty_path}
     end
+  end
+
+  defp validate_ident(ident) do
+    if Key.valid_ident?(ident), do: {:ok, ident}, else: {:error, :invalid_ident}
   end
 
   defp infer_scope(path) do

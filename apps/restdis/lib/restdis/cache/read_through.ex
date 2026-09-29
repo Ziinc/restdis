@@ -150,7 +150,8 @@ defmodule Restdis.Cache.ReadThrough do
     end
   end
 
-  defp key(ident), do: Key.build(:table, ident, %{})
+  # Built directly: read-through idents are caller-owned (e.g. `tenants/acme`), never fetched from PostgREST.
+  defp key(ident), do: %Key{scope: :table, ident: ident, params_hash: :erlang.phash2(%{})}
 
   defp envelope(value, ttl_ms), do: {:rt, value, now_ms() + ttl_ms}
 
