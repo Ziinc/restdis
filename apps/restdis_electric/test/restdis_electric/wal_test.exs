@@ -1,6 +1,10 @@
 defmodule RestdisElectric.WALTest do
   use ExUnit.Case, async: false
 
+  import ExUnit.CaptureLog
+
+  alias RestdisElectric.Definition
+  alias RestdisElectric.Eval
   alias RestdisElectric.Log
   alias RestdisElectric.Offset
   alias RestdisElectric.ShapeRegistry
@@ -110,5 +114,35 @@ defmodule RestdisElectric.WALTest do
     assert message.operation == :update
     assert message.value == %{"id" => 1, "name" => "b"}
     assert message.old_value == %{"id" => 1, "name" => "a"}
+  end
+
+  test "ingest/1 isolates a shape that raises, so every other shape still receives the change" do
+    tenant_id = TestUtils.tenant_id()
+    healthy = %Definition{tenant_id: tenant_id, schema: "public", table: "widgets"}
+
+    # A malformed parse tree makes evaluation raise, standing in for any bug on the per-shape path.
+    filter = %Eval{source: "lower()", tree: {:func, "lower", :poisoned}, params: %{}, columns: []}
+    poisoned = %Definition{healthy | filter: filter}
+    :ok = ShapeRegistry.register(tenant_id, healthy, "h_healthy")
+    :ok = ShapeRegistry.register(tenant_id, poisoned, "h_poisoned")
+
+    change = %{
+      tenant_id: tenant_id,
+      schema: "public",
+      table: "widgets",
+      op: :insert,
+      pk: 1,
+      new_row: %{"id" => 1, "name" => "a"},
+      old_row: nil,
+      lsn: 7
+    }
+
+    log = capture_log(fn -> assert :ok = WAL.ingest(change) end)
+
+    assert log =~ "h_poisoned"
+    assert {:ok, [message], _} = Log.read(tenant_id, "h_healthy", Offset.beginning())
+    assert message.value == %{"id" => 1, "name" => "a"}
+    assert ShapeRegistry.fetch(tenant_id, "h_poisoned") == :error
+    assert :error = Log.read(tenant_id, "h_poisoned", Offset.beginning())
   end
 end
