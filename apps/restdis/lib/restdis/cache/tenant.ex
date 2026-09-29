@@ -1,6 +1,9 @@
 defmodule Restdis.Cache.Tenant do
   @moduledoc """
   Tenant aggregate owning the query cache, disk cache, reverse index and config snapshot.
+
+  Supervised `:one_for_all`: a crash of any layer restarts all three, so the
+  reverse index is rebuilt from the disk cache and never misses a cached key.
   """
 
   use Supervisor
@@ -47,6 +50,6 @@ defmodule Restdis.Cache.Tenant do
       {ReverseIndex, name: name, tenant_id: tenant_id}
     ]
 
-    Supervisor.init(children, strategy: :one_for_one)
+    Supervisor.init(children, strategy: :one_for_all)
   end
 end
