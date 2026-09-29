@@ -137,6 +137,18 @@ defmodule Restdis.Cache.HotCacheTest do
     end
   end
 
+  describe "delete_local/2" do
+    test "removes a stored entry without gossiping", %{tenant_id: tenant_id} do
+      key = Key.build(:table, "widgets", %{})
+      HotCache.observe(tenant_id, key, "v", :infinity)
+
+      assert :ok = HotCache.delete_local(tenant_id, key)
+
+      assert :miss = HotCache.get(tenant_id, key)
+      refute_receive {:gossiped, _}, 100
+    end
+  end
+
   describe "delete_tenant/2" do
     test "removes every entry of the tenant and gossips the delete", %{tenant_id: tenant_id} do
       key1 = Key.build(:table, "widgets", %{})

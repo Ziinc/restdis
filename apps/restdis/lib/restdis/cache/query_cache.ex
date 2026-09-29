@@ -55,7 +55,7 @@ defmodule Restdis.Cache.QueryCache do
       [{^key, _, _, last_access}] ->
         :ets.delete(tid, key)
         :ets.delete(idx, {last_access, key})
-        HotCache.delete(tenant_id, key)
+        HotCache.delete_local(tenant_id, key)
         :miss
 
       [] ->
@@ -156,7 +156,7 @@ defmodule Restdis.Cache.QueryCache do
         {_last_access, lru_key} = idx_entry ->
           :ets.delete(tid, lru_key)
           :ets.delete(idx, idx_entry)
-          HotCache.delete(tenant_id, lru_key)
+          HotCache.delete_local(tenant_id, lru_key)
 
           :telemetry.execute([:restdis, :cache, :ets_evict], %{count: 1}, %{
             tenant_id: tenant_id,
@@ -228,7 +228,7 @@ defmodule Restdis.Cache.QueryCache do
     Enum.each(expired, fn {key, last_access} ->
       :ets.delete(tid, key)
       :ets.delete(idx, {last_access, key})
-      HotCache.delete(tenant_id, key)
+      HotCache.delete_local(tenant_id, key)
     end)
 
     schedule_sweep()

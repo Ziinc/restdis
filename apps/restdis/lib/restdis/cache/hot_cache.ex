@@ -125,6 +125,14 @@ defmodule Restdis.Cache.HotCache do
   end
 
   @doc """
+  Removes `key` from this node's hot layer only, without gossiping. For
+  local TTL expiry and eviction: peer hot copies are already bounded by the
+  entry's remaining TTL, and eviction is not invalidation.
+  """
+  @spec delete_local(Restdis.Cache.tenant_id(), Key.t()) :: :ok
+  def delete_local(tenant_id, key), do: delete(tenant_id, key, gossiped: true)
+
+  @doc """
   Removes every entry of `tenant_id` from the hot layer and, unless
   `opts[:gossiped]` is set, gossips the delete to every peer.
   """

@@ -340,7 +340,7 @@ defmodule Restdis.Cache.DiskCache do
     old_size = entry_size(cubdb, key)
     state = remove_from_index(state, key)
     CubDB.delete(cubdb, key)
-    HotCache.delete(tenant_id, key)
+    HotCache.delete_local(tenant_id, key)
     %{state | bytes: max(state.bytes - old_size, 0)}
   end
 
@@ -358,7 +358,7 @@ defmodule Restdis.Cache.DiskCache do
       {{_inserted_at, evict_key}, rest_idx} = :gb_sets.take_smallest(evict_idx)
       evict_size = entry_size(cubdb, evict_key)
       CubDB.delete(cubdb, evict_key)
-      HotCache.delete(tenant_id, evict_key)
+      HotCache.delete_local(tenant_id, evict_key)
 
       :telemetry.execute([:restdis, :cache, :cubdb_evict], %{count: 1}, %{
         tenant_id: tenant_id,

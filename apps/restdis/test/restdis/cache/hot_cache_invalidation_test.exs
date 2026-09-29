@@ -7,14 +7,20 @@ defmodule Restdis.Cache.HotCacheInvalidationTest do
   alias Restdis.Cache.Key
   alias Restdis.Cache.QueryCache
   alias Restdis.Cache.Router
+  alias Restdis.Cache.TenantRegistry
   alias Restdis.Cache.TestUtils
+  alias Restdis.Cache.TestUtils.RecordingHotCacheTransport
 
   setup do
+    previous_transport = Application.get_env(:restdis, :hot_cache_transport)
+    TestUtils.put_hot_cache_transport(RecordingHotCacheTransport)
     tenant_id = TestUtils.start_tenant("hot_inv")
 
     on_exit(fn ->
+      TestUtils.stop_capturing_hot_cache()
       Restdis.Cache.flush_tenant(tenant_id)
       HotCache.flush()
+      restore_transport(previous_transport)
     end)
 
     {:ok, tenant_id: tenant_id}
@@ -35,10 +41,54 @@ defmodule Restdis.Cache.HotCacheInvalidationTest do
     :ok = Restdis.Cache.put(t, key, [%{"id" => 49}, %{"id" => 50}])
     assert {:ok, _} = Router.get(t, key)
 
+    TestUtils.capture_hot_cache(self())
+
     :ok = Restdis.Cache.invalidate_lists(t, "widgets")
 
     assert :miss = HotCache.get(t, key)
+    assert_receive {:gossiped, {:sc_hot_cache_delete, ^t, ^key}}
     assert :miss = Router.get(t, key)
+  end
+
+  test "an ETS lazy expiry clears the hot entry locally without gossiping", %{tenant_id: t} do
+    key = Key.build(:table, "expire", %{"a" => 1})
+    QueryCache.put(t, key, "v", ttl_ms: 1, name: Restdis.Cache)
+    HotCache.observe(t, key, "v", :infinity)
+    Process.sleep(5)
+    TestUtils.capture_hot_cache(self())
+
+    assert :miss = QueryCache.get(Restdis.Cache, t, key)
+
+    assert :miss = HotCache.get(t, key)
+    refute_receive {:gossiped, _}, 100
+  end
+
+  test "an ETS sweep clears the hot entry locally without gossiping", %{tenant_id: t} do
+    key = Key.build(:table, "expire", %{"a" => 1})
+    QueryCache.put(t, key, "v", ttl_ms: 1, name: Restdis.Cache)
+    HotCache.observe(t, key, "v", :infinity)
+    Process.sleep(5)
+    TestUtils.capture_hot_cache(self())
+
+    pid = TenantRegistry.whereis(Restdis.Cache, t, :query_cache)
+    send(pid, :sweep)
+    :sys.get_state(pid)
+
+    assert :miss = HotCache.get(t, key)
+    refute_receive {:gossiped, _}, 100
+  end
+
+  test "a CubDB expiry clears the hot entry locally without gossiping", %{tenant_id: t} do
+    key = Key.build(:table, "expire", %{"a" => 1})
+    DiskCache.put(t, key, "v", ttl_ms: 1, name: Restdis.Cache)
+    HotCache.observe(t, key, "v", :infinity)
+    Process.sleep(5)
+    TestUtils.capture_hot_cache(self())
+
+    assert :miss = DiskCache.get(Restdis.Cache, t, key)
+
+    assert :miss = HotCache.get(t, key)
+    refute_receive {:gossiped, _}, 100
   end
 
   test "flush_table/3 clears the hot entry", %{tenant_id: t} do
@@ -81,9 +131,12 @@ defmodule Restdis.Cache.HotCacheInvalidationTest do
     InstanceConfig.put_field(Restdis.Cache, :ets_cap_bytes, 1)
     on_exit(fn -> InstanceConfig.put_field(Restdis.Cache, :ets_cap_bytes, previous) end)
 
+    TestUtils.capture_hot_cache(self())
+
     QueryCache.put(t, key2, value, name: Restdis.Cache)
 
     assert :miss = HotCache.get(t, key1)
+    refute_receive {:gossiped, _}, 100
   end
 
   test "a CubDB eviction clears the evicted key's hot entry", %{tenant_id: t} do
@@ -97,8 +150,14 @@ defmodule Restdis.Cache.HotCacheInvalidationTest do
     InstanceConfig.put_field(Restdis.Cache, :cubdb_cap_bytes, 1)
     on_exit(fn -> InstanceConfig.put_field(Restdis.Cache, :cubdb_cap_bytes, previous) end)
 
+    TestUtils.capture_hot_cache(self())
+
     DiskCache.put(t, key2, value, name: Restdis.Cache)
 
     assert :miss = HotCache.get(t, key1)
+    refute_receive {:gossiped, _}, 100
   end
+
+  defp restore_transport(nil), do: Application.delete_env(:restdis, :hot_cache_transport)
+  defp restore_transport(transport), do: TestUtils.put_hot_cache_transport(transport)
 end
