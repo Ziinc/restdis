@@ -41,7 +41,8 @@ defmodule RestdisReplicator.MixProject do
       {:req, "~> 0.6"},
       {:jason, "~> 1.4"},
       {:telemetry, "~> 1.0"},
-      {:stream_data, "~> 1.1", only: :test}
+      {:stream_data, "~> 1.1", only: :test},
+      {:plug, "~> 1.20", only: :test}
     ]
   end
 end

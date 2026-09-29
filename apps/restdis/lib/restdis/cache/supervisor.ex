@@ -32,19 +32,22 @@ defmodule Restdis.Cache.Supervisor do
   resource caps (`:ets_cap_bytes`, `:cubdb_cap_bytes`, `:persist_cap`,
   `:replication_transport`), resolved once into `Restdis.Cache.InstanceConfig`
   under `:name`.
+
+  Returns `{:error, {:already_started, pid}}` when an instance with the same
+  `:name` is already running, leaving that instance's configuration untouched:
+  a host mounts each instance exactly once.
   """
   @spec start_link(keyword()) :: Supervisor.on_start()
   def start_link(opts \\ []) do
     name = Keyword.get(opts, :name, Restdis.Cache)
 
-    # Idempotent by name: several host apps' test_helper.exs mount the default instance defensively in one shared VM.
     case Process.whereis(name) do
       nil ->
         InstanceConfig.put(name, opts)
         Supervisor.start_link(__MODULE__, Keyword.put(opts, :name, name), name: name)
 
       pid ->
-        {:ok, pid}
+        {:error, {:already_started, pid}}
     end
   end
 

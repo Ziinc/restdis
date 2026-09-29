@@ -1,6 +1,11 @@
 defmodule RestdisReplicator.Application do
   @moduledoc """
   OTP application for the always-live table replication bounded context.
+
+  Sole host of the default `Restdis.Cache` instance: it is the earliest
+  cache user in the release boot order and `restdis_server` and
+  `restdis_buster` depend on it, so the cache is started before, and
+  stopped after, every other cache user.
   """
 
   use Application
