@@ -60,7 +60,7 @@ defmodule RestdisServer.RESP.ParserTest do
         result =
           case Parser.parse(part1) do
             {:ok, cmd, rest} -> {:ok, cmd, rest <> part2}
-            {:more, rest} -> Parser.parse(rest <> part2)
+            {:more, _missing} -> Parser.parse(part1 <> part2)
             other -> other
           end
 
@@ -76,9 +76,88 @@ defmodule RestdisServer.RESP.ParserTest do
       assert {:error, :expected_bulk_string} = Parser.parse(data)
     end
 
+    test "a bulk not followed by CRLF is a protocol error" do
+      assert {:error, :expected_crlf} = Parser.parse("*1\r\n$1\r\nabcd")
+    end
+
     test "a non-numeric bulk length is a protocol error" do
       data = "*1\r\n$notanumber\r\n"
       assert {:error, {:bad_integer, "notanumber"}} = Parser.parse(data)
+    end
+  end
+
+  describe "negative counts" do
+    test "a null array is ignored as an empty command" do
+      assert {:ok, [], "rest"} = Parser.parse("*-1\r\nrest")
+    end
+
+    test "an array count below -1 is a protocol error" do
+      assert {:error, :invalid_multibulk_length} = Parser.parse("*-2\r\n")
+    end
+
+    test "a bulk length below -1 is a protocol error" do
+      assert {:error, :invalid_bulk_length} = Parser.parse("*1\r\n$-5\r\n")
+    end
+  end
+
+  describe "missing byte count" do
+    test "a partial bulk reports how many bytes it still needs" do
+      assert {:more, 4} = Parser.parse("*1\r\n$4\r\nPI")
+    end
+
+    test "an incomplete header line needs at least one more byte" do
+      assert {:more, 1} = Parser.parse("*1\r\n$4")
+    end
+  end
+
+  describe "unauthenticated limits" do
+    test "an array of 10 elements is accepted" do
+      assert {:more, _} = Parser.parse("*10\r\n", false)
+    end
+
+    test "an array of more than 10 elements is rejected" do
+      assert {:error, :unauthenticated_multibulk_length} = Parser.parse("*11\r\n", false)
+    end
+
+    test "a bulk of 16384 bytes is accepted" do
+      assert {:more, 16_386} = Parser.parse("*1\r\n$16384\r\n", false)
+    end
+
+    test "a bulk longer than 16384 bytes is rejected" do
+      assert {:error, :unauthenticated_bulk_length} = Parser.parse("*1\r\n$16385\r\n", false)
+    end
+  end
+
+  describe "authenticated limits" do
+    test "an array of 1048576 elements is accepted" do
+      assert {:more, _} = Parser.parse("*1048576\r\n", true)
+    end
+
+    test "an array of more than 1048576 elements is rejected" do
+      assert {:error, :invalid_multibulk_length} = Parser.parse("*1048577\r\n", true)
+    end
+
+    test "a bulk of 512MB is accepted" do
+      assert {:more, 536_870_914} = Parser.parse("*1\r\n$536870912\r\n", true)
+    end
+
+    test "a bulk longer than 512MB is rejected" do
+      assert {:error, :invalid_bulk_length} = Parser.parse("*1\r\n$536870913\r\n", true)
+    end
+  end
+
+  describe "line length limits" do
+    test "an inline line of 64KB without CRLF waits for more data" do
+      assert {:more, 1} = Parser.parse(:binary.copy("a", 64 * 1024))
+    end
+
+    test "an inline line beyond 64KB without CRLF is rejected" do
+      assert {:error, :too_big_inline_request} = Parser.parse(:binary.copy("a", 64 * 1024 + 1))
+    end
+
+    test "an array header beyond 64KB without CRLF is rejected" do
+      assert {:error, :too_big_count_string} =
+               Parser.parse("*" <> :binary.copy("1", 64 * 1024 + 1))
     end
   end
 end
