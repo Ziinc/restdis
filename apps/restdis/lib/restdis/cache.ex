@@ -17,6 +17,7 @@ defmodule Restdis.Cache do
   alias Restdis.Cache.QueryCache
   alias Restdis.Cache.Replication
   alias Restdis.Cache.ReverseIndex
+  alias Restdis.Cache.ReverseIndexMeta
   alias Restdis.Cache.TenantId
   alias Restdis.Cache.TenantRegistry
   alias Restdis.Cache.TenantSupervisor
@@ -328,7 +329,7 @@ defmodule Restdis.Cache do
     persist = Keyword.get(opts, :persist, false)
     persist_cap = Keyword.get(opts, :persist_cap, @default_persist_cap)
     ttl_ms = Keyword.get(opts, :ttl_ms)
-    reverse_index = reverse_index_meta(key, value, opts)
+    reverse_index = ReverseIndexMeta.derive(key, value, opts)
 
     already_persisted? =
       match?({:ok, %{persist: true}}, DiskCache.peek_meta(name, tenant_id, key))
@@ -410,44 +411,10 @@ defmodule Restdis.Cache do
     end
   end
 
-  defp reverse_index_meta(key, value, opts) do
-    pk_column = opts[:pk_column] || "id"
-
-    pks =
-      case opts[:primary_keys] do
-        nil -> extract_pks(value, pk_column)
-        explicit -> explicit
-      end
-
-    %{rows: Enum.map(pks, &{key.ident, &1}), list?: is_list(value)}
-  end
-
   defp index_value(name, tenant_id, key, %{rows: rows, list?: list?}) do
     Enum.each(rows, fn row -> ReverseIndex.add(name, tenant_id, row, key) end)
     if list?, do: ReverseIndex.add_list_key(name, tenant_id, key.ident, key)
   end
-
-  defp extract_pks(value, pk_column) when is_map(value) do
-    case Map.fetch(value, pk_column) do
-      {:ok, pk} -> [pk]
-      :error -> []
-    end
-  end
-
-  defp extract_pks(values, pk_column) when is_list(values) do
-    Enum.flat_map(values, fn
-      item when is_map(item) ->
-        case Map.fetch(item, pk_column) do
-          {:ok, pk} -> [pk]
-          :error -> []
-        end
-
-      _ ->
-        []
-    end)
-  end
-
-  defp extract_pks(_, _), do: []
 
   defp maybe_broadcast(opts, name, tenant_id, event) do
     if opts[:replicated], do: :ok, else: Replication.broadcast(name, tenant_id, event)

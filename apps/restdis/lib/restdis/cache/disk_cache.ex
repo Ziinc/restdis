@@ -7,9 +7,8 @@ defmodule Restdis.Cache.DiskCache do
 
   alias Restdis.Cache.InstanceConfig
   alias Restdis.Cache.Key
+  alias Restdis.Cache.ReverseIndexMeta
   alias Restdis.Cache.TenantRegistry
-
-  @type reverse_index_meta :: %{rows: [{String.t(), term()}], list?: boolean()}
 
   @doc """
   Starts the disk cache for the tenant given in `opts` (`:name`, `:tenant_id`, `:data_dir`).
@@ -75,12 +74,13 @@ defmodule Restdis.Cache.DiskCache do
   end
 
   @doc """
-  Returns the reverse index metadata of every non-expired entry of the tenant.
+  Returns the reverse index metadata of every non-expired entry of the tenant,
+  deriving it from the stored value for entries written without it.
 
   Reads the CubDB process directly so the rebuilding reverse index does not
   block the disk cache's GenServer.
   """
-  @spec reverse_index_entries(atom(), String.t()) :: [{Key.t(), reverse_index_meta()}]
+  @spec reverse_index_entries(atom(), String.t()) :: [{Key.t(), ReverseIndexMeta.t()}]
   def reverse_index_entries(name, tenant_id) do
     case TenantRegistry.get_value(name, tenant_id, :dc_cubdb) do
       nil ->
@@ -90,10 +90,10 @@ defmodule Restdis.Cache.DiskCache do
         cubdb
         |> CubDB.select()
         |> Enum.flat_map(fn
-          {key, {:v1, %{reverse_index: reverse_index} = meta}} ->
+          {key, {:v1, meta}} ->
             if expired?(Map.get(meta, :expires_at, :infinity)),
               do: [],
-              else: [{key, reverse_index}]
+              else: [{key, reverse_index_of(key, meta)}]
 
           _ ->
             []
@@ -472,13 +472,13 @@ defmodule Restdis.Cache.DiskCache do
     :erlang.external_size({key, entry})
   end
 
-  # Drops entries lacking reverse index metadata, since WAL changes could never invalidate them.
+  # Drops entries not in the `:v1` format, since reads never return them.
   defp rebuild_index(cubdb) do
     {index, unindexed} =
       cubdb
       |> CubDB.select()
       |> Enum.reduce({{0, 0, :gb_sets.empty(), MapSet.new()}, []}, fn
-        {key, {:v1, %{reverse_index: _}} = entry}, {index, unindexed} ->
+        {key, {:v1, _} = entry}, {index, unindexed} ->
           {index_entry(index, key, entry), unindexed}
 
         {key, _entry}, {index, unindexed} ->
@@ -488,6 +488,9 @@ defmodule Restdis.Cache.DiskCache do
     CubDB.delete_multi(cubdb, unindexed)
     index
   end
+
+  defp reverse_index_of(_key, %{reverse_index: reverse_index}), do: reverse_index
+  defp reverse_index_of(key, %{value: value}), do: ReverseIndexMeta.derive(key, value)
 
   defp index_entry({bytes, persist_count, evict_idx, persist_keys}, key, entry) do
     bytes = bytes + entry_size_of(key, entry)

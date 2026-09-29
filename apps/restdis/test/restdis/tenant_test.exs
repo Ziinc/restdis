@@ -153,24 +153,46 @@ defmodule Restdis.Cache.TenantTest do
     Restdis.Cache.flush_tenant(tenant_id)
   end
 
-  test "an old-format disk entry without reverse index metadata is dropped on tenant restart" do
+  test "old-format disk entries survive a tenant restart and are still invalidated" do
     tenant_id = "ri_legacy_#{System.unique_integer([:positive])}"
-    key = Key.build(:table, "widgets", %{"id" => "eq.11"})
+    row_key = Key.build(:table, "widgets", %{"id" => "eq.11"})
+    list_key = Key.build(:table, "widgets", %{"select" => "*"})
 
-    TenantSupervisor.ensure_started(Restdis.Cache, tenant_id)
-    cubdb = TenantRegistry.get_value(Restdis.Cache, tenant_id, :dc_cubdb)
-
-    legacy_entry =
-      {:v1, %{value: %{"id" => 11}, persist: true, inserted_at: 0, expires_at: :infinity}}
-
-    :ok = CubDB.put(cubdb, key, legacy_entry)
+    put_legacy_entry(tenant_id, row_key, %{"id" => 11}, false)
+    put_legacy_entry(tenant_id, list_key, [%{"id" => 12}], false)
 
     restart_tenant(tenant_id)
 
-    assert :miss = Restdis.Cache.peek(tenant_id, key)
-    assert Restdis.Cache.persist_count(tenant_id) == 0
+    assert {:ok, %{"id" => 11}} = Restdis.Cache.peek(tenant_id, row_key)
+    assert {:ok, [%{"id" => 12}]} = Restdis.Cache.peek(tenant_id, list_key)
+
+    Restdis.Cache.invalidate_by_row(tenant_id, "widgets", 11)
+    Restdis.Cache.invalidate_lists(tenant_id, "widgets")
+
+    assert :miss = Restdis.Cache.peek(tenant_id, row_key)
+    assert :miss = Restdis.Cache.peek(tenant_id, list_key)
 
     Restdis.Cache.flush_tenant(tenant_id)
+  end
+
+  test "an old-format persist entry keeps counting toward persist_count after a tenant restart" do
+    tenant_id = "ri_legacy_persist_#{System.unique_integer([:positive])}"
+    key = Key.build(:table, "widgets", %{"id" => "eq.11"})
+
+    put_legacy_entry(tenant_id, key, %{"id" => 11}, true)
+
+    restart_tenant(tenant_id)
+
+    assert Restdis.Cache.persist_count(tenant_id) == 1
+
+    Restdis.Cache.flush_tenant(tenant_id)
+  end
+
+  defp put_legacy_entry(tenant_id, key, value, persist) do
+    TenantSupervisor.ensure_started(Restdis.Cache, tenant_id)
+    cubdb = TenantRegistry.get_value(Restdis.Cache, tenant_id, :dc_cubdb)
+    entry = {:v1, %{value: value, persist: persist, inserted_at: 0, expires_at: :infinity}}
+    :ok = CubDB.put(cubdb, key, entry)
   end
 
   defp restart_tenant(tenant_id) do
