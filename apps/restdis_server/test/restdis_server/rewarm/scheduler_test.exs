@@ -112,7 +112,9 @@ defmodule RestdisServer.Rewarm.SchedulerTest do
 
     assert_receive {:telemetry, [:restdis_server, :rewarm, :refetch], _, _}, 1500
 
-    refute_receive {:telemetry, [:restdis_server, :rewarm, :evicted], _, _}, 1500
+    refute_receive {:telemetry, [:restdis_server, :rewarm, :evicted], _,
+                    %{tenant_id: @tenant_id}},
+                   1500
 
     assert {:ok, _} = Restdis.Cache.peek(@tenant_id, key)
   end
@@ -128,7 +130,9 @@ defmodule RestdisServer.Rewarm.SchedulerTest do
     Scheduler.policy_changed(pid, wire_key, key, %{rewarm_s: 1, persist: false})
     Scheduler.policy_changed(pid, wire_key, key, %{rewarm_s: nil, persist: false})
 
-    refute_receive {:telemetry, [:restdis_server, :rewarm, :refetch], _, _}, 300
+    refute_receive {:telemetry, [:restdis_server, :rewarm, :refetch], _,
+                    %{tenant_id: @tenant_id}},
+                   300
 
     assert Agent.get(agent, & &1) == 0
   end
