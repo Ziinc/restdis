@@ -7,13 +7,15 @@ test_dir = System.tmp_dir!() <> "/restdis_test"
 # Only wipe on a standalone run: in the umbrella VM other apps' live CubDBs sit under this tmp dir.
 if is_nil(Process.whereis(Restdis.Cache)), do: File.rm_rf!(test_dir)
 
-{:ok, _pid} =
-  Restdis.Cache.Supervisor.start_link(
-    data_dir: test_dir,
-    origin: Restdis.Cache.Origin.Stub,
-    repo: Restdis.TestRepo,
-    prefix: "restdis"
-  )
+case Restdis.Cache.Supervisor.start_link(
+       data_dir: test_dir,
+       origin: Restdis.Cache.Origin.Stub,
+       repo: Restdis.TestRepo,
+       prefix: "restdis"
+     ) do
+  {:ok, _pid} -> :ok
+  {:error, {:already_started, _pid}} -> :ok
+end
 
 if run_db_tests? do
   {:ok, _} = Application.ensure_all_started(:ecto_sql)
