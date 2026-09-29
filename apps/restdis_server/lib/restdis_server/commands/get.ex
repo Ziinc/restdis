@@ -48,7 +48,7 @@ defmodule RestdisServer.Commands.Get do
   def run(state, _), do: {Encoder.error("ERR wrong number of arguments for 'get' command"), state}
 
   defp fallback_get(state, key) do
-    case Fallback.fetch(state.tenant_id, key) do
+    case Fallback.fetch(state.tenant_id, key, state[:pgrst_credential]) do
       {:ok, body} -> {Encoder.bulk_string(Jason.encode!(body)), state}
       {:error, reason} -> {Encoder.error("ERR origin unavailable: #{inspect(reason)}"), state}
     end

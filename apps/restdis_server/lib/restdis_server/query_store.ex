@@ -1,12 +1,14 @@
 defmodule RestdisServer.QueryStore do
   @moduledoc """
-  Per-tenant store of the raw query string a cache key was parsed from.
+  Per-tenant store of the raw query string a cache key was parsed from and
+  the upstream PostgREST credential of the request that created it.
 
   `Restdis.Cache.Key` only carries a hash of the decoded params (so cache
   entries stay small and cheap to compare), which means the key itself
   cannot be used to reconstruct the original query string. This store keeps
-  the raw query string keyed by `{tenant_id, wire_key}` so the fetcher can
-  forward it to PostgREST on cache-miss, rewarm, and fallback fetches.
+  the raw query string and credential keyed by `{tenant_id, wire_key}` so the
+  fetcher can forward them to PostgREST on cache-miss, rewarm, and fallback
+  fetches.
   """
 
   use GenServer
@@ -27,17 +29,28 @@ defmodule RestdisServer.QueryStore do
   @spec get(String.t(), String.t()) :: String.t()
   def get(tenant_id, wire_key) do
     case :ets.lookup(@table, {tenant_id, wire_key}) do
-      [{_, query_string}] -> query_string
+      [{_, query_string, _credential}] -> query_string
       [] -> ""
     end
   end
 
   @doc """
-  Stores the raw query string of `wire_key`.
+  Returns the upstream credential recorded for `wire_key`, or `nil` when unset.
   """
-  @spec put(String.t(), String.t(), String.t()) :: :ok
-  def put(tenant_id, wire_key, query_string) do
-    :ets.insert(@table, {{tenant_id, wire_key}, query_string || ""})
+  @spec credential(String.t(), String.t()) :: String.t() | nil
+  def credential(tenant_id, wire_key) do
+    case :ets.lookup(@table, {tenant_id, wire_key}) do
+      [{_, _query_string, credential}] -> credential
+      [] -> nil
+    end
+  end
+
+  @doc """
+  Stores the raw query string and upstream credential of `wire_key`.
+  """
+  @spec put(String.t(), String.t(), String.t(), String.t() | nil) :: :ok
+  def put(tenant_id, wire_key, query_string, credential \\ nil) do
+    :ets.insert(@table, {{tenant_id, wire_key}, query_string || "", credential})
     :ok
   end
 
@@ -55,7 +68,7 @@ defmodule RestdisServer.QueryStore do
   """
   @spec delete_tenant(String.t()) :: :ok
   def delete_tenant(tenant_id) do
-    :ets.match_delete(@table, {{tenant_id, :_}, :_})
+    :ets.match_delete(@table, {{tenant_id, :_}, :_, :_})
     :ok
   end
 

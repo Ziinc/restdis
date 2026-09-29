@@ -2,6 +2,7 @@ defmodule RestdisServer.Rewarm.SchedulerTest do
   use ExUnit.Case
 
   alias Restdis.Cache.Key
+  alias RestdisServer.PGRST.QueryParser
   alias RestdisServer.PolicyStore
   alias RestdisServer.QueryStore
   alias RestdisServer.Rewarm
@@ -189,6 +190,29 @@ defmodule RestdisServer.Rewarm.SchedulerTest do
 
     assert_receive {:outbound_query, query_string}, 1500
     assert query_string == "id=eq.1"
+  end
+
+  test "(g2) rewarm refetch sends the credential of the request that created the key" do
+    Application.delete_env(:restdis_server, :postgrest_fetcher)
+
+    {:ok, key, _} = QueryParser.parse(@tenant_id, "/scoped_items?id=eq.1", "creator-cred")
+    wire_key = Key.encode(key)
+    Restdis.Cache.put(@tenant_id, key, [%{"id" => 1}], ttl_ms: 60_000)
+
+    test_pid = self()
+
+    Req.Test.stub(RestdisServer.Finch, fn conn ->
+      send(test_pid, {:outbound_auth, Plug.Conn.get_req_header(conn, "authorization")})
+      Req.Test.json(conn, [%{"id" => 1}])
+    end)
+
+    PolicyStore.put(@tenant_id, wire_key, %{rewarm_s: 1, persist: false})
+    Rewarm.touch(@tenant_id, wire_key, key)
+
+    scheduler_pid = ensure_scheduler()
+    Req.Test.allow(RestdisServer.Finch, test_pid, scheduler_pid)
+
+    assert_receive {:outbound_auth, ["Bearer creator-cred"]}, 1500
   end
 
   test "(h) a fetch failure emits a rewarm error telemetry event" do

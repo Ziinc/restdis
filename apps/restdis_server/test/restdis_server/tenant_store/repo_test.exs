@@ -56,6 +56,26 @@ defmodule RestdisServer.TenantStore.RepoTest do
       assert config.shapes == %{}
     end
 
+    test "exposes the tenant pgrst_api_key as the credential of a key without its own" do
+      tenant_id = tenant_id()
+      insert_tenant!(tenant_id)
+      insert_api_key!("key-#{tenant_id}", tenant_id)
+
+      assert {:ok, config} = TenantStoreRepo.fetch_by_api_key("key-#{tenant_id}")
+      assert config.pgrst_credential == "secret"
+      assert config.pgrst_api_key == "secret"
+    end
+
+    test "exposes the key's own pgrst_api_key as its credential" do
+      tenant_id = tenant_id()
+      insert_tenant!(tenant_id)
+      insert_api_key!("key-#{tenant_id}", tenant_id, %{pgrst_api_key: "key-jwt"})
+
+      assert {:ok, config} = TenantStoreRepo.fetch_by_api_key("key-#{tenant_id}")
+      assert config.pgrst_credential == "key-jwt"
+      assert config.pgrst_api_key == "secret"
+    end
+
     test "does not return a revoked key" do
       tenant_id = tenant_id()
       insert_tenant!(tenant_id)

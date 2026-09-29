@@ -7,13 +7,20 @@ defmodule RestdisServer.Commands.Auth do
   alias RestdisServer.TenantConfig
 
   @doc """
-  Authenticates the connection with an API key and binds it to a tenant.
+  Authenticates the connection with an API key and binds it to a tenant and
+  to the key's upstream PostgREST credential.
   """
   @spec run(map(), [binary()]) :: {iodata(), map()}
   def run(state, [api_key]) do
     case TenantConfig.lookup_by_api_key(api_key) do
       {:ok, config} ->
-        new_state = %{state | authenticated?: true, tenant_id: config.tenant_id}
+        new_state =
+          Map.merge(state, %{
+            authenticated?: true,
+            tenant_id: config.tenant_id,
+            pgrst_credential: TenantConfig.pgrst_credential(config)
+          })
+
         {Encoder.simple_string("OK"), new_state}
 
       {:error, :not_found} ->

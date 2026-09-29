@@ -1,6 +1,11 @@
 defmodule RestdisServer.PostgREST.Fetcher.Req do
   @moduledoc """
   Fetcher implementation issuing HTTP requests to PostgREST with Req.
+
+  The upstream credential is the one recorded for the key in
+  `RestdisServer.QueryStore`, else the request's `:pgrst_credential`, else the
+  tenant's `pgrst_api_key`. It is sent as both `apikey` and
+  `Authorization: Bearer`, so PostgREST derives the role from it.
   """
 
   @behaviour RestdisServer.PostgREST.Fetcher
@@ -10,11 +15,17 @@ defmodule RestdisServer.PostgREST.Fetcher.Req do
   alias Restdis.Cache.Key
   alias RestdisServer.PostgREST.Fetcher
   alias RestdisServer.QueryStore
+  alias RestdisServer.TenantConfig
 
   @impl RestdisServer.PostgREST.Fetcher
   def fetch(tenant_id, key, config) do
     base_url = config[:replica_url] || config.pgrst_base_url
-    query_string = QueryStore.get(tenant_id, Key.encode(key))
+    wire_key = Key.encode(key)
+    query_string = QueryStore.get(tenant_id, wire_key)
+
+    credential =
+      QueryStore.credential(tenant_id, wire_key) || TenantConfig.pgrst_credential(config)
+
     path = Fetcher.path_for(key, query_string)
 
     OpenTelemetry.Tracer.with_span "postgrest.fetch", %{
@@ -32,7 +43,10 @@ defmodule RestdisServer.PostgREST.Fetcher.Req do
         Req.new(
           [
             base_url: base_url,
-            headers: [{"apikey", config.pgrst_api_key} | trace_headers],
+            headers: [
+              {"apikey", credential},
+              {"authorization", "Bearer " <> credential} | trace_headers
+            ],
             retry: false
           ] ++ extra
         )

@@ -4,6 +4,7 @@ defmodule RestdisServer.Commands.PgrstQueryTest do
   alias Restdis.Cache
   alias Restdis.Cache.Key
   alias RestdisServer.Commands.Dispatcher
+  alias RestdisServer.PGRST.QueryParser
   alias RestdisServer.PolicyStore
   alias RestdisServer.Rewarm
   alias RestdisServer.TenantStore.InMemory
@@ -54,6 +55,26 @@ defmodule RestdisServer.Commands.PgrstQueryTest do
 
     {_reply2, _} = Dispatcher.dispatch(state, ["PGRST.QUERY", "/users?id=eq.1"])
     assert :counters.get(call_count, 1) == 1
+  end
+
+  test "PGRST.QUERY under two credentials caches separately and sends each credential", %{
+    state: state
+  } do
+    Req.Test.stub(RestdisServer.Finch, fn conn ->
+      Req.Test.json(conn, [%{"apikey" => Plug.Conn.get_req_header(conn, "apikey")}])
+    end)
+
+    state_a = Map.put(state, :pgrst_credential, "cred-a")
+    state_b = Map.put(state, :pgrst_credential, "cred-b")
+
+    wire_a = state_a |> Dispatcher.dispatch(["PGRST.QUERY", "/secrets?id=eq.1"]) |> elem(0)
+    wire_b = state_b |> Dispatcher.dispatch(["PGRST.QUERY", "/secrets?id=eq.1"]) |> elem(0)
+    {:ok, key_a} = wire_a |> decode_wire_key() |> Key.decode()
+    {:ok, key_b} = wire_b |> decode_wire_key() |> Key.decode()
+
+    assert key_a != key_b
+    assert {:ok, [%{"apikey" => ["cred-a"]}]} = Cache.get(@tenant_id, key_a)
+    assert {:ok, [%{"apikey" => ["cred-b"]}]} = Cache.get(@tenant_id, key_b)
   end
 
   test "PGRST.QUERY without REWARM leaves rewarm policy unset", %{state: state} do
@@ -257,8 +278,8 @@ defmodule RestdisServer.Commands.PgrstQueryTest do
       Req.Test.json(conn, [%{"ok" => true}])
     end)
 
-    key1 = Key.build(:table, "widgets", %{"id" => "eq.1"})
-    key2 = Key.build(:table, "widgets", %{"id" => "eq.2"})
+    {:ok, key1, _} = QueryParser.parse(tenant_id, "/widgets?id=eq.1", "svc_key")
+    {:ok, key2, _} = QueryParser.parse(tenant_id, "/widgets?id=eq.2", "svc_key")
 
     # Declaring PERSIST records the policy before the first fetch, since a missing cache entry is a no-op.
     Dispatcher.dispatch(state, ["PGRST.POLICY", Key.encode(key1), "PERSIST"])

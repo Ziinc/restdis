@@ -21,7 +21,7 @@ Restdis is an Elixir umbrella application. Child apps:
 
 Reads resolve through three layers in order:
 
-1. **ETS (hot).** One table per tenant. Key: `(tenant, {table_or_rpc_or_view, params_hash})`, where `params_hash` is the first 128 bits of the SHA-256 of the canonical request: the path segments after the table/function name plus every query `{name, value}` pair (duplicates kept), sorted.
+1. **ETS (hot).** One table per tenant. Key: `(tenant, {table_or_rpc_or_view, params_hash})`, where `params_hash` is the first 128 bits of the SHA-256 of the canonical request: the path segments after the table/function name plus every query `{name, value}` pair (duplicates kept) and a SHA-256 fingerprint of the request's upstream credential (see Tenant configuration), sorted. The same path under two credentials is two cache keys; `table_or_rpc_or_view` is unchanged, so WAL-driven invalidation of a row hits the entries of every credential.
 2. **CubDB (disk).** One instance per tenant, on local NVMe. Survives restarts.
 3. **PostgREST (origin).** Populates both layers above. Routes to the tenant's configured read replica when one is set; no automatic failover or lag detection — if the replica is unreachable, the request fails.
 
@@ -74,6 +74,8 @@ A `persist` entry lives only on the node that currently owns its tenant on the r
 ## Tenant configuration
 
 Tenant config lives in Postgres (`tenants`, `tenant_table_config`, `api_keys`) and includes: default TTL, `max_ttl_s`, `persist_cap`, read replica URL, per-table invalidation mode, and (for `restdis_electric`) `auth_mode` and shape definitions. Authentication resolves a Supabase API key to a tenant via this config, both for RESP `AUTH` and the HTTP endpoint's auth plug.
+
+Each API key maps to one upstream PostgREST credential: its own `api_keys.pgrst_api_key` when set, else the tenant's `pgrst_api_key`. Every origin fetch (cache miss, rewarm, cluster fallback) sends that credential as both `apikey` and `Authorization: Bearer`, so Postgres RLS applies per credential's role, not per end user. The credential is part of the cache key, and a key's rewarm and fallback fetches reuse the credential of the request that created it, so responses are never shared across credentials.
 
 ## Out of scope
 

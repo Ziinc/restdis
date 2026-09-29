@@ -16,4 +16,11 @@ defmodule RestdisServer.TenantConfig do
 
   @spec refresh() :: :ok
   defdelegate refresh(), to: Cache
+
+  @doc """
+  Returns the effective upstream PostgREST credential of an API key's config:
+  its `:pgrst_credential`, else the tenant's `pgrst_api_key`.
+  """
+  @spec pgrst_credential(map()) :: String.t()
+  def pgrst_credential(config), do: config[:pgrst_credential] || config.pgrst_api_key
 end
