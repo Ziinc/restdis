@@ -1,7 +1,9 @@
 ExUnit.start()
 
 test_dir = System.tmp_dir!() <> "/restdis_electric_test"
-File.rm_rf!(test_dir)
+
+# Only wipe on a standalone run: in the umbrella VM other apps' live CubDBs sit under this tmp dir.
+if is_nil(Process.whereis(Restdis.Cache)), do: File.rm_rf!(test_dir)
 
 case Restdis.Cache.Supervisor.start_link(
        data_dir: test_dir,

@@ -9,7 +9,13 @@ defmodule RestdisServer.TenantStore.RepoTest do
 
   setup do
     owner = Sandbox.start_owner!(RestdisRepo, shared: true)
-    on_exit(fn -> Sandbox.stop_owner(owner) end)
+
+    # Stopping the owner leaves :manual mode; restore :auto for other apps' processes in the umbrella VM.
+    on_exit(fn ->
+      Sandbox.stop_owner(owner)
+      Sandbox.mode(RestdisRepo, :auto)
+    end)
+
     :ok
   end
 
