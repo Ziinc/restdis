@@ -296,9 +296,9 @@ defmodule RestdisServer.Commands.PgrstQueryTest do
     {:ok, key1, _} = QueryParser.parse(tenant_id, "/widgets?id=eq.1", "svc_key")
     {:ok, key2, _} = QueryParser.parse(tenant_id, "/widgets?id=eq.2", "svc_key")
 
-    # Declaring PERSIST records the policy before the first fetch, since a missing cache entry is a no-op.
-    Dispatcher.dispatch(state, ["PGRST.POLICY", Key.encode(key1), "PERSIST"])
-    Dispatcher.dispatch(state, ["PGRST.POLICY", Key.encode(key2), "PERSIST"])
+    # Seeds the PERSIST policy directly, since `PGRST.POLICY` refuses keys that are not cached yet.
+    PolicyStore.put(tenant_id, Key.encode(key1), %{rewarm_s: nil, persist: true})
+    PolicyStore.put(tenant_id, Key.encode(key2), %{rewarm_s: nil, persist: true})
 
     {reply1, _} = Dispatcher.dispatch(state, ["PGRST.QUERY", "/widgets?id=eq.1"])
     assert IO.iodata_to_binary(reply1) =~ "pgrst:t:widgets:"
