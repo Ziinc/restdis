@@ -101,13 +101,7 @@ defmodule Restdis.Cache.DiskCache do
       store ->
         store
         |> FeoxDB.Term.stream()
-        |> Enum.flat_map(fn
-          {key, {:v1, meta}} ->
-            if expired?(meta.expires_at), do: [], else: [{key, reverse_index_of(key, meta)}]
-
-          _ ->
-            []
-        end)
+        |> Enum.flat_map(&reverse_index_entry/1)
     end
   end
 
@@ -482,6 +476,12 @@ defmodule Restdis.Cache.DiskCache do
 
   defp reverse_index_of(_key, %{reverse_index: reverse_index}), do: reverse_index
   defp reverse_index_of(key, %{value: value}), do: ReverseIndexMeta.derive(key, value)
+
+  defp reverse_index_entry({key, {:v1, meta}}) do
+    if expired?(meta.expires_at), do: [], else: [{key, reverse_index_of(key, meta)}]
+  end
+
+  defp reverse_index_entry(_), do: []
 
   defp index_entry({bytes, persist_count, evict_idx, persist_keys}, key, entry) do
     bytes = bytes + entry_size_of(key, entry)
