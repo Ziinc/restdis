@@ -21,12 +21,17 @@ defmodule RestdisBuster.TenantTableConfig.Cache do
 
   @doc """
   Returns the cached configuration, reading through to the database on a miss.
+
+  A `:not_found` result is cached too, with the same TTL and invalidation as a hit.
   """
   @spec lookup(String.t(), String.t()) :: {:ok, map()} | :not_found
   def lookup(schema, table_name) do
-    ReadThrough.fetch(@cache_name, ident(schema, table_name), fn ->
-      fetch_from_db(schema, table_name)
-    end)
+    loader = fn -> {:ok, fetch_from_db(schema, table_name)} end
+
+    case ReadThrough.fetch(@cache_name, ident(schema, table_name), loader) do
+      {:ok, :not_found} -> :not_found
+      {:ok, config} -> {:ok, config}
+    end
   end
 
   @doc """
@@ -52,15 +57,13 @@ defmodule RestdisBuster.TenantTableConfig.Cache do
         :not_found
 
       ttc ->
-        config = %{
+        %{
           tenant_id: ttc.tenant_id,
           schema: ttc.schema,
           table_name: ttc.table_name,
           mode: ttc.mode,
           pk_column: ttc.pk_column
         }
-
-        {:ok, config}
     end
   end
 end
