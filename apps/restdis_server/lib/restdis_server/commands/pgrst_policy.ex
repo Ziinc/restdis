@@ -5,6 +5,7 @@ defmodule RestdisServer.Commands.PgrstPolicy do
 
   alias Restdis.Cache.Key
   alias Restdis.Cache.QueryCache
+  alias Restdis.Cache.Router
   alias RestdisServer.Commands.Support
   alias RestdisServer.PolicyStore
   alias RestdisServer.RESP.Encoder
@@ -12,16 +13,18 @@ defmodule RestdisServer.Commands.PgrstPolicy do
 
   @doc """
   Applies TTL, rewarm and persist policy to a currently cached key; a key
-  that is not cached replies `ERR no such key` and changes nothing.
+  that is not cached replies `ERR no such key` and an unreachable owner node
+  replies `ERR owner node unreachable`, both changing nothing.
   """
   @spec run(map(), [binary()]) :: {iodata(), map()}
   def run(state, [wire_key | opts]) do
     with {:ok, key} <- Key.decode(wire_key),
-         {:ok, value} <- Restdis.Cache.peek(state.tenant_id, key) do
+         {:ok, value} <- Router.peek(state.tenant_id, key) do
       apply_policy(state, {wire_key, key, value}, parse_opts(opts))
     else
       :error -> {Encoder.error("ERR invalid cache key"), state}
       :miss -> {Encoder.error("ERR no such key"), state}
+      {:error, :unreachable} -> {Encoder.error("ERR owner node unreachable"), state}
     end
   end
 

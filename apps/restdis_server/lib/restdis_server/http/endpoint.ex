@@ -155,13 +155,19 @@ defmodule RestdisServer.HTTP.Endpoint do
     wire_key = params["key"]
 
     with {:ok, key} <- is_binary(wire_key) && Key.decode(wire_key),
-         {:ok, value} <- Restdis.Cache.peek(conn.assigns.tenant_id, key) do
+         {:ok, value} <- Router.peek(conn.assigns.tenant_id, key) do
       conn
       |> apply_policy({wire_key, key, value}, params)
       |> send_resp(200, Jason.encode!(%{ok: true}))
     else
-      :miss -> send_resp(conn, 404, Jason.encode!(%{error: "no such key"}))
-      _ -> send_resp(conn, 400, Jason.encode!(%{error: "invalid or missing 'key'"}))
+      :miss ->
+        send_resp(conn, 404, Jason.encode!(%{error: "no such key"}))
+
+      {:error, :unreachable} ->
+        send_resp(conn, 503, Jason.encode!(%{error: "owner node unreachable"}))
+
+      _ ->
+        send_resp(conn, 400, Jason.encode!(%{error: "invalid or missing 'key'"}))
     end
   end
 

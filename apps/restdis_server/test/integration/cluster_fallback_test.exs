@@ -4,6 +4,7 @@ defmodule RestdisServer.ClusterFallbackTest do
   alias Restdis.Cache.Cluster
   alias Restdis.Cache.Key
   alias RestdisServer.Commands.Dispatcher
+  alias RestdisServer.PolicyStore
   alias RestdisServer.TenantStore.InMemory
 
   @ghost :"ghost@127.0.0.1"
@@ -134,6 +135,36 @@ defmodule RestdisServer.ClusterFallbackTest do
 
     assert resp.status == 502
     assert %{"error" => _} = Jason.decode!(resp.body)
+  end
+
+  test "PGRST.POLICY replies owner node unreachable and writes nothing", %{
+    state: state,
+    tenant_id: tenant_id
+  } do
+    assert Cluster.owner(tenant_id) == @ghost
+    wire_key = Key.encode(Key.build(:table, "users", %{"id" => "eq.7"}))
+
+    {reply, _state} = Dispatcher.dispatch(state, ["PGRST.POLICY", wire_key, "REWARM", "30"])
+
+    assert IO.iodata_to_binary(reply) == "-ERR owner node unreachable\r\n"
+    assert PolicyStore.get(tenant_id, wire_key) == %{rewarm_s: nil, persist: false}
+  end
+
+  test "/pgrst/policy returns 503 when the owning node is unreachable", %{tenant_id: tenant_id} do
+    assert Cluster.owner(tenant_id) == @ghost
+    wire_key = Key.encode(Key.build(:table, "users", %{"id" => "eq.7"}))
+
+    {:ok, resp} =
+      Req.post(Req.new(plug: RestdisServer.HTTP.Endpoint),
+        url: "/pgrst/policy",
+        headers: [{"authorization", "Bearer sk_cluster"}],
+        json: %{"key" => wire_key, "rewarm" => 30},
+        retry: false
+      )
+
+    assert resp.status == 503
+    assert Jason.decode!(resp.body) == %{"error" => "owner node unreachable"}
+    assert PolicyStore.get(tenant_id, wire_key) == %{rewarm_s: nil, persist: false}
   end
 
   defp remote_tenant do
