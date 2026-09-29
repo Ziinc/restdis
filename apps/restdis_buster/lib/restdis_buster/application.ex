@@ -13,7 +13,6 @@ defmodule RestdisBuster.Application do
     :ok = :syn.add_node_to_scopes([:wal, :wal_fanout])
 
     children = [
-      cache_spec(),
       {DynamicSupervisor, name: RestdisBuster.TailerSupervisor, strategy: :one_for_one},
       table_config_cache_spec(),
       RestdisBuster.Worker.Supervisor,
@@ -24,14 +23,6 @@ defmodule RestdisBuster.Application do
     ]
 
     Supervisor.start_link(children, strategy: :one_for_one, name: RestdisBuster.Supervisor)
-  end
-
-  defp cache_spec do
-    {Restdis.Cache,
-     data_dir: Application.get_env(:restdis_buster, :cache_data_dir, "./cache_data"),
-     origin: Application.get_env(:restdis_buster, :cache_origin, Restdis.Cache.Origin.Stub),
-     repo: RestdisRepo,
-     prefix: "restdis"}
   end
 
   defp table_config_cache_spec do

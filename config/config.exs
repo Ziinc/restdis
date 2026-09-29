@@ -14,9 +14,7 @@ config :restdis_buster,
   ],
   tenant_table_config_cache: [data_dir: "./cache_data/control_plane", ttl_ms: 60_000],
   replication_dispatcher: RestdisReplicator.Dispatcher,
-  failover_reconciler: RestdisReplicator.Reconciler,
-  cache_data_dir: "./cache_data",
-  cache_origin: Restdis.Cache.Origin.Stub
+  failover_reconciler: RestdisReplicator.Reconciler
 
 config :restdis,
   tenant_config_lookup: {RestdisServer.TenantConfig, :lookup_by_tenant_id, []}
@@ -33,9 +31,7 @@ config :restdis_server,
   tenant_store: RestdisServer.TenantStore.Repo,
   tenant_config_cache: [data_dir: "./cache_data/control_plane", ttl_ms: 60_000],
   postgrest_fetcher: RestdisServer.PostgREST.Fetcher.Req,
-  rewarm_tick_ms: 500,
-  cache_data_dir: "./cache_data",
-  cache_origin: Restdis.Cache.Origin.Stub
+  rewarm_tick_ms: 500
 
 config :restdis_replicator,
   origin: RestdisReplicator.Origin.Stub,

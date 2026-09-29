@@ -38,6 +38,7 @@ defmodule RestdisBuster.MixProject do
     [
       {:restdis, in_umbrella: true},
       {:restdis_electric, in_umbrella: true},
+      {:restdis_replicator, in_umbrella: true},
       {:restdis_repo, in_umbrella: true},
       {:syn, "~> 3.3"},
       {:postgrex, "~> 0.17"},
