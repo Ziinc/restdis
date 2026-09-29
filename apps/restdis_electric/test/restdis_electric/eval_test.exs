@@ -381,7 +381,7 @@ defmodule RestdisElectric.EvalTest do
       refute matches?("active = 'maybe'")
     end
 
-    test "integer division and modulo by zero are NULL" do
+    test "integer division and modulo by zero never match" do
       refute matches?("id / 0 = 1")
       refute matches?("id % 0 = 1")
     end
@@ -397,6 +397,45 @@ defmodule RestdisElectric.EvalTest do
 
       resolver = fn _table, _column, _value -> :null end
       refute Eval.matches?(compiled, @row, resolver)
+    end
+  end
+
+  describe "evaluation errors" do
+    @big_row %{"id" => 7, "big" => 100_000_000_000, "negative" => -1, "price" => 4.5}
+
+    defp compiled(where) do
+      {:ok, compiled} = Eval.compile(where, %{})
+      compiled
+    end
+
+    test "a shift count outside 0..63 is an evaluation error, not an exception" do
+      for where <- ["(id << big) > 0", "(id >> big) > 0", "(id << negative) > 0"] do
+        refute Eval.matches?(compiled(where), @big_row)
+        assert {:error, {:eval_error, _message}} = Eval.evaluate(compiled(where), @big_row)
+      end
+    end
+
+    test "float overflow is an evaluation error, not an exception" do
+      where = "price * 1e300 * 1e300 > 0"
+      refute Eval.matches?(compiled(where), @big_row)
+      assert {:error, {:eval_error, _message}} = Eval.evaluate(compiled(where), @big_row)
+    end
+
+    test "division and modulo by zero are evaluation errors" do
+      for where <- ["id / 0 = 1", "id % 0 = 1", "price / 0 = 1"] do
+        assert {:error, {:eval_error, _message}} = Eval.evaluate(compiled(where), @big_row)
+      end
+    end
+
+    test "an evaluation error is not hidden by IS NULL" do
+      refute Eval.matches?(compiled("(id / 0) IS NULL"), @big_row)
+    end
+
+    test "a constant shift count outside 0..63 is rejected at compile time" do
+      assert {:error, {:invalid_where, message}} = Eval.compile("(id << 100000000000) > 0", %{})
+      assert message =~ "shift"
+      assert {:error, {:invalid_where, _message}} = Eval.compile("(id >> 64) > 0", %{})
+      assert {:ok, _compiled} = Eval.compile("(id << 63) > 0", %{})
     end
   end
 
