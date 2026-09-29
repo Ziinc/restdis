@@ -32,6 +32,11 @@ defmodule Restdis.Cache.HotCache.Receiver do
     {:noreply, state}
   end
 
+  def handle_cast({:sc_hot_cache_delete_tenant, tenant_id}, state) do
+    HotCache.apply_gossip_delete_tenant(tenant_id)
+    {:noreply, state}
+  end
+
   def handle_cast(_message, state), do: {:noreply, state}
 
   @impl GenServer

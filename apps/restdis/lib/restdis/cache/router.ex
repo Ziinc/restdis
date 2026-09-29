@@ -28,8 +28,8 @@ defmodule Restdis.Cache.Router do
   Checked against the cluster-wide `Restdis.Cache.HotCache` layer first: a
   hit there is served with no cross-node hop at all, whichever node owns
   the tenant. A miss falls through to the owner-routed cache as before, and
-  a hit obtained that way is recorded so the key can turn hot and get
-  gossiped to every peer.
+  a hit obtained that way is recorded, bounded by the entry's remaining TTL,
+  so the key can turn hot and get gossiped to every peer.
   """
   @spec get(Restdis.Cache.tenant_id(), Key.t(), atom()) :: {:ok, term()} | :miss | unreachable()
   def get(tenant_id, key, name \\ Restdis.Cache) do
@@ -38,10 +38,10 @@ defmodule Restdis.Cache.Router do
         {:ok, value}
 
       :miss ->
-        case route(tenant_id, name, :get, [tenant_id, key, name]) do
-          {:ok, value} = result ->
-            HotCache.observe(tenant_id, key, value)
-            result
+        case route(tenant_id, name, :get_with_ttl, [tenant_id, key, name]) do
+          {:ok, value, ttl_ms} ->
+            HotCache.observe(tenant_id, key, value, ttl_ms)
+            {:ok, value}
 
           other ->
             other
