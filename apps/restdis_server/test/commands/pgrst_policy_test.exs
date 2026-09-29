@@ -98,6 +98,18 @@ defmodule RestdisServer.Commands.PgrstPolicyTest do
     end
   end
 
+  # Checks the key, not the tenant: `Registry` unregisters an earlier test's stopped scheduler async.
+  defp rewarm_scheduled?(tenant_id, wire_key) do
+    case fetch_scheduler_pid(tenant_id) do
+      {:ok, pid} -> :ets.member(:sys.get_state(pid).table, wire_key)
+      :error -> false
+    end
+  catch
+    # The stale scheduler exited (`:sys.get_state/1`) or its table is already gone (`:ets.member/2`).
+    :exit, _ -> false
+    :error, :badarg -> false
+  end
+
   test "PGRST.POLICY with no arguments replies with an error", %{state: state} do
     {reply, _} = Dispatcher.dispatch(state, ["PGRST.POLICY"])
     assert IO.iodata_to_binary(reply) =~ "wrong number of arguments"
@@ -111,7 +123,6 @@ defmodule RestdisServer.Commands.PgrstPolicyTest do
   test "PGRST.POLICY on a key that is not cached replies no such key and writes nothing", %{
     state: state
   } do
-    Rewarm.stop_tenant(@tenant_id)
     key = Key.build(:table, "uncached_table", %{"id" => "eq.99"})
     wire_key = Key.encode(key)
 
@@ -128,7 +139,7 @@ defmodule RestdisServer.Commands.PgrstPolicyTest do
 
     assert IO.iodata_to_binary(reply) == "-ERR no such key\r\n"
     assert PolicyStore.get(@tenant_id, wire_key) == %{rewarm_s: nil, persist: false}
-    assert fetch_scheduler_pid(@tenant_id) == :error
+    refute rewarm_scheduled?(@tenant_id, wire_key)
     assert Restdis.Cache.peek(@tenant_id, key) == :miss
   end
 
