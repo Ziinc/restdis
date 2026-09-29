@@ -8,8 +8,13 @@ defmodule Restdis.Cache.HotCache do
   here is stored locally on the very first access and pushed to every peer
   once it turns "hot", so a hit for it never needs a cross-node call at all.
 
-  Every entry is stored locally the first time it is observed, with a fixed
-  five minute TTL. Once its local access count (tracked per node) reaches 5
+  Every entry is stored locally the first time it is observed, with a TTL of
+  the underlying entry's remaining TTL capped at five minutes, so a hot entry
+  never outlives the entry it was read from. Every invalidation path of
+  `Restdis.Cache` clears it through `delete/3` (or `delete_tenant/2` for a
+  whole tenant). The layer holds at most 100_000 entries (overridable via
+  the `:hot_cache_max_entries` app env) and evicts arbitrary older entries
+  beyond that. Once its local access count (tracked per node) reaches 5
   within one sweep window, the node gossips the value to every peer.
   A peer applies the gossiped entry to its own copy of this same layer but
   never re-broadcasts it, which bounds propagation of any one entry to a
@@ -27,10 +32,12 @@ defmodule Restdis.Cache.HotCache do
   @propagate_at 5
   @ttl_ms 5 * 60 * 1_000
   @sweep_interval_ms 10_000
+  @max_entries 100_000
 
   @type gossip_message ::
           {:sc_hot_cache_put, Restdis.Cache.tenant_id(), Key.t(), term(), pos_integer()}
           | {:sc_hot_cache_delete, Restdis.Cache.tenant_id(), Key.t()}
+          | {:sc_hot_cache_delete_tenant, Restdis.Cache.tenant_id()}
 
   @doc false
   @spec child_spec(keyword()) :: Supervisor.child_spec()
@@ -73,21 +80,23 @@ defmodule Restdis.Cache.HotCache do
   Records a hit for `key` obtained elsewhere (the owner-routed cache or the
   origin).
 
-  Stores it in the hot layer immediately, on this first access, with the
-  fixed five minute TTL. Once the local access count for it reaches the
-  propagation threshold, gossips it to every peer so their copy of the hot
-  layer picks it up too.
+  Stores it in the hot layer immediately, on this first access, for
+  `remaining_ttl_ms` (the underlying entry's remaining TTL) capped at five
+  minutes. Once the local access count for it reaches the propagation
+  threshold, gossips it to every peer so their copy of the hot layer picks it
+  up too.
   """
-  @spec observe(Restdis.Cache.tenant_id(), Key.t(), term()) :: :ok
-  def observe(tenant_id, key, value) do
-    put_local(tenant_id, key, value, @ttl_ms)
+  @spec observe(Restdis.Cache.tenant_id(), Key.t(), term(), non_neg_integer() | :infinity) :: :ok
+  def observe(tenant_id, key, value, remaining_ttl_ms) do
+    ttl_ms = cap_ttl(remaining_ttl_ms)
+    put_local(tenant_id, key, value, ttl_ms)
 
     composite = {tenant_id, key}
     count = :ets.update_counter(@counters, composite, {2, 1}, {composite, 0})
 
     if count == @propagate_at do
       :telemetry.execute([:restdis, :hot_cache, :promoted], %{count: 1}, %{tenant_id: tenant_id})
-      :ok = transport().broadcast({:sc_hot_cache_put, tenant_id, key, value, @ttl_ms})
+      :ok = transport().broadcast({:sc_hot_cache_put, tenant_id, key, value, ttl_ms})
     end
 
     :ok
@@ -116,6 +125,36 @@ defmodule Restdis.Cache.HotCache do
   end
 
   @doc """
+  Removes `key` from this node's hot layer only, without gossiping. For
+  local TTL expiry and eviction: peer hot copies are already bounded by the
+  entry's remaining TTL, and eviction is not invalidation.
+  """
+  @spec delete_local(Restdis.Cache.tenant_id(), Key.t()) :: :ok
+  def delete_local(tenant_id, key), do: delete(tenant_id, key, gossiped: true)
+
+  @doc """
+  Removes every entry of `tenant_id` from the hot layer and, unless
+  `opts[:gossiped]` is set, gossips the delete to every peer.
+  """
+  @spec delete_tenant(Restdis.Cache.tenant_id(), keyword()) :: :ok
+  def delete_tenant(tenant_id, opts \\ []) do
+    :ets.match_delete(@store, {{tenant_id, :_}, :_, :_})
+    :ets.match_delete(@counters, {{tenant_id, :_}, :_})
+
+    unless opts[:gossiped] do
+      :ok = transport().broadcast({:sc_hot_cache_delete_tenant, tenant_id})
+    end
+
+    :ok
+  end
+
+  @doc """
+  Returns the number of entries held in this node's hot layer.
+  """
+  @spec size() :: non_neg_integer()
+  def size, do: :ets.info(@store, :size)
+
+  @doc """
   Applies a peer's gossiped promotion locally without re-broadcasting it.
   """
   @spec apply_gossip_put(Restdis.Cache.tenant_id(), Key.t(), term(), pos_integer()) :: :ok
@@ -135,6 +174,12 @@ defmodule Restdis.Cache.HotCache do
   @spec apply_gossip_delete(Restdis.Cache.tenant_id(), Key.t()) :: :ok
   def apply_gossip_delete(tenant_id, key), do: delete(tenant_id, key, gossiped: true)
 
+  @doc """
+  Applies a peer's gossiped tenant delete locally without re-broadcasting it.
+  """
+  @spec apply_gossip_delete_tenant(Restdis.Cache.tenant_id()) :: :ok
+  def apply_gossip_delete_tenant(tenant_id), do: delete_tenant(tenant_id, gossiped: true)
+
   @doc false
   @spec flush() :: :ok
   def flush do
@@ -143,10 +188,35 @@ defmodule Restdis.Cache.HotCache do
     :ok
   end
 
+  defp cap_ttl(:infinity), do: @ttl_ms
+  defp cap_ttl(remaining_ttl_ms), do: min(remaining_ttl_ms, @ttl_ms)
+
   defp put_local(tenant_id, key, value, ttl_ms) do
     expires_at = System.monotonic_time(:millisecond) + ttl_ms
     :ets.insert(@store, {{tenant_id, key}, value, expires_at})
+    max_entries = Application.get_env(:restdis, :hot_cache_max_entries, @max_entries)
+    evict_over_cap({tenant_id, key}, max_entries)
   end
+
+  defp evict_over_cap(inserted, max_entries) do
+    if :ets.info(@store, :size) > max_entries do
+      case eviction_victim(:ets.first(@store), inserted) do
+        :"$end_of_table" ->
+          :ok
+
+        victim ->
+          :ets.delete(@store, victim)
+          :ets.delete(@counters, victim)
+          evict_over_cap(inserted, max_entries)
+      end
+    else
+      :ok
+    end
+  end
+
+  # Never evicts the entry that was just inserted.
+  defp eviction_victim(inserted, inserted), do: :ets.next(@store, inserted)
+  defp eviction_victim(candidate, _inserted), do: candidate
 
   defp transport do
     Application.get_env(

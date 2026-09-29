@@ -5,6 +5,7 @@ defmodule Restdis.Cache.DiskCache do
 
   use GenServer
 
+  alias Restdis.Cache.HotCache
   alias Restdis.Cache.InstanceConfig
   alias Restdis.Cache.Key
   alias Restdis.Cache.TenantRegistry
@@ -335,10 +336,11 @@ defmodule Restdis.Cache.DiskCache do
   defp expired?(:infinity), do: false
   defp expired?(expires_at), do: expires_at <= System.system_time(:millisecond)
 
-  defp expire_entry(key, %{cubdb: cubdb} = state) do
+  defp expire_entry(key, %{cubdb: cubdb, tenant_id: tenant_id} = state) do
     old_size = entry_size(cubdb, key)
     state = remove_from_index(state, key)
     CubDB.delete(cubdb, key)
+    HotCache.delete_local(tenant_id, key)
     %{state | bytes: max(state.bytes - old_size, 0)}
   end
 
@@ -356,6 +358,7 @@ defmodule Restdis.Cache.DiskCache do
       {{_inserted_at, evict_key}, rest_idx} = :gb_sets.take_smallest(evict_idx)
       evict_size = entry_size(cubdb, evict_key)
       CubDB.delete(cubdb, evict_key)
+      HotCache.delete_local(tenant_id, evict_key)
 
       :telemetry.execute([:restdis, :cache, :cubdb_evict], %{count: 1}, %{
         tenant_id: tenant_id,
