@@ -9,6 +9,7 @@ defmodule RestdisRepo.ApiKeys do
   schema "api_keys" do
     field(:tenant_id, :string)
     field(:status, :string, default: "active")
+    field(:pgrst_api_key, :string)
 
     timestamps()
   end
@@ -19,7 +20,7 @@ defmodule RestdisRepo.ApiKeys do
   @spec changeset(%__MODULE__{}, map()) :: Ecto.Changeset.t()
   def changeset(api_key, attrs) do
     api_key
-    |> cast(attrs, [:api_key, :tenant_id, :status])
+    |> cast(attrs, [:api_key, :tenant_id, :status, :pgrst_api_key])
     |> validate_required([:api_key, :tenant_id])
     |> validate_inclusion(:status, ["active", "revoked"])
   end

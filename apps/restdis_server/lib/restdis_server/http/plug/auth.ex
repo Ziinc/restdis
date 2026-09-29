@@ -1,6 +1,7 @@
 defmodule RestdisServer.HTTP.Plug.Auth do
   @moduledoc """
-  Plug authenticating HTTP requests and assigning the tenant id.
+  Plug authenticating HTTP requests and assigning the tenant id, its config
+  and the API key's upstream PostgREST credential (`:pgrst_credential`).
   """
 
   @behaviour Plug
@@ -18,6 +19,7 @@ defmodule RestdisServer.HTTP.Plug.Auth do
          {:ok, config} <- TenantConfig.lookup_by_api_key(api_key) do
       assign(conn, :tenant_id, config.tenant_id)
       |> assign(:tenant_config, config)
+      |> assign(:pgrst_credential, TenantConfig.pgrst_credential(config))
     else
       _ ->
         conn

@@ -185,4 +185,46 @@ defmodule RestdisServer.PostgREST.FetcherTest do
       assert {:ok, _} = FetcherReq.fetch(@tenant_id, key, base_config())
     end
   end
+
+  describe "FetcherReq.fetch/3 upstream credential" do
+    alias RestdisServer.PGRST.QueryParser
+
+    defp echo_credential_stub do
+      Req.Test.stub(stub_name(), fn conn ->
+        Req.Test.json(conn, %{
+          "apikey" => Plug.Conn.get_req_header(conn, "apikey"),
+          "authorization" => Plug.Conn.get_req_header(conn, "authorization")
+        })
+      end)
+    end
+
+    test "two API keys with different credentials each send their own credential" do
+      echo_credential_stub()
+      {:ok, key_a, _} = QueryParser.parse(@tenant_id, "/widgets?id=eq.1", "cred-a")
+      {:ok, key_b, _} = QueryParser.parse(@tenant_id, "/widgets?id=eq.1", "cred-b")
+
+      assert {:ok, %{"apikey" => ["cred-a"], "authorization" => ["Bearer cred-a"]}} =
+               FetcherReq.fetch(@tenant_id, key_a, base_config())
+
+      assert {:ok, %{"apikey" => ["cred-b"], "authorization" => ["Bearer cred-b"]}} =
+               FetcherReq.fetch(@tenant_id, key_b, base_config())
+    end
+
+    test "an unrecorded key sends the request's pgrst_credential" do
+      echo_credential_stub()
+      key = %Key{scope: :table, ident: "unrecorded", params_hash: 0}
+      config = Map.put(base_config(), :pgrst_credential, "caller-cred")
+
+      assert {:ok, %{"apikey" => ["caller-cred"], "authorization" => ["Bearer caller-cred"]}} =
+               FetcherReq.fetch(@tenant_id, key, config)
+    end
+
+    test "an unrecorded key without a request credential sends the tenant pgrst_api_key" do
+      echo_credential_stub()
+      key = %Key{scope: :table, ident: "unrecorded", params_hash: 0}
+
+      assert {:ok, %{"apikey" => ["test_api_key"], "authorization" => ["Bearer test_api_key"]}} =
+               FetcherReq.fetch(@tenant_id, key, base_config())
+    end
+  end
 end

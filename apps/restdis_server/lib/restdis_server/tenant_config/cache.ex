@@ -30,13 +30,17 @@ defmodule RestdisServer.TenantConfig.Cache do
 
   @doc """
   Returns the tenant configuration for `api_key`, reading through on a miss.
+
+  The result also carries `:pgrst_credential`, the key's effective upstream
+  PostgREST credential; it is dropped from the tenant-wide entry.
   """
   @spec lookup_by_api_key(String.t()) :: {:ok, map()} | {:error, :not_found}
   def lookup_by_api_key(api_key) do
     ReadThrough.fetch(@cache_name, api_key_ident(api_key), fn ->
       case store_mod().fetch_by_api_key(api_key) do
         {:ok, config} ->
-          ReadThrough.put(@cache_name, tenant_ident(config.tenant_id), config)
+          tenant_config = Map.delete(config, :pgrst_credential)
+          ReadThrough.put(@cache_name, tenant_ident(config.tenant_id), tenant_config)
           index_api_key(config.tenant_id, api_key)
           {:ok, config}
 
