@@ -17,8 +17,20 @@ defmodule RestdisServer.HTTP.EndpointTest do
         pgrst_base_url: "http://localhost:3003",
         pgrst_api_key: "svc_key",
         replica_url: nil
+      },
+      %{
+        api_key: "sk_http_scoped",
+        key_pgrst_api_key: "scoped_jwt",
+        tenant_id: @tenant_id,
+        default_ttl_s: 60,
+        persist_cap: 50_000,
+        pgrst_base_url: "http://localhost:3003",
+        pgrst_api_key: "svc_key",
+        replica_url: nil
       }
     ])
+
+    RestdisServer.TenantConfig.invalidate(@tenant_id)
 
     Restdis.Cache.flush_tenant(@tenant_id)
     on_exit(fn -> InMemory.clear() end)
@@ -62,6 +74,25 @@ defmodule RestdisServer.HTTP.EndpointTest do
     assert resp.status == 200
     assert Req.Response.get_header(resp, "sc-cache") == ["MISS"]
     assert Req.Response.get_header(resp, "sc-cache-ttl") != []
+  end
+
+  test "two API keys with different credentials each read their own upstream response" do
+    Req.Test.stub(RestdisServer.Finch, fn conn ->
+      Req.Test.json(conn, [%{"apikey" => Plug.Conn.get_req_header(conn, "apikey")}])
+    end)
+
+    get = fn api_key ->
+      Req.get!(req(),
+        url: "/pgrst/query?path=/secrets",
+        headers: [{"authorization", "Bearer " <> api_key}],
+        retry: false
+      )
+    end
+
+    assert get.("sk_http").body == [%{"apikey" => ["svc_key"]}]
+    assert get.("sk_http_scoped").body == [%{"apikey" => ["scoped_jwt"]}]
+    assert Req.Response.get_header(get.("sk_http_scoped"), "sc-cache") == ["HIT"]
+    assert get.("sk_http_scoped").body == [%{"apikey" => ["scoped_jwt"]}]
   end
 
   test "second request returns SC-Cache: HIT" do

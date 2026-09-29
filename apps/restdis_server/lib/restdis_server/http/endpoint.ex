@@ -82,7 +82,7 @@ defmodule RestdisServer.HTTP.Endpoint do
       tenant_id = conn.assigns.tenant_id
       config = conn.assigns.tenant_config
 
-      case QueryParser.parse(tenant_id, path) do
+      case QueryParser.parse(tenant_id, path, conn.assigns.pgrst_credential) do
         {:ok, key, _params} ->
           wire_key = Key.encode(key)
 
@@ -136,7 +136,7 @@ defmodule RestdisServer.HTTP.Endpoint do
   end
 
   defp fallback_respond(conn, tenant_id, key) do
-    case Fallback.fetch(tenant_id, key) do
+    case Fallback.fetch(tenant_id, key, conn.assigns.pgrst_credential) do
       {:ok, body} ->
         conn
         |> CacheHeaders.put_cache_bypass()

@@ -2,6 +2,7 @@ defmodule RestdisServer.Commands.PingAuthTest do
   use ExUnit.Case, async: true
 
   alias RestdisServer.Commands.Dispatcher
+  alias RestdisServer.TenantConfig
   alias RestdisServer.TenantStore.InMemory
 
   setup do
@@ -14,9 +15,20 @@ defmodule RestdisServer.Commands.PingAuthTest do
         pgrst_base_url: "http://localhost:3000",
         pgrst_api_key: "service_key",
         replica_url: nil
+      },
+      %{
+        api_key: "sk_scoped",
+        key_pgrst_api_key: "scoped_jwt",
+        tenant_id: "tenant-1",
+        default_ttl_s: 60,
+        persist_cap: 50_000,
+        pgrst_base_url: "http://localhost:3000",
+        pgrst_api_key: "service_key",
+        replica_url: nil
       }
     ])
 
+    TenantConfig.invalidate("tenant-1")
     on_exit(fn -> InMemory.clear() end)
     :ok
   end
@@ -41,6 +53,12 @@ defmodule RestdisServer.Commands.PingAuthTest do
       assert IO.iodata_to_binary(reply) == "+OK\r\n"
       assert new_state.authenticated? == true
       assert new_state.tenant_id == "tenant-1"
+      assert new_state.pgrst_credential == "service_key"
+    end
+
+    test "binds the connection to the key's own upstream credential" do
+      {_reply, new_state} = Dispatcher.dispatch(unauthed_state(), ["AUTH", "sk_scoped"])
+      assert new_state.pgrst_credential == "scoped_jwt"
     end
 
     test "rejects invalid api key" do

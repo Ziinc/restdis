@@ -28,4 +28,12 @@ defmodule RestdisRepo.ApiKeysTest do
 
     assert changeset.valid?
   end
+
+  test "changeset casts an optional per-key pgrst_api_key" do
+    changeset =
+      ApiKeys.changeset(%ApiKeys{}, %{api_key: "key-1", tenant_id: "acme", pgrst_api_key: "jwt"})
+
+    assert changeset.valid?
+    assert Ecto.Changeset.get_field(changeset, :pgrst_api_key) == "jwt"
+  end
 end

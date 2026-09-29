@@ -31,7 +31,13 @@ defmodule RestdisServer.ClusterFallbackTest do
     end)
 
     {:ok,
-     tenant_id: tenant_id, state: %{authenticated?: true, tenant_id: tenant_id, buffer: <<>>}}
+     tenant_id: tenant_id,
+     state: %{
+       authenticated?: true,
+       tenant_id: tenant_id,
+       buffer: <<>>,
+       pgrst_credential: "svc_key"
+     }}
   end
 
   test "PGRST.QUERY falls through to PostgREST when the owning node is unreachable", %{
@@ -65,6 +71,39 @@ defmodule RestdisServer.ClusterFallbackTest do
 
     assert IO.iodata_to_binary(reply) =~ ~s("id":7)
     assert elapsed_us <= 1_500_000
+  end
+
+  test "a GET fallback sends the credential of the PGRST.QUERY that created the key", %{
+    state: state
+  } do
+    Req.Test.stub(RestdisServer.Finch, fn conn ->
+      Req.Test.json(conn, [%{"apikey" => Plug.Conn.get_req_header(conn, "apikey")}])
+    end)
+
+    {reply, _} =
+      state
+      |> Map.put(:pgrst_credential, "creator-cred")
+      |> Dispatcher.dispatch(["PGRST.QUERY", "/users?id=eq.8"])
+
+    wire_key = reply |> IO.iodata_to_binary() |> String.split("\r\n") |> Enum.at(1)
+    {get_reply, _} = Dispatcher.dispatch(state, ["GET", wire_key])
+
+    assert IO.iodata_to_binary(get_reply) =~ ~s("apikey":["creator-cred"])
+  end
+
+  test "a GET fallback of an unrecorded key sends the caller's credential", %{state: state} do
+    Req.Test.stub(RestdisServer.Finch, fn conn ->
+      Req.Test.json(conn, [%{"apikey" => Plug.Conn.get_req_header(conn, "apikey")}])
+    end)
+
+    wire_key = Key.encode(Key.build(:table, "users", %{"id" => "eq.unrecorded"}))
+
+    {reply, _} =
+      state
+      |> Map.put(:pgrst_credential, "caller-cred")
+      |> Dispatcher.dispatch(["GET", wire_key])
+
+    assert IO.iodata_to_binary(reply) =~ ~s("apikey":["caller-cred"])
   end
 
   test "the HTTP endpoint marks a fallback response as a cache bypass", %{tenant_id: tenant_id} do
