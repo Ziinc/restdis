@@ -114,4 +114,34 @@ defmodule Restdis.Cache.DiskCacheTest do
     assert {:ok, ^value} = DiskCache.get(Restdis.Cache, tenant_id, key1)
     assert {:ok, ^value} = DiskCache.get(Restdis.Cache, tenant_id, key2)
   end
+
+  test "reverse_index_entries returns the recorded rows and list flag of live entries only", %{
+    tenant_id: tenant_id
+  } do
+    row_key = Key.build(:table, "widgets", %{"id" => "eq.1"})
+    list_key = Key.build(:table, "widgets", %{})
+    expired_key = Key.build(:table, "widgets", %{"id" => "eq.2"})
+
+    DiskCache.put(tenant_id, row_key, %{"id" => 1},
+      name: Restdis.Cache,
+      reverse_index: %{rows: [{"widgets", 1}], list?: false}
+    )
+
+    DiskCache.put(tenant_id, list_key, [%{"id" => 1}],
+      name: Restdis.Cache,
+      reverse_index: %{rows: [{"widgets", 1}], list?: true}
+    )
+
+    DiskCache.put(tenant_id, expired_key, %{"id" => 2},
+      name: Restdis.Cache,
+      ttl_ms: -1,
+      reverse_index: %{rows: [{"widgets", 2}], list?: false}
+    )
+
+    assert Enum.sort(DiskCache.reverse_index_entries(Restdis.Cache, tenant_id)) ==
+             Enum.sort([
+               {row_key, %{rows: [{"widgets", 1}], list?: false}},
+               {list_key, %{rows: [{"widgets", 1}], list?: true}}
+             ])
+  end
 end

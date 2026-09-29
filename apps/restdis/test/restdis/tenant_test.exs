@@ -112,4 +112,81 @@ defmodule Restdis.Cache.TenantTest do
 
     Restdis.Cache.flush_tenant(tenant_id)
   end
+
+  test "invalidate_by_row and invalidate_lists reach entries written before a tenant restart" do
+    tenant_id = "ri_restart_#{System.unique_integer([:positive])}"
+    row_key = Key.build(:table, "widgets", %{"id" => "eq.11"})
+    list_key = Key.build(:table, "widgets", %{"select" => "*"})
+
+    :ok = Restdis.Cache.put(tenant_id, row_key, %{"id" => 11, "name" => "w11"}, ttl_ms: 60_000)
+    :ok = Restdis.Cache.put(tenant_id, list_key, [%{"id" => 12}], persist: true)
+
+    restart_tenant(tenant_id)
+
+    Restdis.Cache.invalidate_by_row(tenant_id, "widgets", 11)
+    Restdis.Cache.invalidate_lists(tenant_id, "widgets")
+
+    assert :miss = Restdis.Cache.peek(tenant_id, row_key)
+    assert :miss = Restdis.Cache.peek(tenant_id, list_key)
+
+    Restdis.Cache.flush_tenant(tenant_id)
+  end
+
+  test "invalidation still reaches cached entries after the reverse index process is killed" do
+    tenant_id = "ri_kill_#{System.unique_integer([:positive])}"
+    row_key = Key.build(:table, "widgets", %{"id" => "eq.11"})
+    list_key = Key.build(:table, "widgets", %{"select" => "*"})
+
+    :ok = Restdis.Cache.put(tenant_id, row_key, %{"id" => 11, "name" => "w11"})
+    :ok = Restdis.Cache.put(tenant_id, list_key, [%{"id" => 12}])
+
+    reverse_index_pid = TenantRegistry.whereis(Restdis.Cache, tenant_id, :reverse_index)
+    Process.exit(reverse_index_pid, :kill)
+    await_restarted(tenant_id, :reverse_index, reverse_index_pid)
+
+    Restdis.Cache.invalidate_by_row(tenant_id, "widgets", 11)
+    Restdis.Cache.invalidate_lists(tenant_id, "widgets")
+
+    assert :miss = Restdis.Cache.peek(tenant_id, row_key)
+    assert :miss = Restdis.Cache.peek(tenant_id, list_key)
+
+    Restdis.Cache.flush_tenant(tenant_id)
+  end
+
+  test "an old-format disk entry without reverse index metadata is dropped on tenant restart" do
+    tenant_id = "ri_legacy_#{System.unique_integer([:positive])}"
+    key = Key.build(:table, "widgets", %{"id" => "eq.11"})
+
+    TenantSupervisor.ensure_started(Restdis.Cache, tenant_id)
+    cubdb = TenantRegistry.get_value(Restdis.Cache, tenant_id, :dc_cubdb)
+
+    legacy_entry =
+      {:v1, %{value: %{"id" => 11}, persist: true, inserted_at: 0, expires_at: :infinity}}
+
+    :ok = CubDB.put(cubdb, key, legacy_entry)
+
+    restart_tenant(tenant_id)
+
+    assert :miss = Restdis.Cache.peek(tenant_id, key)
+    assert Restdis.Cache.persist_count(tenant_id) == 0
+
+    Restdis.Cache.flush_tenant(tenant_id)
+  end
+
+  defp restart_tenant(tenant_id) do
+    pid = TenantRegistry.whereis(Restdis.Cache, tenant_id, :tenant)
+    Supervisor.stop(pid, :normal)
+    TenantSupervisor.ensure_started(Restdis.Cache, tenant_id)
+  end
+
+  defp await_restarted(tenant_id, role, old_pid) do
+    case TenantRegistry.whereis(Restdis.Cache, tenant_id, role) do
+      pid when is_pid(pid) and pid != old_pid ->
+        pid
+
+      _ ->
+        Process.sleep(10)
+        await_restarted(tenant_id, role, old_pid)
+    end
+  end
 end
