@@ -117,7 +117,7 @@ defmodule RestdisServer.Rewarm.Scheduler do
       %{tenant_id: state.tenant_id, reason: reason}
     )
 
-    _ = wire_key
+    if reason == :unknown_query, do: :ets.delete(state.table, wire_key)
     {:noreply, state}
   end
 

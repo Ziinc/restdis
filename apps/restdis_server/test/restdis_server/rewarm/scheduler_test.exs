@@ -172,7 +172,7 @@ defmodule RestdisServer.Rewarm.SchedulerTest do
 
     key = Key.build(:table, "filtered_items", %{"id" => "eq.1"})
     wire_key = Key.encode(key)
-    QueryStore.put(@tenant_id, wire_key, "id=eq.1")
+    QueryStore.put(@tenant_id, wire_key, "id=eq.1", "svc_key")
     Restdis.Cache.put(@tenant_id, key, [%{"id" => 1}], ttl_ms: 60_000)
 
     test_pid = self()
@@ -202,7 +202,7 @@ defmodule RestdisServer.Rewarm.SchedulerTest do
     test_pid = self()
 
     Req.Test.stub(RestdisServer.Finch, fn conn ->
-      send(test_pid, {:outbound_auth, Plug.Conn.get_req_header(conn, "authorization")})
+      send(test_pid, {:outbound_apikey, Plug.Conn.get_req_header(conn, "apikey")})
       Req.Test.json(conn, [%{"id" => 1}])
     end)
 
@@ -212,7 +212,36 @@ defmodule RestdisServer.Rewarm.SchedulerTest do
     scheduler_pid = ensure_scheduler()
     Req.Test.allow(RestdisServer.Finch, test_pid, scheduler_pid)
 
-    assert_receive {:outbound_auth, ["Bearer creator-cred"]}, 1500
+    assert_receive {:outbound_apikey, ["creator-cred"]}, 1500
+  end
+
+  test "(g3) rewarm of a key with no recorded query makes no request and evicts the key" do
+    Application.delete_env(:restdis_server, :postgrest_fetcher)
+    attach_telemetry([:restdis_server, :rewarm, :error])
+
+    key = Key.build(:table, "unrecorded_items", %{"id" => "eq.1"})
+    wire_key = Key.encode(key)
+    Restdis.Cache.put(@tenant_id, key, [%{"id" => 1}], ttl_ms: 60_000)
+
+    test_pid = self()
+
+    Req.Test.stub(RestdisServer.Finch, fn conn ->
+      send(test_pid, :upstream_request)
+      Req.Test.json(conn, [])
+    end)
+
+    PolicyStore.put(@tenant_id, wire_key, %{rewarm_s: 1, persist: false})
+    Rewarm.touch(@tenant_id, wire_key, key)
+
+    scheduler_pid = ensure_scheduler()
+    Req.Test.allow(RestdisServer.Finch, test_pid, scheduler_pid)
+
+    assert_receive {:telemetry, [:restdis_server, :rewarm, :error], _, %{reason: :unknown_query}},
+                   1500
+
+    refute_received :upstream_request
+    assert Process.alive?(scheduler_pid)
+    assert :ets.lookup(:sys.get_state(scheduler_pid).table, wire_key) == []
   end
 
   test "(h) a fetch failure emits a rewarm error telemetry event" do

@@ -78,7 +78,7 @@ defmodule RestdisServer.HTTP.EndpointTest do
 
   test "two API keys with different credentials each read their own upstream response" do
     Req.Test.stub(RestdisServer.Finch, fn conn ->
-      Req.Test.json(conn, [%{"authorization" => Plug.Conn.get_req_header(conn, "authorization")}])
+      Req.Test.json(conn, [%{"apikey" => Plug.Conn.get_req_header(conn, "apikey")}])
     end)
 
     get = fn api_key ->
@@ -89,10 +89,10 @@ defmodule RestdisServer.HTTP.EndpointTest do
       )
     end
 
-    assert get.("sk_http").body == [%{"authorization" => ["Bearer svc_key"]}]
-    assert get.("sk_http_scoped").body == [%{"authorization" => ["Bearer scoped_jwt"]}]
+    assert get.("sk_http").body == [%{"apikey" => ["svc_key"]}]
+    assert get.("sk_http_scoped").body == [%{"apikey" => ["scoped_jwt"]}]
     assert Req.Response.get_header(get.("sk_http_scoped"), "sc-cache") == ["HIT"]
-    assert get.("sk_http_scoped").body == [%{"authorization" => ["Bearer scoped_jwt"]}]
+    assert get.("sk_http_scoped").body == [%{"apikey" => ["scoped_jwt"]}]
   end
 
   test "second request returns SC-Cache: HIT" do
