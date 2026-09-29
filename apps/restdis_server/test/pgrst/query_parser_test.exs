@@ -33,6 +33,31 @@ defmodule RestdisServer.PGRST.QueryParserTest do
     assert key1.params_hash != key2.params_hash
   end
 
+  test "duplicate query params produce a different key than the last one alone" do
+    {:ok, both, _} = QueryParser.parse("t1", "/items?id=gt.1&id=lt.9")
+    {:ok, last, _} = QueryParser.parse("t1", "/items?id=lt.9")
+    assert both.params_hash != last.params_hash
+  end
+
+  test "path segments after the table ident produce a different key with the same ident" do
+    {:ok, bare, _} = QueryParser.parse("t1", "/widgets")
+    {:ok, nested, _} = QueryParser.parse("t1", "/widgets/extra")
+    assert nested.ident == "widgets"
+    assert bare.params_hash != nested.params_hash
+  end
+
+  test "path segments after the rpc ident produce a different key with the same ident" do
+    {:ok, bare, _} = QueryParser.parse("t1", "/rpc/fn")
+    {:ok, nested, _} = QueryParser.parse("t1", "/rpc/fn/x")
+    assert nested.ident == "fn"
+    assert bare.params_hash != nested.params_hash
+  end
+
+  test "a parsed key equals Key.build/3 with the equivalent params map" do
+    {:ok, key, _} = QueryParser.parse("t1", "/users?select=name&id=eq.1")
+    assert key == Key.build(:table, "users", %{"id" => "eq.1", "select" => "name"})
+  end
+
   test "records the raw query string in the QueryStore for later fetches" do
     {:ok, key, _} = QueryParser.parse("t1", "/users?id=eq.1")
     wire_key = Key.encode(key)
