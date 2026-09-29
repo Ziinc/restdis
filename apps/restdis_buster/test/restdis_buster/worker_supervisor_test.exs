@@ -1,6 +1,7 @@
 defmodule RestdisBuster.Worker.SupervisorTest do
   use ExUnit.Case, async: false
 
+  alias RestdisBuster.Infra.LsnStore
   alias RestdisBuster.TestUtils
   alias RestdisBuster.WAL.Event
   alias RestdisBuster.Worker.Supervisor, as: WorkerSupervisor
@@ -53,6 +54,13 @@ defmodule RestdisBuster.Worker.SupervisorTest do
     event = %Event{op: :insert, schema: "public", table: "no_such_table_at_all"}
     assert :ok = WorkerSupervisor.start_worker(event, &runner/1)
     refute_receive {:ran, _}, 100
+  end
+
+  test "an event for an unconfigured table acks its LSN" do
+    lsn = LsnStore.current_applied() + 1_000
+    event = %Event{op: :insert, schema: "public", table: "no_such_table_at_all", lsn: lsn}
+    assert :ok = WorkerSupervisor.start_worker(event, &runner/1)
+    assert LsnStore.current_applied() >= lsn
   end
 
   test "an event for a configured tenant runs the worker under backpressure" do
