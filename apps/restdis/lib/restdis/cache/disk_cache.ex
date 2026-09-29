@@ -7,6 +7,7 @@ defmodule Restdis.Cache.DiskCache do
 
   alias Restdis.Cache.InstanceConfig
   alias Restdis.Cache.Key
+  alias Restdis.Cache.ReverseIndexMeta
   alias Restdis.Cache.TenantRegistry
 
   @doc """
@@ -51,12 +52,14 @@ defmodule Restdis.Cache.DiskCache do
   @doc """
   Writes `value` under `key`, persisting it when `opts[:persist]` is true and
   expiring it after `opts[:ttl_ms]`, if given. `opts[:name]` selects the
-  cache instance (required).
+  cache instance (required). `opts[:reverse_index]` records the `{table, pk}`
+  rows and list flag the reverse index is rebuilt from on tenant start.
   """
   @spec put(String.t(), Key.t(), term(), keyword()) :: :ok
   def put(tenant_id, key, value, opts \\ []) do
     name = Keyword.fetch!(opts, :name)
     persist = Keyword.get(opts, :persist, false)
+    reverse_index = Keyword.get(opts, :reverse_index, %{rows: [], list?: false})
 
     expires_at =
       case opts[:ttl_ms] do
@@ -66,8 +69,28 @@ defmodule Restdis.Cache.DiskCache do
 
     GenServer.call(
       TenantRegistry.via(name, tenant_id, :disk_cache),
-      {:put, key, value, persist, expires_at}
+      {:put, key, value, persist, expires_at, reverse_index}
     )
+  end
+
+  @doc """
+  Returns the reverse index metadata of every non-expired entry of the tenant,
+  deriving it from the stored value for entries written without it.
+
+  Reads the CubDB process directly so the rebuilding reverse index does not
+  block the disk cache's GenServer.
+  """
+  @spec reverse_index_entries(atom(), String.t()) :: [{Key.t(), ReverseIndexMeta.t()}]
+  def reverse_index_entries(name, tenant_id) do
+    case TenantRegistry.get_value(name, tenant_id, :dc_cubdb) do
+      nil ->
+        []
+
+      cubdb ->
+        cubdb
+        |> CubDB.select()
+        |> Enum.flat_map(&reverse_index_entry/1)
+    end
   end
 
   @doc """
@@ -216,7 +239,11 @@ defmodule Restdis.Cache.DiskCache do
     end
   end
 
-  def handle_call({:put, key, value, persist, expires_at}, _from, %{cubdb: cubdb} = state) do
+  def handle_call(
+        {:put, key, value, persist, expires_at, reverse_index},
+        _from,
+        %{cubdb: cubdb} = state
+      ) do
     inserted_at = System.monotonic_time()
 
     entry =
@@ -225,7 +252,8 @@ defmodule Restdis.Cache.DiskCache do
          value: value,
          persist: persist,
          inserted_at: inserted_at,
-         expires_at: expires_at
+         expires_at: expires_at,
+         reverse_index: reverse_index
        }}
 
     old_size = entry_size(cubdb, key)
@@ -436,26 +464,45 @@ defmodule Restdis.Cache.DiskCache do
     :erlang.external_size({key, entry})
   end
 
+  # Drops entries not in the `:v1` format, since reads never return them.
   defp rebuild_index(cubdb) do
-    cubdb
-    |> CubDB.select()
-    |> Enum.reduce({0, 0, :gb_sets.empty(), MapSet.new()}, fn {key, entry},
-                                                              {bytes, persist_count, evict_idx,
-                                                               persist_keys} ->
-      bytes = bytes + entry_size_of(key, entry)
+    {index, unindexed} =
+      cubdb
+      |> CubDB.select()
+      |> Enum.reduce({{0, 0, :gb_sets.empty(), MapSet.new()}, []}, fn
+        {key, {:v1, _} = entry}, {index, unindexed} ->
+          {index_entry(index, key, entry), unindexed}
 
-      case entry do
-        {:v1, %{persist: true}} ->
-          {bytes, persist_count + 1, evict_idx, MapSet.put(persist_keys, key)}
+        {key, _entry}, {index, unindexed} ->
+          {index, [key | unindexed]}
+      end)
 
-        {:v1, %{persist: false} = meta} ->
-          inserted_at = Map.get(meta, :inserted_at, 0)
-          {bytes, persist_count, :gb_sets.add({inserted_at, key}, evict_idx), persist_keys}
+    CubDB.delete_multi(cubdb, unindexed)
+    index
+  end
 
-        _ ->
-          {bytes, persist_count, evict_idx, persist_keys}
-      end
-    end)
+  defp reverse_index_of(_key, %{reverse_index: reverse_index}), do: reverse_index
+  defp reverse_index_of(key, %{value: value}), do: ReverseIndexMeta.derive(key, value)
+
+  defp reverse_index_entry({key, {:v1, meta}}) do
+    if expired?(Map.get(meta, :expires_at, :infinity)),
+      do: [],
+      else: [{key, reverse_index_of(key, meta)}]
+  end
+
+  defp reverse_index_entry(_), do: []
+
+  defp index_entry({bytes, persist_count, evict_idx, persist_keys}, key, entry) do
+    bytes = bytes + entry_size_of(key, entry)
+
+    case entry do
+      {:v1, %{persist: true}} ->
+        {bytes, persist_count + 1, evict_idx, MapSet.put(persist_keys, key)}
+
+      {:v1, %{persist: false} = meta} ->
+        inserted_at = Map.get(meta, :inserted_at, 0)
+        {bytes, persist_count, :gb_sets.add({inserted_at, key}, evict_idx), persist_keys}
+    end
   end
 
   defp record_persist_count(name, tenant_id, count) do
