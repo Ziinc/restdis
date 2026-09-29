@@ -81,5 +81,39 @@ defmodule Restdis.Cache.KeyTest do
       key2 = Key.build(:table, "items", %{"b" => "2", "a" => "1"})
       assert key1 == key2
     end
+
+    test "build/4 query pairs are order-independent" do
+      key1 = Key.build(:table, "items", [], [{"a", "1"}, {"b", "2"}])
+      key2 = Key.build(:table, "items", [], [{"b", "2"}, {"a", "1"}])
+      assert key1 == key2
+    end
+
+    test "build/4 keeps duplicate query params distinct from a single param" do
+      both = Key.build(:table, "items", [], [{"id", "gt.1"}, {"id", "lt.9"}])
+      last = Key.build(:table, "items", [], [{"id", "lt.9"}])
+      assert both.params_hash != last.params_hash
+    end
+
+    test "build/4 path segments after the ident change the hash but not the ident" do
+      bare = Key.build(:rpc, "fn", [], [])
+      nested = Key.build(:rpc, "fn", ["x"], [])
+      assert nested.ident == "fn"
+      assert bare.params_hash != nested.params_hash
+    end
+
+    test "build/3 with a params map equals build/4 with no segments and the map's pairs" do
+      assert Key.build(:table, "users", %{"id" => "eq.1", "select" => "*"}) ==
+               Key.build(:table, "users", [], [{"select", "*"}, {"id", "eq.1"}])
+    end
+
+    test "params_hash is SHA-256 of the deterministic canonical term truncated to 128 bits" do
+      canonical = {["x"], [{"a", "1"}, {"id", "gt.1"}, {"id", "lt.9"}]}
+      digest = :crypto.hash(:sha256, :erlang.term_to_binary(canonical, [:deterministic]))
+      <<expected::unsigned-big-integer-size(128), _::binary>> = digest
+
+      key = Key.build(:table, "items", ["x"], [{"id", "lt.9"}, {"a", "1"}, {"id", "gt.1"}])
+      assert key.params_hash == expected
+      assert {:ok, ^key} = key |> Key.encode() |> Key.decode()
+    end
   end
 end
