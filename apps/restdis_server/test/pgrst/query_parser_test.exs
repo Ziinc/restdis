@@ -39,18 +39,14 @@ defmodule RestdisServer.PGRST.QueryParserTest do
     assert both.params_hash != last.params_hash
   end
 
-  test "path segments after the table ident produce a different key with the same ident" do
-    {:ok, bare, _} = QueryParser.parse("t1", "/widgets")
-    {:ok, nested, _} = QueryParser.parse("t1", "/widgets/extra")
-    assert nested.ident == "widgets"
-    assert bare.params_hash != nested.params_hash
+  test "path segments after the table ident are rejected as an unsupported path" do
+    assert {:ok, _, _} = QueryParser.parse("t1", "/widgets")
+    assert {:error, :unsupported_path} = QueryParser.parse("t1", "/widgets/extra")
   end
 
-  test "path segments after the rpc ident produce a different key with the same ident" do
-    {:ok, bare, _} = QueryParser.parse("t1", "/rpc/fn")
-    {:ok, nested, _} = QueryParser.parse("t1", "/rpc/fn/x")
-    assert nested.ident == "fn"
-    assert bare.params_hash != nested.params_hash
+  test "path segments after the rpc ident are rejected as an unsupported path" do
+    assert {:ok, _, _} = QueryParser.parse("t1", "/rpc/fn")
+    assert {:error, :unsupported_path} = QueryParser.parse("t1", "/rpc/fn/x")
   end
 
   test "a parsed key equals Key.build/3 with the equivalent params map" do
