@@ -12,7 +12,9 @@ defmodule RestdisElectric.SqlParser do
 
   Parsing happens only when a client subscribes, never on the WAL hot path.
   The NIF runs on a dirty CPU scheduler and refuses inputs over 8 KiB, so a
-  pathological expression cannot block a normal scheduler.
+  pathological expression cannot block a normal scheduler. It also refuses
+  expressions nested deeper than 128 levels, such as a long `1+1+…` chain,
+  so encoding one cannot overflow that scheduler's stack.
 
   ## The parse tree
 

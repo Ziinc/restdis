@@ -29,7 +29,15 @@ defmodule RestdisElectric.WAL do
   and never learns about rows that entered it. Testing the pre-image needs the
   complete previous row, which is why `RestdisElectric.Definition` requires
   `REPLICA IDENTITY FULL` on every table a shape reads.
+
+  ## Shape isolation
+
+  An exception while applying a change to one shape is logged and that
+  shape is deleted, so its client must refetch; every other shape still
+  receives the change and `ingest/1` still returns `:ok`.
   """
+
+  require Logger
 
   alias RestdisElectric.Definition
   alias RestdisElectric.Eval
@@ -78,7 +86,7 @@ defmodule RestdisElectric.WAL do
         offset = {lsn, :erlang.unique_integer([:monotonic, :positive])}
 
         change = %{offset: offset, op: op, pk: pk, new_row: new_row, old_row: old_row}
-        appended = Enum.count(handles, &apply_to_shape(&1, tenant_id, change, start))
+        appended = Enum.count(handles, &isolated_apply(&1, tenant_id, change, start))
 
         :telemetry.execute(
           [:restdis_electric, :wal, :ingest],
@@ -95,6 +103,19 @@ defmodule RestdisElectric.WAL do
   end
 
   def ingest(_change), do: :ok
+
+  defp isolated_apply(handle, tenant_id, change, ingest_started_at) do
+    apply_to_shape(handle, tenant_id, change, ingest_started_at)
+  rescue
+    exception ->
+      Logger.error(
+        "Deleting shape #{handle} of tenant #{tenant_id} after a WAL change raised: " <>
+          Exception.format(:error, exception, __STACKTRACE__)
+      )
+
+      RestdisElectric.delete_shape(tenant_id, handle)
+      false
+  end
 
   defp apply_to_shape(handle, tenant_id, change, ingest_started_at) do
     %{op: op, new_row: new_row, old_row: old_row} = change
