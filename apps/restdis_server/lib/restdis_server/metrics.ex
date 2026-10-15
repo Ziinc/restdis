@@ -26,9 +26,9 @@ defmodule RestdisServer.Metrics do
       counter("restdis.persist.cap_reached.count", tags: [:tenant_id]),
       last_value("restdis.persist.count.count", tags: [:tenant_id]),
 
-      # Cache resource caps (ETS memory / CubDB disk)
+      # Cache resource caps (ETS memory / FeoxDB disk)
       counter("restdis.cache.ets_evict.count", tags: [:tenant_id]),
-      counter("restdis.cache.cubdb_evict.count", tags: [:tenant_id]),
+      counter("restdis.cache.disk_evict.count", tags: [:tenant_id]),
 
       # Shape filters: how often the index answers, how many shapes each change tests against, and fan-out latency.
       distribution("restdis_electric.filter.lookup.candidates",

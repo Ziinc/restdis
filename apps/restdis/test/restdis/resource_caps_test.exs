@@ -85,9 +85,9 @@ defmodule Restdis.Cache.ResourceCapsTest do
     end
   end
 
-  describe "CubDB disk cap eviction" do
+  describe "disk cap eviction" do
     test "default cap is 500 MB unless overridden" do
-      assert InstanceConfig.get(Restdis.Cache, :cubdb_cap_bytes) == 500 * 1024 * 1024
+      assert InstanceConfig.get(Restdis.Cache, :disk_cap_bytes) == 500 * 1024 * 1024
     end
 
     test "evicts oldest non-persist entries first, protecting persisted entries", %{
@@ -103,9 +103,9 @@ defmodule Restdis.Cache.ResourceCapsTest do
 
       size_after_two = DiskCache.disk_size_bytes(Restdis.Cache, tenant_id)
       cap = round(size_after_two * 1.3)
-      previous = InstanceConfig.get(Restdis.Cache, :cubdb_cap_bytes)
-      InstanceConfig.put_field(Restdis.Cache, :cubdb_cap_bytes, cap)
-      on_exit(fn -> InstanceConfig.put_field(Restdis.Cache, :cubdb_cap_bytes, previous) end)
+      previous = InstanceConfig.get(Restdis.Cache, :disk_cap_bytes)
+      InstanceConfig.put_field(Restdis.Cache, :disk_cap_bytes, cap)
+      on_exit(fn -> InstanceConfig.put_field(Restdis.Cache, :disk_cap_bytes, previous) end)
 
       DiskCache.put(tenant_id, new_key, value, name: Restdis.Cache)
 
@@ -122,18 +122,18 @@ defmodule Restdis.Cache.ResourceCapsTest do
       DiskCache.put(tenant_id, old_key, value, name: Restdis.Cache)
       size_after_one = DiskCache.disk_size_bytes(Restdis.Cache, tenant_id)
       cap = round(size_after_one * 1.3)
-      previous = InstanceConfig.get(Restdis.Cache, :cubdb_cap_bytes)
-      InstanceConfig.put_field(Restdis.Cache, :cubdb_cap_bytes, cap)
-      on_exit(fn -> InstanceConfig.put_field(Restdis.Cache, :cubdb_cap_bytes, previous) end)
+      previous = InstanceConfig.get(Restdis.Cache, :disk_cap_bytes)
+      InstanceConfig.put_field(Restdis.Cache, :disk_cap_bytes, cap)
+      on_exit(fn -> InstanceConfig.put_field(Restdis.Cache, :disk_cap_bytes, previous) end)
 
       test_pid = self()
-      handler_id = "cubdb-evict-handler-#{System.unique_integer([:positive])}"
+      handler_id = "disk-evict-handler-#{System.unique_integer([:positive])}"
 
       :telemetry.attach(
         handler_id,
-        [:restdis, :cache, :cubdb_evict],
+        [:restdis, :cache, :disk_evict],
         fn _event, measurements, metadata, _config ->
-          send(test_pid, {:cubdb_evict, measurements, metadata})
+          send(test_pid, {:disk_evict, measurements, metadata})
         end,
         nil
       )
@@ -142,7 +142,7 @@ defmodule Restdis.Cache.ResourceCapsTest do
 
       DiskCache.put(tenant_id, new_key, value, name: Restdis.Cache)
 
-      assert_receive {:cubdb_evict, %{count: 1}, %{tenant_id: ^tenant_id}}, 1000
+      assert_receive {:disk_evict, %{count: 1}, %{tenant_id: ^tenant_id}}, 1000
     end
   end
 end

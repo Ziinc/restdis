@@ -29,7 +29,7 @@ defmodule Restdis.Cache.Supervisor do
   instance every `Restdis.Cache` function operates on.
 
   Also accepts `:data_dir`, `:origin`, `:repo`, `:prefix` and the cache's
-  resource caps (`:ets_cap_bytes`, `:cubdb_cap_bytes`, `:persist_cap`,
+  resource caps (`:ets_cap_bytes`, `:disk_cap_bytes`, `:persist_cap`,
   `:replication_transport`), resolved once into `Restdis.Cache.InstanceConfig`
   under `:name`.
   """

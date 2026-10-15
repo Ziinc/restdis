@@ -10,7 +10,7 @@ defmodule Restdis.Cache.InstanceConfig do
   """
 
   @default_ets_cap_bytes 500 * 1024 * 1024
-  @default_cubdb_cap_bytes 500 * 1024 * 1024
+  @default_disk_cap_bytes 500 * 1024 * 1024
   @default_persist_cap 50_000
   @default_prefix "restdis"
 
@@ -21,7 +21,7 @@ defmodule Restdis.Cache.InstanceConfig do
           origin: module() | nil,
           replication_transport: module(),
           ets_cap_bytes: pos_integer(),
-          cubdb_cap_bytes: pos_integer(),
+          disk_cap_bytes: pos_integer(),
           persist_cap: pos_integer()
         }
 
@@ -42,7 +42,7 @@ defmodule Restdis.Cache.InstanceConfig do
           Restdis.Cache.Replication.Transport.Distribution
         ),
       ets_cap_bytes: Keyword.get(opts, :ets_cap_bytes, @default_ets_cap_bytes),
-      cubdb_cap_bytes: Keyword.get(opts, :cubdb_cap_bytes, @default_cubdb_cap_bytes),
+      disk_cap_bytes: Keyword.get(opts, :disk_cap_bytes, @default_disk_cap_bytes),
       persist_cap: Keyword.get(opts, :persist_cap, @default_persist_cap)
     }
 

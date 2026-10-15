@@ -23,7 +23,7 @@ protocol. Point any Redis client at it, or any Electric client such as
 - **Or use plain HTTP.** Pass a PostgREST query path to Restdis's `/pgrst/query` endpoint and
   get the cached response back.
 - **Keep a warm cache through restarts.** Each read checks memory (ETS) first, then a
-  per-tenant disk store (CubDB), then PostgREST.
+  per-tenant disk store (FeoxDB), then PostgREST.
 - **Never clear the cache by hand.** One WAL reader per cluster watches every Postgres write
   and updates only the entries that write affects.
 - **Choose how entries stay fresh.** TTL mode expires entries and rewarms them on the next
@@ -187,7 +187,7 @@ Restdis is an Elixir umbrella project. Each app owns one part of the system:
                                      ▼
                               ┌──────────────┐        ┌───────────────────┐
                               │   restdis    │◀───────│ restdis_electric   │
-                              │ (ETS→CubDB→  │  pull   │ shape defs/handles │
+                              │ (ETS→FeoxDB→ │  pull   │ shape defs/handles │
                               │  PostgREST   │────────▶│ log, filter index, │
                               │   origin)    │  push   │ where-clause eval  │
                               └──────┬───────┘        └─────────▲──────────┘
@@ -211,7 +211,7 @@ Restdis is an Elixir umbrella project. Each app owns one part of the system:
 
 | Application          | Owns                                                                                                                                                          |
 | -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `restdis`            | The three-layer cache (ETS, CubDB, PostgREST origin), the reverse index, tenant configuration, and cache keys. Depended on by every other app.                |
+| `restdis`            | The three-layer cache (ETS, FeoxDB, PostgREST origin), the reverse index, tenant configuration, and cache keys. Depended on by every other app.                |
 | `restdis_buster`     | The single cluster-wide WAL tailer. Reads the Postgres logical replication slot and dispatches decoded changes to invalidation, refresh, and shape targets.   |
 | `restdis_repo`       | The Ecto repo and migrations.                                                                                                                                 |
 | `restdis_replicator` | Always-live table replication (mirrors a full PostgREST table as key/value pairs kept current via WAL refresh).                                               |
@@ -222,7 +222,7 @@ Restdis is an Elixir umbrella project. Each app owns one part of the system:
 it to every node, one copy per availability zone. Each node then invalidates, refreshes, or
 appends to shapes locally.
 
-**Reads.** `restdis_server` checks ETS, then CubDB, then PostgREST, and fills the faster layers
+**Reads.** `restdis_server` checks ETS, then FeoxDB, then PostgREST, and fills the faster layers
 on the way back. A consistent hash ring routes each tenant to one owning node. Other nodes
 forward to it, and fall back to PostgREST if it is down.
 
