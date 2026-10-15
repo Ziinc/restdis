@@ -270,9 +270,6 @@ defmodule Restdis.Cache do
 
         maybe_broadcast(opts, name, tenant_id, {:set_persist, key, false})
         :ok
-
-      :not_found ->
-        {:error, :not_found}
     end
   end
 
