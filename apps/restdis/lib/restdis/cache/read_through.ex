@@ -12,11 +12,18 @@ defmodule Restdis.Cache.ReadThrough do
   an ordinary (non-persist) disk entry, so it survives a process restart without
   consuming a tenant persist cap. Every entry carries the instance TTL in both
   layers.
+
+  Each loaded entry is gossiped to a subset of peers running an instance of
+  the same name, see `Restdis.Cache.Gossip`. Pass a keyword list as `gossip:`
+  to override `ratio`, `max_nodes`, `transport` and `tombstone_ttl_ms`, or
+  `gossip: false` to turn it off.
   """
 
   use Supervisor
 
   alias Restdis.Cache.DiskCache
+  alias Restdis.Cache.Gossip
+  alias Restdis.Cache.Gossip.Tombstones
   alias Restdis.Cache.Key
   alias Restdis.Cache.QueryCache
   alias Restdis.Cache.TenantRegistry
@@ -83,15 +90,29 @@ defmodule Restdis.Cache.ReadThrough do
   end
 
   @doc """
-  Removes `ident` from every layer.
+  Removes `ident` from every layer, tombstoning it against inbound gossip when
+  gossip is on.
   """
   @spec delete(name(), ident()) :: :ok
   def delete(name, ident) when is_binary(ident) do
     ns = config(name).namespace
     key = key(ident)
+    Gossip.record_tombstone(name, ident)
     QueryCache.delete(name, ns, key)
     DiskCache.delete(name, ns, key)
     :ok
+  end
+
+  @doc """
+  Returns the gossip config of the instance `name`, `{:ok, nil}` when gossip is
+  off, or `:not_started` when no such instance runs on this node.
+  """
+  @spec gossip_config(name()) :: {:ok, Gossip.config() | nil} | :not_started
+  def gossip_config(name) do
+    case :persistent_term.get({:sc_rt, name}, nil) do
+      nil -> :not_started
+      %{gossip: gossip} -> {:ok, gossip}
+    end
   end
 
   @doc """
@@ -110,15 +131,17 @@ defmodule Restdis.Cache.ReadThrough do
     name = Keyword.fetch!(opts, :name)
     data_dir = Keyword.fetch!(opts, :data_dir)
     ttl_ms = Keyword.get(opts, :ttl_ms, @default_ttl_ms)
+    gossip = Gossip.config(Keyword.get(opts, :gossip, true))
     ns = namespace(name)
 
-    :persistent_term.put({:sc_rt, name}, %{namespace: ns, ttl_ms: ttl_ms})
+    :persistent_term.put({:sc_rt, name}, %{namespace: ns, ttl_ms: ttl_ms, gossip: gossip})
 
-    children = [
-      {Registry, keys: :unique, name: TenantRegistry.registry_name(name)},
-      QueryCache.child_spec(name, ns),
-      {DiskCache, name: name, tenant_id: ns, data_dir: data_dir}
-    ]
+    children =
+      [
+        {Registry, keys: :unique, name: TenantRegistry.registry_name(name)},
+        QueryCache.child_spec(name, ns),
+        {DiskCache, name: name, tenant_id: ns, data_dir: data_dir}
+      ] ++ if(gossip, do: [Tombstones.child_spec(name)], else: [])
 
     Supervisor.init(children, strategy: :one_for_one)
   end
@@ -127,6 +150,7 @@ defmodule Restdis.Cache.ReadThrough do
     case loader.() do
       {:ok, value} ->
         put(name, ident, value)
+        if config(name).gossip, do: Gossip.multicast(name, ident, value)
         {:ok, value}
 
       other ->
