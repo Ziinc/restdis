@@ -126,6 +126,15 @@ defmodule Restdis.Cache.ReadThrough do
     :ok
   end
 
+  @doc """
+  Returns the cache key addressing `ident` in the instance's layers.
+
+  Built directly rather than through `Restdis.Cache.Key.build/3`: read-through
+  idents are caller-owned (e.g. `tenants/acme`) and never fetched from PostgREST.
+  """
+  @spec key(ident()) :: Key.t()
+  def key(ident), do: %Key{scope: :table, ident: ident, params_hash: :erlang.phash2(%{})}
+
   @impl Supervisor
   def init(opts) do
     name = Keyword.fetch!(opts, :name)
@@ -173,9 +182,6 @@ defmodule Restdis.Cache.ReadThrough do
         :miss
     end
   end
-
-  # Built directly: read-through idents are caller-owned (e.g. `tenants/acme`), never fetched from PostgREST.
-  defp key(ident), do: %Key{scope: :table, ident: ident, params_hash: :erlang.phash2(%{})}
 
   defp envelope(value, ttl_ms), do: {:rt, value, now_ms() + ttl_ms}
 

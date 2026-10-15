@@ -8,7 +8,6 @@ defmodule Restdis.Cache.Gossip.Tombstones do
   that `ident` is dropped as likely stale.
   """
 
-  alias Restdis.Cache.Key
   alias Restdis.Cache.QueryCache
   alias Restdis.Cache.ReadThrough
 
@@ -23,7 +22,7 @@ defmodule Restdis.Cache.Gossip.Tombstones do
   """
   @spec put(ReadThrough.name(), ReadThrough.ident(), pos_integer()) :: :ok
   def put(name, ident, ttl_ms) do
-    QueryCache.put(namespace(name), key(ident), true, name: name, ttl_ms: ttl_ms)
+    QueryCache.put(namespace(name), ReadThrough.key(ident), true, name: name, ttl_ms: ttl_ms)
   end
 
   @doc """
@@ -31,10 +30,8 @@ defmodule Restdis.Cache.Gossip.Tombstones do
   """
   @spec tombstoned?(ReadThrough.name(), ReadThrough.ident()) :: boolean()
   def tombstoned?(name, ident) do
-    QueryCache.get(name, namespace(name), key(ident)) != :miss
+    QueryCache.get(name, namespace(name), ReadThrough.key(ident)) != :miss
   end
 
   defp namespace(name), do: ReadThrough.namespace(name) <> "/tombstones"
-
-  defp key(ident), do: Key.build(:table, ident, %{})
 end

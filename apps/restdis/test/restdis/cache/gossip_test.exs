@@ -114,6 +114,18 @@ defmodule Restdis.Cache.GossipTest do
       assert {:ok, :fresh} = ReadThrough.fetch(name, "k", fn -> {:ok, :fresh} end)
     end
 
+    test "caches a value whose ident holds a `/`", %{name: name} do
+      assert :cached = Gossip.receive(name, "tenants/acme", 1)
+
+      assert {:ok, 1} = ReadThrough.fetch(name, "tenants/acme", fn -> flunk("loader ran") end)
+    end
+
+    test "drops a value for a `/` ident deleted on this node", %{name: name} do
+      assert :ok = ReadThrough.delete(name, "api_key_index/acme")
+
+      assert :dropped_stale = Gossip.receive(name, "api_key_index/acme", :stale)
+    end
+
     @tag gossip: [transport: RecordingGossipTransport, tombstone_ttl_ms: 1]
     test "caches a value once the key's tombstone has expired", %{name: name} do
       assert :ok = ReadThrough.delete(name, "k")
