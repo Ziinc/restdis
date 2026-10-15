@@ -169,6 +169,43 @@ forward to it, and fall back to PostgREST if it is down.
 **Dependencies point one way.** `restdis_electric` depends only on `restdis`. `restdis_buster`
 pushes changes into it and `restdis_server` reads from it, but it depends on neither.
 
+### The three cache layers
+
+Each tenant gets its own copy of every layer. A read takes the first layer that has the entry
+and fills the faster layers on the way back, so the next read stops earlier:
+
+```
+ read ──▶ 1. ETS (memory) ──miss──▶ 2. CubDB (disk) ──miss──▶ 3. PostgREST (origin)
+              │ hit                      │ hit                        │ response
+              ▼                          ▼                            ▼
+           answer                 copy into ETS,           write into ETS and CubDB,
+                                     answer                         answer
+```
+
+| Layer             | Where                                           | Expiry and eviction                                                                                     |
+| ----------------- | ----------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
+| 1. Query cache    | An ETS table in memory, one per tenant          | The entry's TTL. Expired entries are swept every 30 s. Past 500 MB per tenant, least recently used goes first. |
+| 2. Disk cache     | A CubDB file under `CACHE_DATA_DIR`, one per tenant | The same TTL, kept on the wall clock so it holds across restarts. Past 500 MB per tenant, oldest written goes first. |
+| 3. Origin         | The tenant's PostgREST                          | Not a cache. A miss in both layers fetches here and writes the response into layers 1 and 2.           |
+
+**Restarts start warm.** ETS is empty after a restart, but CubDB is not. The first read of each
+key finds it on disk and copies it back into memory with its remaining TTL, without a trip to
+PostgREST.
+
+**Persisted entries stay.** An entry marked persist (`PGRST.POLICY <key> PERSIST`, or
+`"persist": true` on `/pgrst/policy`) is never evicted from disk to make room. Each tenant can
+persist up to `persist_cap` entries (50,000 by default).
+
+**Invalidation clears the layers together.** When `restdis_buster` sees a write in the WAL, the
+reverse index maps the row's table and primary key to every cache key whose response held that
+row. Each of those keys is deleted from ETS and CubDB at once. An inserted row was never in a
+cached response, so an insert clears the table's cached lists instead.
+
+**One more layer in front: the hot cache.** RESP `GET` checks a node-local hot cache before the
+three layers. Every entry `GET` reads is kept there for five minutes. Once a node reads the same key
+five times within a 10 s window, it sends the value to every peer, so in a cluster a hot key is
+answered on whichever node receives the request, with no hop to the tenant's owner.
+
 ## Electric compatibility
 
 Restdis serves ElectricSQL's shape-log protocol. Apps built on `@electric-sql/client`,
