@@ -97,7 +97,7 @@ window.fetch = async (input, init = {}) => {
     const res = await rawFetch(input, init);
     clearInterval(tick);
     const ms = performance.now() - started;
-    const cache = res.headers.get("sc-cache");
+    const cache = res.headers.get("rd-cache");
     const changes = isShape && res.ok ? await nestShapeMessages(res, el) : null;
     result.className = "result";
     result.innerHTML =

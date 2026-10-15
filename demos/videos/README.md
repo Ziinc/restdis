@@ -2,7 +2,7 @@
 
 Source for the three GIFs in [`docs/demos/`](../../docs/demos). Each one runs a
 client against Restdis on the left, with a console panel under the browser apps that logs every
-request, its `sc-cache` header, and its response time. On the right are the live Restdis request log and the
+request, its `rd-cache` header, and its response time. On the right are the live Restdis request log and the
 live Postgres statement log (`log_statement=all`), so you can see which reads reach the
 database and which Restdis answers itself.
 
@@ -14,8 +14,8 @@ database and which Restdis answers itself.
 
 ## Recording
 
-Needs Docker, Node 22, and ffmpeg. The ioredis demo uses its default `HELLO 3` handshake and
-`QUIT`, so the Restdis image must include #90 and #91.
+Needs Docker, Node 22, and ffmpeg. The Restdis image must answer ioredis's default `HELLO 3`
+handshake (#90) and send `rd-cache` headers (#101).
 
 ```sh
 cd demos/videos

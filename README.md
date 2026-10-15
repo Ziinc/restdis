@@ -51,7 +51,7 @@ re-recording steps: [`demos/videos`](demos/videos).
 ### supabase-js with TanStack Query
 
 An ordinary `supabase.from("products").select()` call inside `useQuery`. A small fetch adapter
-sends its reads to Restdis. The console under the app shows each request, its `sc-cache`
+sends its reads to Restdis. The console under the app shows each request, its `rd-cache`
 header, and the response time. Repeat fetches are cache hits that Postgres never sees. A write
 from another service evicts the entry through the WAL, and the next fetch gets the new price.
 
