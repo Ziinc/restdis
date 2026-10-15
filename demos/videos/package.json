@@ -1,0 +1,22 @@
+{
+  "name": "restdis-demo-videos",
+  "private": true,
+  "version": "0.0.0",
+  "description": "Recorded side-by-side demos of Restdis: TanStack Query over HTTP, TanStack DB over the Electric protocol, and a Redis client.",
+  "type": "module",
+  "scripts": {
+    "build": "node build.mjs",
+    "stage": "node stage.mjs",
+    "record": "node record.mjs"
+  },
+  "dependencies": {
+    "@tanstack/electric-db-collection": "0.6.1",
+    "@tanstack/react-db": "0.5.10",
+    "@tanstack/react-query": "5.104.3",
+    "esbuild": "0.28.2",
+    "ioredis": "6.0.0",
+    "playwright": "1.56.1",
+    "react": "18.3.1",
+    "react-dom": "18.3.1"
+  }
+}

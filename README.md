@@ -42,6 +42,41 @@ protocol. Point any Redis client at it, or any Electric client such as
   Storage, Auth, and Edge Functions. See
   [`SUPABASE_INTEGRATION_PRD.md`](prds/SUPABASE_INTEGRATION_PRD.md).
 
+## See it work
+
+Each video runs a stock client on the left. On the right are the Restdis request log and the
+Postgres statement log, so you can count which reads reach the database. Source and
+re-recording steps: [`demos/videos`](demos/videos).
+
+### TanStack Query over HTTP
+
+`useQuery` reads through Restdis. Repeat fetches are cache hits that Postgres never sees. A
+write from another service evicts the entry through the WAL, and the next fetch gets the new
+price.
+
+![TanStack Query demo](docs/demos/query.gif)
+
+[MP4](docs/demos/query.mp4)
+
+### TanStack DB over the Electric protocol
+
+A TanStack DB collection syncs from Restdis with `@tanstack/electric-db-collection`. After one
+snapshot, each write reaches the browser through a live long-poll and a single primary-key
+read.
+
+![TanStack DB demo](docs/demos/db.gif)
+
+[MP4](docs/demos/db.mp4)
+
+### Any Redis client
+
+ioredis caches a PostgREST query with `PGRST.QUERY`, then reads it with plain `GET`s. A write
+evicts the key, and one more query refreshes it.
+
+![Redis client demo](docs/demos/redis.gif)
+
+[MP4](docs/demos/redis.mp4)
+
 ## Quickstart
 
 Run the prebuilt image against any Postgres with logical replication turned on:
