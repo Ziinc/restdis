@@ -42,6 +42,38 @@ protocol. Point any Redis client at it, or any Electric client such as
   Storage, Auth, and Edge Functions. See
   [`SUPABASE_INTEGRATION_PRD.md`](prds/SUPABASE_INTEGRATION_PRD.md).
 
+## See it work
+
+Each demo runs a stock client on the left. On the right are the Restdis request log and the
+Postgres statement log, so you can count which reads reach the database. Source and
+re-recording steps: [`demos/videos`](demos/videos).
+
+### supabase-js with TanStack Query
+
+An ordinary `supabase.from("products").select()` call inside `useQuery`. A small fetch adapter
+sends its reads to Restdis. The console under the app shows each request, its `sc-cache`
+header, and the response time. Repeat fetches are cache hits that Postgres never sees. A write
+from another service evicts the entry through the WAL, and the next fetch gets the new price.
+
+![supabase-js with TanStack Query demo](docs/demos/query.gif)
+
+### TanStack DB over the Electric protocol
+
+Two TanStack DB clients sync the same shape from Restdis with
+`@tanstack/electric-db-collection`. The console shows each client's live poll held open on
+Restdis, and the inserts, updates and deletes each poll delivers. Another user inserts,
+renames, completes, bulk-inserts and deletes todos; both clients follow every change.
+Restdis reads each new or changed row once by primary key, and deletes need no read.
+
+![TanStack DB demo](docs/demos/db.gif)
+
+### Any Redis client
+
+ioredis, with its default settings, caches a PostgREST query with `PGRST.QUERY` and reads it
+with plain `GET`s. A write evicts the key, and one more query refreshes it.
+
+![Redis client demo](docs/demos/redis.gif)
+
 ## Quickstart
 
 Build the image and run it against any Postgres with logical replication turned on

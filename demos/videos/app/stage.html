@@ -1,0 +1,137 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Restdis demo</title>
+<link rel="stylesheet" href="/app/style.css">
+<style>
+  body { margin: 0; height: 100vh; display: grid; grid-template-rows: auto 1fr; background: #0b0d10; }
+  header { padding: 14px 22px; border-bottom: 1px solid #23272e; display: flex; gap: 24px; align-items: baseline; }
+  header h1 { margin: 0; font-size: 20px; color: #3ecf8e; white-space: nowrap; }
+  #caption { font-size: 18px; color: #e6e6e6; transition: opacity .2s; }
+  main { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; padding: 14px; min-height: 0; }
+  .col { display: grid; grid-template-rows: 1fr 1fr; gap: 14px; min-height: 0; }
+  .pane { display: flex; flex-direction: column; min-height: 0; border: 1px solid #2b3038; border-radius: 10px; overflow: hidden; background: #111418; }
+  .bar { display: flex; align-items: center; gap: 8px; padding: 8px 12px; background: #1a1e24; font: 13px ui-monospace, Menlo, monospace; color: #9aa4b2; }
+  .bar i { width: 11px; height: 11px; border-radius: 50%; display: inline-block; }
+  .bar .count { margin-left: auto; color: #e6e6e6; }
+  .bar .count b { color: #f5a524; }
+  iframe { flex: 1; border: 0; background: #fff; }
+  .term { flex: 1; overflow: auto; padding: 10px 12px; margin: 0; font: 13px/1.5 ui-monospace, Menlo, monospace; color: #c9d1d9; white-space: pre-wrap; word-break: break-all; }
+  .term .who { color: #7aa2f7; }
+  .term .sel { color: #f5a524; }
+  .term .wr { color: #f7768e; }
+  .term div { white-space: normal; }
+  .term .fast { color: #3ecf8e; }
+  .term .slow { color: #f5a524; }
+  .term .flash { animation: flash 1.2s ease-out; }
+  @keyframes flash { from { background: #3ecf8e44; } to { background: transparent; } }
+</style>
+</head>
+<body>
+<header><h1 id="title">Restdis</h1><div id="caption"></div></header>
+<main>
+  <div class="pane" id="left">
+    <div class="bar"><i style="background:#ff5f57"></i><i style="background:#febc2e"></i><i style="background:#28c840"></i><span id="left-title"></span></div>
+  </div>
+  <div class="col">
+    <div class="pane" id="restdis-pane">
+      <div class="bar"><i style="background:#ff5f57"></i><i style="background:#febc2e"></i><i style="background:#28c840"></i>
+        restdis &mdash; request log<span class="count">requests served: <b id="restdis-count">0</b></span></div>
+      <pre class="term" id="restdis"></pre>
+    </div>
+    <div class="pane">
+      <div class="bar"><i style="background:#ff5f57"></i><i style="background:#febc2e"></i><i style="background:#28c840"></i>
+        postgres &mdash; statement log (log_statement=all)<span class="count">reads that reached Postgres: <b id="pg-reads">0</b> &middot; writes: <b id="pg-writes">0</b></span></div>
+      <pre class="term" id="postgres"></pre>
+    </div>
+  </div>
+</main>
+<script>
+  const DEMOS = {
+    query: { title: "supabase-js + TanStack Query", left: "browser — supabase-js + TanStack Query app", src: "/app/query" },
+    db: { title: "TanStack DB over the Electric protocol", left: "browser — TanStack DB app", src: "/app/db" },
+    redis: { title: "Any Redis client", left: "terminal — node redis-client.mjs (ioredis)" },
+  };
+  const demo = new URLSearchParams(location.search).get("demo") ?? "query";
+  const cfg = DEMOS[demo];
+  document.getElementById("title").textContent = "Restdis · " + cfg.title;
+  document.getElementById("left-title").textContent = cfg.left;
+
+  if (demo === "redis") {
+    document.getElementById("restdis-pane").remove();
+    document.querySelector(".col").style.gridTemplateRows = "1fr";
+  }
+
+  window.setCaption = (text) => { document.getElementById("caption").textContent = text; };
+
+  function append(term, html) {
+    const line = document.createElement("div");
+    line.className = "flash";
+    line.innerHTML = html;
+    term.appendChild(line);
+    term.scrollTop = term.scrollHeight;
+  }
+  const esc = (s) => s.replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" })[c]);
+
+  // The app on the left only loads once both log streams are attached, so
+  // its first request is always on screen.
+  let pending = demo === "redis" ? 1 : 2;
+  const attached = () => { if (--pending === 0) startLeft(); };
+
+  const restdisTerm = document.getElementById("restdis");
+  let restdisCount = 0;
+  if (demo !== "redis") new EventSource("/logs/restdis").onmessage = (e) => {
+    const { ready, line } = JSON.parse(e.data);
+    if (ready) return attached();
+    let html = esc(line);
+    if (/Sent \d{3}/.test(line)) {
+      document.getElementById("restdis-count").textContent = ++restdisCount;
+      html = html.replace(/in (\S+)$/, (m, t) => {
+        // A live shape request is held open until a write arrives; it is not slow.
+        if (/^\d{4,}ms$/.test(t)) return `in <span class="who">${t}</span> <span class="who">(live long-poll, released by a write)</span>`;
+        return `in <span class="${t.endsWith("µs") ? "fast" : "slow"}">${t}</span>`;
+      });
+    }
+    append(restdisTerm, html);
+  };
+
+  const pgTerm = document.getElementById("postgres");
+  let reads = 0, writes = 0;
+  new EventSource("/logs/postgres").onmessage = (e) => {
+    const { ready, app, sql } = JSON.parse(e.data);
+    if (ready) return attached();
+    const write = /^\s*(insert|update|delete)\b|\b(insert into|update|delete from)\b/i.test(sql);
+    if (write) document.getElementById("pg-writes").textContent = ++writes;
+    else document.getElementById("pg-reads").textContent = ++reads;
+    const short = sql.length > 220 ? sql.slice(0, 220) + "…" : sql;
+    append(pgTerm, `<span class="who">[${esc(app)}]</span> <span class="${write ? "wr" : "sel"}">${esc(short)}</span>`);
+  };
+
+  const left = document.getElementById("left");
+  function startLeft() {
+  if (cfg.src) {
+    const frame = document.createElement("iframe");
+    frame.id = "app";
+    frame.src = cfg.src;
+    left.appendChild(frame);
+  } else {
+    const term = document.createElement("pre");
+    term.className = "term";
+    term.id = "client";
+    left.appendChild(term);
+    window.startRedisClient = () => new Promise((resolve) => {
+      const source = new EventSource("/run/redis");
+      source.onmessage = (e) => {
+        const msg = JSON.parse(e.data);
+        if (msg.done) { source.close(); resolve(); return; }
+        term.insertAdjacentText("beforeend", msg.text);
+        term.scrollTop = term.scrollHeight;
+      };
+    });
+  }
+  window.leftReady = true;
+  }
+</script>
+</body>
+</html>
