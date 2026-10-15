@@ -13,7 +13,8 @@ defmodule RestdisBuster.Worker do
   alias RestdisElectric.WAL, as: ElectricWAL
 
   @infra_schema "public"
-  @tenants_table "tenants"
+  # Control-plane tables whose rows feed a tenant's cached configuration.
+  @tenant_config_tables ~w(tenants api_keys shape_definitions)
   @table_config_table "tenant_table_config"
 
   @doc """
@@ -31,8 +32,8 @@ defmodule RestdisBuster.Worker do
   Applies `event` to the cache, then acknowledges its LSN.
   """
   @spec run(Event.t()) :: :ok
-  def run(%Event{op: op, schema: @infra_schema, table: @tenants_table} = event)
-      when op in [:insert, :update, :delete] do
+  def run(%Event{op: op, schema: @infra_schema, table: table} = event)
+      when table in @tenant_config_tables and op in [:insert, :update, :delete] do
     row = event.new_row || event.old_row || %{}
     tenant_id = Map.get(row, "tenant_id")
 
