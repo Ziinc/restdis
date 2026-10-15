@@ -167,6 +167,7 @@ defmodule Restdis.Cache do
         Enum.each(cache_keys, fn key ->
           QueryCache.delete(name, tenant_id, key)
           DiskCache.delete(name, tenant_id, key)
+          HotCache.delete(tenant_id, key)
         end)
 
         :ok
