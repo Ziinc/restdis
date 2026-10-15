@@ -176,6 +176,38 @@ defmodule RestdisBuster.WorkerTest do
     assert_receive {:invalidate_called, "t1"}, 200
   end
 
+  test "revoking an api key calls tenant_config_invalidator for its tenant" do
+    Application.put_env(:restdis_buster, :tenant_config_invalidator, StubInvalidator)
+    on_exit(fn -> Application.put_env(:restdis_buster, :tenant_config_invalidator, nil) end)
+
+    event =
+      TestUtils.update_event("api_keys", "public", %{"api_key" => "sk_1"}, %{
+        "api_key" => "sk_1",
+        "tenant_id" => "t2",
+        "status" => "revoked"
+      })
+
+    Worker.run(event)
+
+    assert_receive {:invalidate_called, "t2"}, 200
+  end
+
+  test "defining a shape calls tenant_config_invalidator for its tenant" do
+    Application.put_env(:restdis_buster, :tenant_config_invalidator, StubInvalidator)
+    on_exit(fn -> Application.put_env(:restdis_buster, :tenant_config_invalidator, nil) end)
+
+    event =
+      TestUtils.insert_event("shape_definitions", "public", %{
+        "tenant_id" => "t3",
+        "name" => "products",
+        "table" => "products"
+      })
+
+    Worker.run(event)
+
+    assert_receive {:invalidate_called, "t3"}, 200
+  end
+
   test "WAL event on public.tenant_table_config flushes that table's cache" do
     config = %{
       tenant_id: "tenant1",

@@ -167,4 +167,26 @@ defmodule RestdisBuster.Worker.BackpressureTest do
     :ok = WorkerSupervisor.start_worker(event, runner)
     assert_receive {:ran, ^ref}, 500
   end
+
+  for table <- ["api_keys", "shape_definitions"] do
+    test "#{table} events bypass backpressure (always spawn)" do
+      Application.put_env(:restdis_buster, :worker_per_tenant_cap, 0)
+      on_exit(fn -> Application.put_env(:restdis_buster, :worker_per_tenant_cap, 2) end)
+
+      test_pid = self()
+      ref = make_ref()
+
+      runner = fn _event -> send(test_pid, {:ran, ref}) end
+
+      event = %RestdisBuster.WAL.Event{
+        op: :insert,
+        schema: "public",
+        table: unquote(table),
+        new_row: %{"tenant_id" => "x"}
+      }
+
+      :ok = WorkerSupervisor.start_worker(event, runner)
+      assert_receive {:ran, ^ref}, 500
+    end
+  end
 end
