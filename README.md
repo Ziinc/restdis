@@ -20,8 +20,8 @@ protocol. Point any Redis client at it, or any Electric client such as
 
 - **Use any Redis client.** Restdis serves the Redis protocol (RESP) and supports `GET`, `SET`,
   `MGET`, `DEL`, `TTL`, `EXISTS`, `PING`, and `AUTH`.
-- **Or use plain HTTP.** Send normal PostgREST requests to Restdis and turn caching on with
-  headers.
+- **Or use plain HTTP.** Pass a PostgREST query path to Restdis's `/pgrst/query` endpoint and
+  get the cached response back.
 - **Keep a warm cache through restarts.** Each read checks memory (ETS) first, then a
   per-tenant disk store (CubDB), then PostgREST.
 - **Never clear the cache by hand.** One WAL reader per cluster watches every Postgres write
@@ -44,30 +44,44 @@ protocol. Point any Redis client at it, or any Electric client such as
 
 ## Quickstart
 
-Run the prebuilt image against any Postgres with logical replication turned on:
+Build the image and run it against any Postgres with logical replication turned on
+(`wal_level=logical`):
 
 ```sh
+docker build -t restdis .
 docker run --rm \
   -e DATABASE_URL=postgres://postgres:postgres@localhost:5432/restdis_dev \
   -e RELEASE_COOKIE=some_secret_cookie \
   -p 4040:4040 -p 6380:6380 \
-  restdis:latest
+  restdis
 ```
 
-The HTTP proxy listens on port `4040` and the Redis (RESP) server on `6380`. Point a Redis
-client at `6380` and cache a PostgREST query:
+Restdis creates its own tables on boot. Then register a tenant, the PostgREST it fronts, and an
+API key for it:
+
+```sql
+INSERT INTO tenants (tenant_id, pgrst_base_url, pgrst_api_key, inserted_at, updated_at)
+VALUES ('my-tenant', 'http://localhost:3000', '<postgrest-key>', now(), now());
+
+INSERT INTO api_keys (api_key, tenant_id, inserted_at, updated_at)
+VALUES ('sk_my_key', 'my-tenant', now(), now());
+```
+
+The HTTP endpoint listens on port `4040` and the Redis (RESP) server on `6380`. Point a Redis
+client at `6380`, authenticate with the API key, and cache a PostgREST query:
 
 ```sh
-redis-cli -p 6380 PGRST.QUERY /products?select=id,name TTL 60
+redis-cli -p 6380 -a sk_my_key PGRST.QUERY 'products?select=id,name' TTL 60
 ```
 
-Restdis returns the cache key. The next call for the same query comes from the cache and
-never reaches PostgREST.
+Restdis returns the cache key. Read it with `GET`. The next call for the same query comes from
+the cache and never reaches PostgREST.
 
 Plain HTTP works too:
 
 ```sh
-curl "http://localhost:4040/products?select=id,name" -H "SC-Cache: true"
+curl "http://localhost:4040/pgrst/query?path=products%3Fselect%3Did%2Cname" \
+  -H "Authorization: Bearer sk_my_key"
 ```
 
 ## Usage
@@ -77,7 +91,7 @@ curl "http://localhost:4040/products?select=id,name" -H "SC-Cache: true"
 | Command                                                                 | Purpose                                                                              |
 | ----------------------------------------------------------------------- | ------------------------------------------------------------------------------------ |
 | `PING`                                                                  | Health check.                                                                        |
-| `AUTH <key>`                                                            | Authenticate using a Supabase API key (wired but not enforced yet).                  |
+| `AUTH <key>`                                                            | Authenticate with a tenant API key. Every command except `PING` and `AUTH` needs it. |
 | `GET <key>` / `MGET <key>...`                                           | Read one or more cached values.                                                      |
 | `SET <key> <value>`                                                     | Write a value directly to the cache.                                                 |
 | `DEL <key>`                                                             | Remove a cached value.                                                               |
@@ -86,26 +100,38 @@ curl "http://localhost:4040/products?select=id,name" -H "SC-Cache: true"
 | `PGRST.QUERY <path> [TTL <seconds>] [REWARM <seconds>]`                 | Fetch `<path>` from PostgREST, cache the result, and return its canonical cache key. |
 | `PGRST.POLICY <cache_key> [TTL <seconds>] [REWARM <seconds>] [PERSIST]` | Update an existing entry's TTL, rewarm interval, or persistence without re-fetching. |
 
-### HTTP proxy
+### HTTP endpoint
 
-Send a normal PostgREST request to Restdis and control caching with headers:
+Every route except `/health` and `/metrics` needs `Authorization: Bearer <api key>`.
 
-| Header            | Purpose                                   |
-| ----------------- | ----------------------------------------- |
-| `SC-Cache`        | Enable caching for the request.           |
-| `SC-Cache-TTL`    | TTL, in seconds, for the cached response. |
-| `SC-Cache-Rewarm` | Rewarm interval, in seconds.              |
+| Route                                 | Purpose                                                                                       |
+| ------------------------------------- | --------------------------------------------------------------------------------------------- |
+| `GET /pgrst/query?path=<query>`       | Return the cached response for a URL-encoded PostgREST query, fetching it on a miss.          |
+| `POST /pgrst/policy`                  | Change a cached entry's policy. JSON body: `key`, and any of `ttl_s`, `rewarm`, `persist`.    |
+| `GET /v1/shape`, `DELETE /v1/shape`   | Electric shape protocol. See [Electric compatibility](#electric-compatibility).               |
+| `GET /health`, `GET /metrics`         | Liveness check and Prometheus metrics.                                                        |
+
+`/pgrst/query` reports what happened in its response headers:
+
+| Header            | Value                                                                        |
+| ----------------- | ---------------------------------------------------------------------------- |
+| `sc-cache`        | `MISS` (fetched from PostgREST), `HIT` (from cache), or `BYPASS` (fallback). |
+| `sc-cache-ttl`    | Seconds until the entry expires.                                             |
+| `sc-cache-rewarm` | On a hit, the rewarm interval in seconds, or `none`.                         |
 
 ```sh
-curl "http://localhost:4040/products?select=id,name" \
-  -H "SC-Cache: true" \
-  -H "SC-Cache-TTL: 60" \
-  -H "SC-Cache-Rewarm: 30"
+curl "http://localhost:4040/pgrst/query?path=products%3Fselect%3Did%2Cname" \
+  -H "Authorization: Bearer sk_my_key"
+
+curl -X POST http://localhost:4040/pgrst/policy \
+  -H "Authorization: Bearer sk_my_key" \
+  -H "Content-Type: application/json" \
+  -d '{"key": "pgrst:t:products:38301388", "ttl_s": 60, "rewarm": 30}'
 ```
 
 The first request goes to PostgREST and Restdis caches the response. Later requests for the
-same path and query string come from the cache until the TTL runs out. While the entry stays
-in use, Restdis refreshes it in the background every 30 seconds.
+same query come from the cache until the TTL runs out. With `rewarm` set, Restdis refreshes the
+entry in the background on that interval while it stays in use.
 
 ### Configuration
 
