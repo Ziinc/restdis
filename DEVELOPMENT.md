@@ -5,14 +5,14 @@ See `prds/PRD.md` for scope and architecture, and `AGENT.md` for the development
 ## Docker build
 
 The image is a two-stage build: a `hexpm/elixir` builder that assembles the `restdis`
-`mix release`, and a slim Debian runner that carries only the release.
+`mix release`, and a slim Alpine runner that carries only the release.
 
 ```sh
 docker build -t restdis:latest .
 ```
 
-Toolchain versions are build args (`ELIXIR_VERSION`, `ERLANG_VERSION`, `DEBIAN_VERSION`) and
-default to the versions pinned in `.mise.toml`.
+Toolchain versions are build args (`ELIXIR_VERSION`, `ERLANG_VERSION`, `ALPINE_VERSION`) with
+defaults set at the top of the `Dockerfile`.
 
 ## Cluster distribution
 

@@ -37,6 +37,24 @@ defmodule RestdisServer.RESP.HandlerSocketTest do
     assert {:ok, "-NOAUTH" <> _} = :gen_tcp.recv(socket, 0, 1_000)
   end
 
+  test "QUIT answers OK and then closes the connection", %{port: port} do
+    socket = connect(port)
+
+    :ok = :gen_tcp.send(socket, "*1\r\n$4\r\nQUIT\r\n")
+
+    assert {:ok, "+OK\r\n"} = :gen_tcp.recv(socket, 0, 1_000)
+    assert {:error, :closed} = :gen_tcp.recv(socket, 0, 1_000)
+  end
+
+  test "commands pipelined after QUIT are not answered", %{port: port} do
+    socket = connect(port)
+
+    :ok = :gen_tcp.send(socket, "*1\r\n$4\r\nQUIT\r\n*1\r\n$4\r\nPING\r\n")
+
+    assert {:ok, "+OK\r\n"} = :gen_tcp.recv(socket, 0, 1_000)
+    assert {:error, :closed} = :gen_tcp.recv(socket, 0, 1_000)
+  end
+
   test "a command split across packets is answered once complete", %{port: port} do
     socket = connect(port)
 

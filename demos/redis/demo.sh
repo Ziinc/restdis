@@ -47,6 +47,13 @@ if [ "${1:-}" != "--no-up" ]; then
   pause 3
 fi
 
+# seed.sql's tenant rows no-op at initdb time, before Restdis has created its
+# control-plane tables. Re-apply it now that Restdis has migrated; it is
+# idempotent.
+docker compose exec -T -e PGOPTIONS="-c client_min_messages=warning" db \
+  psql -U postgres -q -v ON_ERROR_STOP=1 \
+  -f /docker-entrypoint-initdb.d/10-seed.sql > /dev/null
+
 bold "=== Restdis's Redis wire protocol (RESP), against a real PostgREST origin ==="
 note "redis-cli -h $RESP_HOST -p $RESP_PORT"
 pause
@@ -64,10 +71,10 @@ pause
 
 step "3. Plain Redis commands work once authenticated: SET, GET, TTL, EXISTS"
 note "SET, GET, and TTL are ordinary per-tenant cache entries, not PostgREST-backed"
-rcli -a "$API_KEY" --no-auth-warning SET demo:counter 1
-rcli -a "$API_KEY" --no-auth-warning GET demo:counter
-rcli -a "$API_KEY" --no-auth-warning EXPIRE demo:counter 120
-rcli -a "$API_KEY" --no-auth-warning TTL demo:counter
+rcli -a "$API_KEY" --no-auth-warning SET demo_counter 1
+rcli -a "$API_KEY" --no-auth-warning GET demo_counter
+rcli -a "$API_KEY" --no-auth-warning EXPIRE demo_counter 120
+rcli -a "$API_KEY" --no-auth-warning TTL demo_counter
 pause
 
 step "4. PGRST.QUERY: fetch-and-cache a PostgREST query over RESP, not HTTP"
@@ -84,8 +91,8 @@ note "write through to disk - see PRD.md's Rewarm and persistence section"
 pause
 
 step "6. PERSIST: the plain Redis command, capped at the tenant's max TTL"
-note "PERSIST demo:counter"
-rcli -a "$API_KEY" --no-auth-warning PERSIST demo:counter
+note "PERSIST demo_counter"
+rcli -a "$API_KEY" --no-auth-warning PERSIST demo_counter
 note "returns 1 (applied) - restdis caps PERSIST at max_ttl_s rather than making"
 note "the key immortal, since every entry is still subject to disk cache eviction"
 pause
