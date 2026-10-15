@@ -15,7 +15,7 @@ defmodule RestdisServer.Rewarm.SchedulerTest do
   setup do
     Application.put_env(:restdis_server, :postgrest_fetcher, RestdisServer.StubFetcher)
 
-    {:ok, agent} = Agent.start(fn -> 0 end)
+    {:ok, agent} = Agent.start(fn -> %{} end)
     Application.put_env(:restdis_server, :stub_fetcher_agent, agent)
     Application.put_env(:restdis_server, :stub_fetcher_body, [%{"rewarmed" => true}])
 
@@ -73,9 +73,11 @@ defmodule RestdisServer.Rewarm.SchedulerTest do
     PolicyStore.put(@tenant_id, wire_key, %{rewarm_s: 1, persist: false})
     Rewarm.touch(@tenant_id, wire_key, key)
 
-    assert_receive {:telemetry, [:restdis_server, :rewarm, :refetch], _, _}, 1500
+    assert_receive {:telemetry, [:restdis_server, :rewarm, :refetch], _,
+                    %{tenant_id: @tenant_id}},
+                   1500
 
-    assert Agent.get(agent, & &1) == 1
+    assert Agent.get(agent, &Map.get(&1, @tenant_id, 0)) == 1
     assert {:ok, [%{"rewarmed" => true}]} = Restdis.Cache.peek(@tenant_id, key)
   end
 
@@ -90,10 +92,13 @@ defmodule RestdisServer.Rewarm.SchedulerTest do
     PolicyStore.put(@tenant_id, wire_key, %{rewarm_s: 1, persist: false})
     Rewarm.touch(@tenant_id, wire_key, key)
 
-    assert_receive {:telemetry, [:restdis_server, :rewarm, :refetch], _, _}, 1500
+    assert_receive {:telemetry, [:restdis_server, :rewarm, :refetch], _,
+                    %{tenant_id: @tenant_id}},
+                   1500
 
-    assert_receive {:telemetry, [:restdis_server, :rewarm, :evicted], _, meta}, 3000
-    assert meta.reason == :cold
+    assert_receive {:telemetry, [:restdis_server, :rewarm, :evicted], _,
+                    %{tenant_id: @tenant_id, reason: :cold}},
+                   3000
 
     :timer.sleep(50)
     assert :miss = Restdis.Cache.peek(@tenant_id, key)
@@ -110,7 +115,9 @@ defmodule RestdisServer.Rewarm.SchedulerTest do
     pid = ensure_scheduler()
     Scheduler.upsert(pid, wire_key, key, %{rewarm_s: 1, persist: true})
 
-    assert_receive {:telemetry, [:restdis_server, :rewarm, :refetch], _, _}, 1500
+    assert_receive {:telemetry, [:restdis_server, :rewarm, :refetch], _,
+                    %{tenant_id: @tenant_id}},
+                   1500
 
     refute_receive {:telemetry, [:restdis_server, :rewarm, :evicted], _,
                     %{tenant_id: @tenant_id}},
@@ -134,7 +141,7 @@ defmodule RestdisServer.Rewarm.SchedulerTest do
                     %{tenant_id: @tenant_id}},
                    300
 
-    assert Agent.get(agent, & &1) == 0
+    assert Agent.get(agent, &Map.get(&1, @tenant_id, 0)) == 0
   end
 
   test "(e) cold eviction also removes the QueryStore entry for the evicted key" do
@@ -149,9 +156,13 @@ defmodule RestdisServer.Rewarm.SchedulerTest do
     PolicyStore.put(@tenant_id, wire_key, %{rewarm_s: 1, persist: false})
     Rewarm.touch(@tenant_id, wire_key, key)
 
-    assert_receive {:telemetry, [:restdis_server, :rewarm, :refetch], _, _}, 1500
-    assert_receive {:telemetry, [:restdis_server, :rewarm, :evicted], _, meta}, 3000
-    assert meta.reason == :cold
+    assert_receive {:telemetry, [:restdis_server, :rewarm, :refetch], _,
+                    %{tenant_id: @tenant_id}},
+                   1500
+
+    assert_receive {:telemetry, [:restdis_server, :rewarm, :evicted], _,
+                    %{tenant_id: @tenant_id, reason: :cold}},
+                   3000
 
     :timer.sleep(50)
     assert QueryStore.get(@tenant_id, wire_key) == ""
@@ -207,8 +218,9 @@ defmodule RestdisServer.Rewarm.SchedulerTest do
     PolicyStore.put(@tenant_id, wire_key, %{rewarm_s: 1, persist: false})
     Rewarm.touch(@tenant_id, wire_key, key)
 
-    assert_receive {:telemetry, [:restdis_server, :rewarm, :error], _, meta}, 1500
-    assert meta.reason == :timeout
+    assert_receive {:telemetry, [:restdis_server, :rewarm, :error], _,
+                    %{tenant_id: @tenant_id, reason: :timeout}},
+                   1500
   end
 
   test "(i) touching an already-tracked key updates its policy instead of resetting it" do
