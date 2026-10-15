@@ -85,6 +85,7 @@ curl "http://localhost:4040/products?select=id,name" -H "SC-Cache: true"
 | `EXISTS <key>`                                                          | Check whether a key is cached.                                                       |
 | `PGRST.QUERY <path> [TTL <seconds>] [REWARM <seconds>]`                 | Fetch `<path>` from PostgREST, cache the result, and return its canonical cache key. |
 | `PGRST.POLICY <cache_key> [TTL <seconds>] [REWARM <seconds>] [PERSIST]` | Update an existing entry's TTL, rewarm interval, or persistence without re-fetching. |
+| `QUIT`                                                                  | Reply `OK` and close the connection.                                                 |
 
 ### HTTP proxy
 
