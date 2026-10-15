@@ -7,34 +7,51 @@
 defmodule Restdis.Bench.CacheHelper do
   @moduledoc false
 
-  @doc """
-  Starts the cache supervision tree pointed at a scratch `data_dir`, and
-  points config at the no-op stub origin and a nil replication transport so
-  benchmarks never touch a real PostgREST origin or Erlang distribution.
+  alias Restdis.Cache.InstanceConfig
+  alias Restdis.Cache.TenantSupervisor
 
-  Idempotent: safe to call once per script even though `mix run` loads the
-  whole `:restdis` application first.
+  @name Restdis.Cache
+
+  @doc "The cache instance name every benchmark runs against."
+  @spec name() :: atom()
+  def name, do: @name
+
+  @doc """
+  Starts `:restdis`'s dependencies and mounts the default cache instance
+  pointed at a scratch `data_dir` and the no-op stub origin, so benchmarks
+  never touch a real PostgREST origin.
+
+  Scripts run under `mix run --no-start`: a plain `mix run` boots every
+  umbrella app, and `restdis_server` mounts its own `Restdis.Cache` first,
+  which `Restdis.Cache.Supervisor.start_link/1` then returns unchanged,
+  ignoring the options given here. Extra `opts` (e.g. resource caps) are
+  passed through to the supervisor.
   """
-  @spec setup_app(String.t()) :: :ok
-  def setup_app(data_dir) do
+  @spec setup_app(String.t(), keyword()) :: :ok
+  def setup_app(data_dir, opts \\ []) do
+    {:ok, _apps} = Application.ensure_all_started(:restdis)
     File.rm_rf!(data_dir)
     File.mkdir_p!(data_dir)
 
-    Application.put_env(:restdis, :cache_data_dir, data_dir)
-    Application.put_env(:restdis, :origin, Restdis.Cache.Origin.Stub)
-    Application.put_env(:restdis, :replication_transport, nil)
+    opts =
+      Keyword.merge(
+        [name: @name, data_dir: data_dir, origin: Restdis.Cache.Origin.Stub],
+        opts
+      )
 
-    case Restdis.Cache.Supervisor.start_link([]) do
-      {:ok, _pid} -> :ok
-      {:error, {:already_started, _pid}} -> :ok
-    end
+    {:ok, _pid} = Restdis.Cache.Supervisor.start_link(opts)
+    :ok
   end
+
+  @doc "Overrides one resource cap (`:ets_cap_bytes`, `:disk_cap_bytes`) at runtime."
+  @spec put_cap(atom(), pos_integer()) :: :ok
+  def put_cap(field, value), do: InstanceConfig.put_field(@name, field, value)
 
   @doc "Starts and returns a freshly named tenant id, unique across calls."
   @spec fresh_tenant(String.t()) :: String.t()
   def fresh_tenant(prefix \\ "bench") do
     tenant_id = "#{prefix}#{System.unique_integer([:positive])}"
-    Restdis.Cache.TenantSupervisor.ensure_started(tenant_id)
+    TenantSupervisor.ensure_started(@name, tenant_id)
     tenant_id
   end
 
@@ -53,8 +70,4 @@ defmodule Restdis.Bench.CacheHelper do
   def rows(count, payload_bytes \\ 200) do
     Enum.map(1..count, &row(&1, payload_bytes))
   end
-
-  @doc "Reports a scalar measurement in the same shape as the CubDB bench."
-  @spec report(String.t(), term()) :: :ok
-  def report(label, value), do: IO.puts("#{label}: #{inspect(value)}")
 end

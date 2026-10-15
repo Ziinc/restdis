@@ -1,20 +1,21 @@
-# TenantSupervisor.ensure_started/1 benchmark: the fixed tax on every cache op.
+# TenantSupervisor.ensure_started/2 benchmark: the fixed tax on every cache op.
 #
-# `Restdis.Cache.get/put/delete/peek` all call `ensure_started/1`
+# `Restdis.Cache.get/put/delete/peek` all call `ensure_started/2`
 # unconditionally, on every invocation, even for a tenant that has been
-# running for hours. By design it never short-circuits on a `TenantRegistry`
-# lookup first — it always round-trips through
-# `DynamicSupervisor.start_child/2`, a `GenServer.call` to one supervisor
-# process shared by every tenant on the node
-# (`apps/restdis/lib/restdis/cache/tenant_supervisor.ex`; see its moduledoc
-# for the race that trade-off avoids). This measures that fixed per-op tax,
-# and whether the shared supervisor process becomes a contention point as
-# concurrent callers (across many different, already-started tenants)
-# increase.
+# running for hours. For an already-running tenant it short-circuits on a
+# lock-free `TenantRegistry` lookup of the tenant's `:reverse_index` process
+# and never reaches the `DynamicSupervisor` shared by every tenant on the
+# node (`apps/restdis/lib/restdis/cache/tenant_supervisor.ex`). This measures
+# that fixed per-op tax, and whether it stays flat as concurrent callers
+# (across many different, already-started tenants) increase.
+#
+# `tenant_ensure_started_bench.exs` times the same fast path by hand; this
+# one adds Benchee statistics across parallelism levels. `tenant_churn_bench.exs`
+# covers cold starts.
 #
 # Run with:
 #
-#     mix run apps/restdis/bench/tenant_supervisor_ensure_started_bench.exs
+#     mix run --no-start apps/restdis/bench/tenant_supervisor_ensure_started_bench.exs
 #
 # This is a standalone Benchee script (not an ExUnit test) and is not part
 # of `mix test`.
@@ -26,11 +27,12 @@ alias Restdis.Cache.TenantSupervisor
 
 H.setup_app(Path.join(System.tmp_dir!(), "restdis_bench_tenant_supervisor"))
 
+name = H.name()
 already_started_tenant = H.fresh_tenant("tsup_single")
 
 # A pool of distinct, already-started tenants so the concurrent benchmark
-# measures contention on the shared `TenantSupervisor` process itself, not
-# repeated no-op calls for a single tenant.
+# measures lookups spread across the registry, not repeated calls for a
+# single tenant.
 pool_size = 256
 tenant_pool = Enum.map(1..pool_size, fn _ -> H.fresh_tenant("tsup_pool") end)
 
@@ -40,10 +42,10 @@ Enum.each(concurrency_levels, fn n ->
   Benchee.run(
     %{
       "ensure_started (already-started tenant)" => fn ->
-        TenantSupervisor.ensure_started(already_started_tenant)
+        TenantSupervisor.ensure_started(name, already_started_tenant)
       end,
       "ensure_started (random already-started tenant from pool of #{pool_size})" => fn ->
-        TenantSupervisor.ensure_started(Enum.random(tenant_pool))
+        TenantSupervisor.ensure_started(name, Enum.random(tenant_pool))
       end
     },
     time: 2,
@@ -51,6 +53,6 @@ Enum.each(concurrency_levels, fn n ->
     memory_time: 0.5,
     parallel: n,
     print: [configuration: false],
-    title: "TenantSupervisor.ensure_started/1 at parallel=#{n}"
+    title: "TenantSupervisor.ensure_started/2 at parallel=#{n}"
   )
 end)

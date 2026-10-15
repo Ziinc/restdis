@@ -1,16 +1,21 @@
 # ReverseIndex.add/4 fan-out benchmark, driven through Restdis.Cache.put/4.
 #
 # `Cache.put/4` calls `index_value/4` (`apps/restdis/lib/restdis/cache.ex`),
-# which casts one `ReverseIndex.add/4` message *and* does two `:ets.insert/2`
-# calls into `:bag` tables *per primary key* in the cached value
-# (`apps/restdis/lib/restdis/cache/reverse_index.ex`). A cached response of
-# 1,000 rows means 1,000 casts for one `put`. This measures `Cache.put/4`
-# cost as a function of row count, isolating the reverse-index fan-out from
-# ordinary write cost (a `:raw` key with no rows indexes nothing).
+# which makes one synchronous `ReverseIndex.add/4` `GenServer.call` — two
+# `:ets.insert/2`s into `:bag` tables — *per primary key* in the cached value
+# (`apps/restdis/lib/restdis/cache/reverse_index.ex`), plus one
+# `add_list_key/4` cast for a list value. A cached response of 1,000 rows
+# means 1,000 round trips to the tenant's reverse index process for one
+# `put`. This measures `Cache.put/4` cost as a function of row count,
+# isolating the reverse-index fan-out from ordinary write cost (a scalar
+# value indexes nothing).
+#
+# `reverse_index_add_bench.exs` measures a single `add/4` call in isolation;
+# this one measures what that costs a whole `put`.
 #
 # Run with:
 #
-#     mix run apps/restdis/bench/reverse_index_fanout_bench.exs
+#     mix run --no-start apps/restdis/bench/reverse_index_fanout_bench.exs
 #
 # This is a standalone Benchee script (not an ExUnit test) and is not part
 # of `mix test`.

@@ -1,10 +1,10 @@
-# Restdis.Cache.get/2 benchmark: the composed L1 -> disk -> origin ladder.
+# Restdis.Cache.get/3 benchmark: the composed L1 -> disk -> origin ladder.
 #
-# `Cache.get/2` (`apps/restdis/lib/restdis/cache.ex`) is what every read
+# `Cache.get/3` (`apps/restdis/lib/restdis/cache.ex`) is what every read
 # command actually calls. Each call pays `TenantId.cast!/1` (a regex) and
-# `TenantSupervisor.ensure_started/1` (a call to the global dynamic
-# supervisor) before even reaching the cache layers. This measures the three
-# distinct arms callers hit in practice:
+# `TenantSupervisor.ensure_started/2` (a `Registry` lookup for an
+# already-running tenant) before even reaching the cache layers. This
+# measures the three distinct arms callers hit in practice:
 #
 #   * L1 hit        — QueryCache satisfies it directly
 #   * L1 miss, disk hit — falls through to DiskCache and promotes into L1
@@ -12,7 +12,7 @@
 #
 # Run with:
 #
-#     mix run apps/restdis/bench/cache_get_ladder_bench.exs
+#     mix run --no-start apps/restdis/bench/cache_get_ladder_bench.exs
 #
 # This is a standalone Benchee script (not an ExUnit test) and is not part
 # of `mix test`.
@@ -27,6 +27,7 @@ alias Restdis.Cache.QueryCache
 
 H.setup_app(Path.join(System.tmp_dir!(), "restdis_bench_cache_get_ladder"))
 
+name = H.name()
 tenant_id = H.fresh_tenant("ladder")
 value = H.rows(50)
 
@@ -35,7 +36,7 @@ Cache.put(tenant_id, l1_hit_key, value)
 
 # Present on disk but not (yet, or any more) promoted into the L1 ETS table.
 disk_hit_key = Key.build(:table, "disk_hit", %{})
-DiskCache.put(tenant_id, disk_hit_key, value)
+DiskCache.put(tenant_id, disk_hit_key, value, name: name)
 
 full_miss_key = Key.build(:table, "full_miss", %{})
 
@@ -46,7 +47,7 @@ Benchee.run(
       # Evict from L1 every iteration so this arm keeps exercising the disk
       # fallback + promotion path rather than degrading into an L1 hit after
       # the first call.
-      QueryCache.delete(tenant_id, disk_hit_key)
+      QueryCache.delete(name, tenant_id, disk_hit_key)
       Cache.get(tenant_id, disk_hit_key)
     end,
     "get (full miss, origin fetch)" => fn -> Cache.get(tenant_id, full_miss_key) end
@@ -55,5 +56,5 @@ Benchee.run(
   warmup: 1,
   memory_time: 0.5,
   print: [configuration: false],
-  title: "Restdis.Cache.get/2 read ladder"
+  title: "Restdis.Cache.get/3 read ladder"
 )
