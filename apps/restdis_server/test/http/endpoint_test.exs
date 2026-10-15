@@ -81,6 +81,36 @@ defmodule RestdisServer.HTTP.EndpointTest do
     assert Req.Response.get_header(resp2, "sc-cache") == ["HIT"]
   end
 
+  test "a hit on an entry without a rewarm interval reports sc-cache-rewarm: none" do
+    Req.Test.stub(RestdisServer.Finch, fn conn -> Req.Test.json(conn, [%{"id" => 3}]) end)
+    auth = [{"authorization", "Bearer sk_http"}]
+
+    Req.get(req(), url: "/pgrst/query?path=/norewarm", headers: auth, retry: false)
+    {:ok, resp} = Req.get(req(), url: "/pgrst/query?path=/norewarm", headers: auth, retry: false)
+
+    assert Req.Response.get_header(resp, "sc-cache-rewarm") == ["none"]
+  end
+
+  test "a hit on an entry with a rewarm interval reports sc-cache-rewarm: scheduled" do
+    Req.Test.stub(RestdisServer.Finch, fn conn -> Req.Test.json(conn, [%{"id" => 4}]) end)
+    auth = [{"authorization", "Bearer sk_http"}]
+    wire_key = Key.encode(Key.build(:table, "rewarmed", %{}))
+
+    Req.get(req(), url: "/pgrst/query?path=/rewarmed", headers: auth, retry: false)
+
+    Req.post(req(),
+      url: "/pgrst/policy",
+      headers: auth,
+      json: %{"key" => wire_key, "rewarm" => 30},
+      retry: false
+    )
+
+    {:ok, resp} = Req.get(req(), url: "/pgrst/query?path=/rewarmed", headers: auth, retry: false)
+
+    assert Req.Response.get_header(resp, "sc-cache") == ["HIT"]
+    assert Req.Response.get_header(resp, "sc-cache-rewarm") == ["scheduled"]
+  end
+
   test "/health returns 200" do
     {:ok, resp} = Req.get(req(), url: "/health", retry: false)
     assert resp.status == 200

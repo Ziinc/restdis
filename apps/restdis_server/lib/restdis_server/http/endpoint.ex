@@ -96,7 +96,10 @@ defmodule RestdisServer.HTTP.Endpoint do
               Rewarm.touch(tenant_id, wire_key, key)
 
               conn
-              |> CacheHeaders.put_cache_hit(ttl_remaining(tenant_id, key))
+              |> CacheHeaders.put_cache_hit(
+                ttl_remaining(tenant_id, key),
+                rewarm_header(tenant_id, wire_key)
+              )
               |> put_resp_content_type("application/json")
               |> send_resp(200, Jason.encode!(value))
 
@@ -202,6 +205,13 @@ defmodule RestdisServer.HTTP.Endpoint do
         %{count: 1},
         %{tenant_id: tenant_id}
       )
+    end
+  end
+
+  defp rewarm_header(tenant_id, wire_key) do
+    case PolicyStore.get(tenant_id, wire_key) do
+      %{rewarm_s: nil} -> "none"
+      %{rewarm_s: _} -> "scheduled"
     end
   end
 
