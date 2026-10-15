@@ -6,7 +6,7 @@ defmodule RestdisServer.Commands.Dispatcher do
   alias RestdisServer.Commands
   alias RestdisServer.RESP.Encoder
 
-  @noauth_commands ~w(PING AUTH QUIT)
+  @noauth_commands ~w(PING AUTH HELLO QUIT)
 
   @doc """
   Routes a parsed command to its handler, rejecting unauthenticated connections.
@@ -28,6 +28,7 @@ defmodule RestdisServer.Commands.Dispatcher do
 
   defp run(state, "PING", args), do: Commands.Ping.run(state, args)
   defp run(state, "AUTH", args), do: Commands.Auth.run(state, args)
+  defp run(state, "HELLO", args), do: Commands.Hello.run(state, args)
   defp run(state, "QUIT", args), do: Commands.Quit.run(state, args)
   defp run(state, "GET", args), do: Commands.Get.run(state, args)
   defp run(state, "SET", args), do: Commands.Set.run(state, args)

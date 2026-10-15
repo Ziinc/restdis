@@ -29,6 +29,10 @@ defmodule RestdisServer.RESP.EncoderTest do
     assert encoded == "*3\r\n$-1\r\n:7\r\n$2\r\nhi\r\n"
   end
 
+  test "array/1 encodes a nested list as a nested array" do
+    assert IO.iodata_to_binary(Encoder.array(["k", []])) == "*2\r\n$1\r\nk\r\n*0\r\n"
+  end
+
   test "array/1 encodes an empty list" do
     assert IO.iodata_to_binary(Encoder.array([])) == "*0\r\n"
   end

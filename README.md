@@ -130,6 +130,7 @@ curl "http://localhost:4040/pgrst/query?path=products%3Fselect%3Did%2Cname" \
 | `DEL <key>`                                                             | Remove a cached value.                                                               |
 | `TTL <key>`                                                             | Time remaining before a cached value expires.                                        |
 | `EXISTS <key>`                                                          | Check whether a key is cached.                                                       |
+| `HELLO [2] [AUTH <user> <key>]`                                         | Negotiate RESP2 and optionally authenticate. RESP3 gets `NOPROTO`.                   |
 | `PGRST.QUERY <path> [TTL <seconds>] [REWARM <seconds>]`                 | Fetch `<path>` from PostgREST, cache the result, and return its canonical cache key. |
 | `PGRST.POLICY <cache_key> [TTL <seconds>] [REWARM <seconds>] [PERSIST]` | Update an existing entry's TTL, rewarm interval, or persistence without re-fetching. |
 | `QUIT`                                                                  | Reply `OK` and close the connection.                                                 |
