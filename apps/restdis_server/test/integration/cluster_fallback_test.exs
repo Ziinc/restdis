@@ -82,7 +82,7 @@ defmodule RestdisServer.ClusterFallbackTest do
       )
 
     assert resp.status == 200
-    assert Req.Response.get_header(resp, "sc-cache") == ["BYPASS"]
+    assert Req.Response.get_header(resp, "rd-cache") == ["BYPASS"]
     assert resp.body == body
   end
 

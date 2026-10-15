@@ -149,9 +149,9 @@ Every route except `/health` and `/metrics` needs `Authorization: Bearer <api ke
 
 | Header            | Value                                                                        |
 | ----------------- | ---------------------------------------------------------------------------- |
-| `sc-cache`        | `MISS` (fetched from PostgREST), `HIT` (from cache), or `BYPASS` (fallback). |
-| `sc-cache-ttl`    | Seconds until the entry expires.                                             |
-| `sc-cache-rewarm` | On a hit, `scheduled` if the entry has a rewarm interval, otherwise `none`.  |
+| `rd-cache`        | `MISS` (fetched from PostgREST), `HIT` (from cache), or `BYPASS` (fallback). |
+| `rd-cache-ttl`    | Seconds until the entry expires.                                             |
+| `rd-cache-rewarm` | On a hit, `scheduled` if the entry has a rewarm interval, otherwise `none`.  |
 
 ```sh
 curl "http://localhost:4040/pgrst/query?path=products%3Fselect%3Did%2Cname" \
