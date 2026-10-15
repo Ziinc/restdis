@@ -25,7 +25,7 @@ defmodule RestdisServer.RESP.Handler do
       {:ok, command, rest} ->
         {reply, new_state} = Dispatcher.dispatch(state, command)
         ThousandIsland.Socket.send(socket, IO.iodata_to_binary(reply))
-        process_buffer(rest, socket, %{new_state | buffer: <<>>})
+        continue_or_close(rest, socket, %{new_state | buffer: <<>>})
 
       {:more, _rest} ->
         {:continue, %{state | buffer: buffer}}
@@ -36,4 +36,8 @@ defmodule RestdisServer.RESP.Handler do
         {:close, state}
     end
   end
+
+  # QUIT sets `close?`; anything pipelined after it is dropped, as in Redis.
+  defp continue_or_close(_rest, _socket, %{close?: true} = state), do: {:close, state}
+  defp continue_or_close(rest, socket, state), do: process_buffer(rest, socket, state)
 end
