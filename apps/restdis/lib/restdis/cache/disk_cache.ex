@@ -185,7 +185,7 @@ defmodule Restdis.Cache.DiskCache do
     store =
       FeoxDB.open!(
         path: Path.join(tenant_dir, @store_file),
-        # Preallocated sparse, so only blocks actually written use disk.
+        # Sparse file: only blocks actually written use disk.
         file_size: 2 * cap_bytes(name)
       )
 
@@ -302,9 +302,7 @@ defmodule Restdis.Cache.DiskCache do
     {:reply, :ok, drop_entry(state, key)}
   end
 
-  # Replaces `key`'s entry, keeping the byte tally and indexes in step. On a
-  # failed write (e.g. the store file is full) the key is dropped instead, so
-  # a stale value is never served after a put.
+  # On a failed write the key stays dropped, so a stale value is never served.
   defp write_entry(%{store: store} = state, key, {:v1, meta} = entry) do
     state = drop_entry(state, key)
 
@@ -438,8 +436,7 @@ defmodule Restdis.Cache.DiskCache do
     end
   end
 
-  # FeoxDB allocates each record in whole blocks, so a small entry still
-  # takes a full block on disk; round up so the cap tracks real disk use.
+  # FeoxDB allocates whole 4 KB blocks per record, so round up to track real disk use.
   defp entry_size_of(key, entry) do
     size = :erlang.external_size({key, entry}) + @record_overhead
     div(size + @block_size - 1, @block_size) * @block_size
