@@ -7,40 +7,14 @@ already use.**
 Restdis sits between your app and PostgREST. It keeps responses in memory and on disk, and
 answers repeat reads from memory instead of sending them back to Postgres.
 
-Most caches serve old data until a TTL runs out or someone clears them. Restdis reads the
+A TTL cache serves old data until the TTL runs out or someone clears it. Restdis reads the
 Postgres write-ahead log (WAL), the record of every row Postgres writes, so it sees each write
 as it lands. It then clears or refreshes only the entries that write touched. You write no
 invalidation code.
 
 Restdis speaks the Redis protocol and the [ElectricSQL](https://electric-sql.com) sync
-protocol. Point any Redis client at it, or any Electric client such as
-[TanStack DB](https://tanstack.com/db), and it works: no new library, no code changes.
-
-## What you get
-
-- **Use any Redis client.** Restdis serves the Redis protocol (RESP) and supports `GET`, `SET`,
-  `MGET`, `DEL`, `TTL`, `EXISTS`, `PING`, and `AUTH`.
-- **Or use plain HTTP.** Pass a PostgREST query path to Restdis's `/pgrst/query` endpoint and
-  get the cached response back.
-- **Keep a warm cache through restarts.** Each read checks memory (ETS) first, then a
-  per-tenant disk store (FeoxDB), then PostgREST.
-- **Never clear the cache by hand.** One WAL reader per cluster watches every Postgres write
-  and updates only the entries that write affects.
-- **Choose how entries stay fresh.** TTL mode expires entries and rewarms them on the next
-  read. Replication mode refreshes them in place and never expires them.
-- **Cache a PostgREST query from Redis.** `PGRST.QUERY` fetches and caches a query in one
-  command. `PGRST.POLICY` changes its TTL, rewarm interval, or persistence later.
-- **Mirror a whole table.** Replicate a PostgREST table as key/value pairs that the WAL keeps
-  current, for your hottest reads.
-- **Scale across nodes.** A consistent hash ring gives each tenant one owning node. Other nodes
-  forward to it, and fall back to PostgREST if it is down.
-- **Run Electric apps unchanged.** Restdis serves ElectricSQL's `GET /v1/shape` protocol.
-  Apps built on `@electric-sql/client`, `@electric-sql/react`, or
-  `@tanstack/electric-db-collection` work after you change one `url`. See
-  [Electric compatibility](#electric-compatibility) and [`ELECTRIC_PRD.md`](prds/ELECTRIC_PRD.md).
-- **Coming: the rest of Supabase [WIP].** The same cache and invalidation for Realtime,
-  Storage, Auth, and Edge Functions. See
-  [`SUPABASE_INTEGRATION_PRD.md`](prds/SUPABASE_INTEGRATION_PRD.md).
+protocol. Point any Redis client at it, or change the `url` of any Electric client such as
+[TanStack DB](https://tanstack.com/db). You keep the client library you have.
 
 ## See it work
 
@@ -50,29 +24,58 @@ re-recording steps: [`demos/videos`](demos/videos).
 
 ### supabase-js with TanStack Query
 
-An ordinary `supabase.from("products").select()` call inside `useQuery`. A small fetch adapter
-sends its reads to Restdis. The console under the app shows each request, its `sc-cache`
-header, and the response time. Repeat fetches are cache hits that Postgres never sees. A write
-from another service evicts the entry through the WAL, and the next fetch gets the new price.
+The app makes an ordinary `supabase.from("products").select()` call inside `useQuery`. A small
+fetch adapter sends its reads to Restdis. The console under the app shows each request, whether
+it hit the cache, and how long it took.
 
 ![supabase-js with TanStack Query demo](docs/demos/query.gif)
+
+Repeat fetches are cache hits that Postgres never sees. A write from another service evicts the
+entry through the WAL, and the next fetch gets the new price.
 
 ### TanStack DB over the Electric protocol
 
 Two TanStack DB clients sync the same shape from Restdis with
 `@tanstack/electric-db-collection`. The console shows each client's live poll held open on
-Restdis, and the inserts, updates and deletes each poll delivers. Another user inserts,
-renames, completes, bulk-inserts and deletes todos; both clients follow every change.
-Restdis reads each new or changed row once by primary key, and deletes need no read.
+Restdis, and the inserts, updates, and deletes each poll delivers.
 
 ![TanStack DB demo](docs/demos/db.gif)
+
+Another user inserts, renames, completes, bulk-inserts, and deletes todos. Both clients follow
+every change. Restdis reads each new or changed row once by primary key, and deletes need no
+read.
 
 ### Any Redis client
 
 ioredis, with its default settings, caches a PostgREST query with `PGRST.QUERY` and reads it
-with plain `GET`s. A write evicts the key, and one more query refreshes it.
+with plain `GET`s.
 
 ![Redis client demo](docs/demos/redis.gif)
+
+Each `GET` comes from Restdis memory. A write evicts the key, and one more query refreshes it.
+
+## What you get
+
+- **Let Postgres writes update the cache.** One WAL reader per cluster watches every Postgres
+  write and updates only the entries that write affects.
+- **Use any Redis client.** Restdis serves the Redis protocol (RESP) and supports `GET`, `SET`,
+  `MGET`, `DEL`, `TTL`, `EXISTS`, `PING`, and `AUTH`.
+- **Point Electric apps at Restdis.** Restdis serves ElectricSQL's `GET /v1/shape` protocol.
+  Apps built on `@electric-sql/client`, `@electric-sql/react`, or
+  `@tanstack/electric-db-collection` work after you change one `url`. See
+  [Electric compatibility](#electric-compatibility) and [`ELECTRIC_PRD.md`](prds/ELECTRIC_PRD.md).
+- **Or use plain HTTP.** Pass a PostgREST query path to Restdis's `/pgrst/query` endpoint and
+  get the cached response back.
+- **Choose how entries stay fresh.** TTL mode expires entries and rewarms them on the next
+  read. Replication mode refreshes them in place and never expires them.
+- **Keep a warm cache through restarts.** Entries live on disk as well as in memory, so a
+  restarted node reads them from disk instead of PostgREST.
+- **Cache a PostgREST query from Redis.** `PGRST.QUERY` fetches and caches a query in one
+  command. `PGRST.POLICY` changes its TTL, rewarm interval, or persistence later.
+- **Mirror a whole table.** Replicate a PostgREST table as key/value pairs that the WAL keeps
+  current, for your hottest reads.
+- **Scale across nodes.** A consistent hash ring gives each tenant one owning node. Other nodes
+  forward to it, and fall back to PostgREST if it is down.
 
 ## Quickstart
 
@@ -252,7 +255,7 @@ and fills the faster layers on the way back, so the next read stops earlier:
 **Restarts start warm.** ETS is empty after a restart, but the FeoxDB store is not: it reopens
 and rebuilds its index from the file. The first read of each key finds it on disk and copies it
 back into memory with its remaining TTL, without a trip to PostgREST. FeoxDB writes to disk in
-the background, so a hard crash can lose the most recent writes; those keys are simply fetched
+the background, so a hard crash can lose the most recent writes. Restdis fetches those keys
 from PostgREST again.
 
 **`ls` overstates disk use.** Each `store.feox` is created at twice the cap (1 GB by default) as
@@ -276,36 +279,32 @@ answered on whichever node receives the request, with no hop to the tenant's own
 
 Restdis serves ElectricSQL's shape-log protocol. Apps built on `@electric-sql/client`,
 `@electric-sql/react`, `@tanstack/electric-db-collection`, or `electric_client` (Hex) keep
-working when you point their `url` at Restdis. No dependency changes, no fork.
+working when you point their `url` at Restdis. You change no dependencies and fork nothing.
 
-- **`GET /v1/shape`** — takes `table`, `offset`, `handle`, `live`, `cursor`, `columns`,
-  `where`, `params`, `replica`, `live_sse`, and `log`, and returns the same message shapes and
-  `electric-*` headers Electric returns. Live updates are served by long-polling or
-  Server-Sent Events; concurrent requests for the same `(tenant, handle, offset)` are
-  collapsed into a single wait, so one Postgres write wakes every matching client with one
-  append.
-- **`DELETE /v1/shape`** — flushes a shape's log, gated by a per-tenant setting.
-- **Consistency** — the initial snapshot is read from PostgREST page by page and reconciled
-  against the WAL stream by LSN bracketing with idempotent operations, so no row is lost even
-  though Restdis (unlike Electric) has no direct, privileged Postgres connection for
-  snapshotting by default. A direct Postgres pool is supported per tenant for exact,
-  duplicate-free snapshots and `log=changes_only`.
-- **Filtering** — `where` clauses are parsed with a real SQL parser and evaluated against the
-  documented subset Electric supports (comparisons, logical/arithmetic/bitwise operators,
-  `LIKE`/`ILIKE`, array operators, `IN`, `BETWEEN`, a handful of functions, and constrained
-  `IN (subquery)` forms). Anything outside that subset is rejected with `400` at subscribe
-  time — Restdis never silently serves a shape it can't filter correctly.
-- **Retention** — each shape keeps a configurable number of recent operations instead of an
-  unbounded compacted log. A client resuming below that window gets a `409` with a new
-  handle, which is the same recovery path Electric clients already implement, so this is
-  observable but not incompatible.
-- **Authentication** — Electric ships no authentication of its own, so a normal Electric
-  deployment needs a hand-built proxy in front of it. Restdis reuses its existing per-tenant
-  API-key authentication instead, with two modes: **gatekeeper**, where tenant configuration
-  defines each shape by name and the client sends only protocol parameters (the default), and
-  **open**, where the client supplies the shape definition within a configured column
-  allow-list.
-
+- **`GET /v1/shape`** takes `table`, `offset`, `handle`, `live`, `cursor`, `columns`, `where`,
+  `params`, `replica`, `live_sse`, and `log`. It returns the same messages and `electric-*`
+  headers Electric returns. Live updates arrive by long-polling or Server-Sent Events. Restdis
+  merges concurrent requests for the same `(tenant, handle, offset)` into one wait, so one
+  Postgres write wakes every matching client with one append.
+- **`DELETE /v1/shape`** flushes a shape's log. A per-tenant setting turns it on.
+- **Consistency.** Restdis reads the first snapshot from PostgREST page by page. It reconciles
+  that snapshot with the WAL stream by LSN bracketing. Each operation is idempotent, so no row
+  is lost. Electric snapshots over a direct, privileged Postgres connection, and Restdis has
+  none by default. Give a tenant a direct Postgres pool for exact, duplicate-free snapshots and
+  for `log=changes_only`.
+- **Filtering.** Restdis parses `where` clauses with a real SQL parser. It evaluates the subset that
+  Electric documents: comparisons, logical, arithmetic, and bitwise operators, `LIKE` and
+  `ILIKE`, array operators, `IN`, `BETWEEN`, a handful of functions, and some `IN (subquery)`
+  forms. It rejects anything outside that subset with a `400` when the client subscribes. It
+  never serves a shape it can't filter correctly.
+- **Retention.** Each shape keeps a configurable number of recent operations, not an unbounded
+  compacted log. A client that resumes from before that window gets a `409` with a new handle.
+  Electric clients already recover from a `409` this way, so the difference breaks nothing.
+- **Authentication.** Electric ships no authentication, so a normal Electric deployment needs a
+  hand-built proxy in front of it. Restdis uses its per-tenant API keys instead, in one of two
+  modes. In **gatekeeper** mode, the default, tenant configuration defines each shape by name
+  and the client sends only protocol parameters. In **open** mode, the client supplies the
+  shape definition within a configured column allow-list.
 
 ### Examples
 
@@ -341,7 +340,9 @@ times out, exactly as it would against a real Electric server. In **open** mode
 
 ## Learn more
 
-- [`docs/self-hosting.md`](docs/self-hosting.md) — environment variable reference.
-- [`PRD.md`](prds/PRD.md) — scope, architecture, and design decisions.
-- [`DEVELOPMENT.md`](DEVELOPMENT.md) — building the Docker image, running the release, and
+- [`docs/self-hosting.md`](docs/self-hosting.md): environment variable reference.
+- [`PRD.md`](prds/PRD.md): scope, architecture, and design decisions.
+- [`DEVELOPMENT.md`](DEVELOPMENT.md): building the Docker image, running the release, and
   local development setup.
+- [`SUPABASE_INTEGRATION_PRD.md`](prds/SUPABASE_INTEGRATION_PRD.md): planned, not built yet.
+  The same cache and invalidation for Realtime, Storage, Auth, and Edge Functions.
