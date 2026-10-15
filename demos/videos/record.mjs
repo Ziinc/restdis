@@ -61,7 +61,7 @@ const DEMOS = {
     const app = page.frameLocator("#app");
     const refetch = () => app.locator("#refetch").click();
 
-    await caption("A stock TanStack Query app. useQuery points at Restdis instead of PostgREST.");
+    await caption("supabase-js inside TanStack Query. A fetch adapter sends its reads through Restdis.");
     await sleep(3500);
     await caption("1 · First fetch: cache MISS. Restdis asks PostgREST, and Postgres runs one SELECT.");
     await sleep(4000);
@@ -83,9 +83,9 @@ const DEMOS = {
       await sleep(1000);
     }
     await sleep(1500);
-    const fetches = await app.locator(".log tbody tr").count();
+    const fetches = await app.locator("#console .req.settled").count();
     const { reads } = await counts(page);
-    await caption(`${fetches} fetches, ${plural(reads, "SELECT")} in Postgres. The app has no cache-busting code.`);
+    await caption(`${fetches} fetches, ${plural(reads, "SELECT")} in Postgres. The app has no cache-invalidation code.`);
     await sleep(4500);
   },
 

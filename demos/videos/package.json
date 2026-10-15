@@ -10,6 +10,7 @@
     "record": "node record.mjs"
   },
   "dependencies": {
+    "@supabase/supabase-js": "2.117.3",
     "@tanstack/electric-db-collection": "0.6.1",
     "@tanstack/react-db": "0.5.10",
     "@tanstack/react-query": "5.104.3",

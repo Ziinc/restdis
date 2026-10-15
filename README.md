@@ -48,13 +48,14 @@ Each video runs a stock client on the left. On the right are the Restdis request
 Postgres statement log, so you can count which reads reach the database. Source and
 re-recording steps: [`demos/videos`](demos/videos).
 
-### TanStack Query over HTTP
+### supabase-js with TanStack Query
 
-`useQuery` reads through Restdis. Repeat fetches are cache hits that Postgres never sees. A
-write from another service evicts the entry through the WAL, and the next fetch gets the new
-price.
+An ordinary `supabase.from("products").select()` call inside `useQuery`. A small fetch adapter
+sends its reads to Restdis. The console under the app shows each request, its `sc-cache`
+header, and the response time. Repeat fetches are cache hits that Postgres never sees. A write
+from another service evicts the entry through the WAL, and the next fetch gets the new price.
 
-![TanStack Query demo](docs/demos/query.gif)
+![supabase-js with TanStack Query demo](docs/demos/query.gif)
 
 [MP4](docs/demos/query.mp4)
 
@@ -62,7 +63,7 @@ price.
 
 A TanStack DB collection syncs from Restdis with `@tanstack/electric-db-collection`. After one
 snapshot, each write reaches the browser through a live long-poll and a single primary-key
-read.
+read. The console shows each shape request staying open until a write releases it.
 
 ![TanStack DB demo](docs/demos/db.gif)
 

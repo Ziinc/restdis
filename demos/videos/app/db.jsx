@@ -1,7 +1,9 @@
 // Demo 2: a TanStack DB app syncing through @tanstack/electric-db-collection.
 // It is the stock Electric setup; only shapeOptions.url points at Restdis.
+import "./console.js";
 import { electricCollectionOptions } from "@tanstack/electric-db-collection";
 import { createCollection, eq, useLiveQuery } from "@tanstack/react-db";
+import { useEffect } from "react";
 import { createRoot } from "react-dom/client";
 
 const RESTDIS = new URL("/restdis", location.origin).href;
@@ -22,8 +24,9 @@ const todos = createCollection(
 
 // Another user writing straight to Postgres (through PostgREST). Restdis
 // reads the write from the WAL and pushes it to every open shape.
+// It uses window.rawFetch so it stays out of this app's console.
 const write = (method, path, body) =>
-  fetch(`${POSTGREST}/${path}`, {
+  window.rawFetch(`${POSTGREST}/${path}`, {
     method,
     headers: { "content-type": "application/json" },
     body: JSON.stringify(body),
@@ -37,6 +40,10 @@ function App() {
     q.from({ todo: todos }).where(({ todo }) => eq(todo.done, false))
   );
   const nextId = Math.max(0, ...all.map((t) => t.id)) + 1;
+
+  useEffect(() => {
+    if (all.length) console.log(`useLiveQuery: ${all.length} todos, ${open.length} open`);
+  }, [all.length, open.length]);
 
   return (
     <div className="app">

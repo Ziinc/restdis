@@ -19,3 +19,22 @@ th { color: #6b7280; font-weight: 600; font-size: 13px; }
 .flash { animation: flash 1.2s ease-out; }
 @keyframes flash { from { background: #3ecf8e55; } to { background: transparent; } }
 .done { color: #9ca3af; text-decoration: line-through; }
+html, body { margin: 0; height: 100%; }
+body { display: flex; flex-direction: column; }
+#root { flex: 1; overflow: auto; }
+#console { height: 42%; display: flex; flex-direction: column; border-top: 1px solid #d0d7de; background: #1f2329; color: #d7dae0; font: 12.5px/1.55 ui-monospace, Menlo, monospace; }
+#console .console-bar { display: flex; gap: 14px; align-items: center; padding: 6px 12px; background: #2a2f37; border-bottom: 1px solid #3a404a; }
+#console .tab { color: #fff; border-bottom: 2px solid #3ecf8e; padding-bottom: 2px; font-weight: 600; }
+#console .hint { color: #8b93a1; }
+#console .console-body { flex: 1; overflow: auto; padding: 4px 0; }
+#console .line { display: flex; gap: 6px; padding: 2px 12px; border-bottom: 1px solid #2a2f37; white-space: nowrap; overflow: hidden; }
+#console .line.req { color: #c9d1d9; }
+#console .line.log { color: #9ece6a; }
+#console .dir { color: #7aa2f7; }
+#console .result { margin-left: auto; padding-left: 12px; display: flex; gap: 6px; align-items: center; flex-shrink: 0; }
+#console .pending { color: #f5a524; }
+#console .t { min-width: 64px; text-align: right; color: #e6e6e6; }
+#console .status.s2 { color: #3ecf8e; }
+#console .status.s4, #console .status.s5, #console .error { color: #f7768e; }
+#console .line > b { color: #fff; }
+#console .url { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
