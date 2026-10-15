@@ -140,16 +140,4 @@ defmodule Restdis.Cache.PersistTest do
 
     assert 1 = Restdis.Cache.persist_count(tenant_id)
   end
-
-  test "legacy un-wrapped disk values still read correctly", %{tenant_id: tenant_id} do
-    key = Key.build(:table, "legacy", %{})
-    raw_value = %{"id" => 99, "name" => "old"}
-
-    disk_cache_pid = TenantRegistry.whereis(Restdis.Cache, tenant_id, :disk_cache)
-    state = :sys.get_state(disk_cache_pid)
-    cubdb = state.cubdb
-    :ok = CubDB.put(cubdb, key, raw_value)
-
-    assert {:ok, ^raw_value} = Restdis.Cache.peek(tenant_id, key)
-  end
 end

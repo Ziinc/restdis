@@ -28,11 +28,13 @@ pause() {
   fi
 }
 
+# The PostgREST query is URL-encoded as a whole, so its own `&` and `=` stay
+# inside the `path` parameter instead of becoming parameters of /pgrst/query.
 pgrst_query() {
-  path="$(printf '%s' "$1" | sed "s/ /%20/g")"
-  curl -sS -w '\n  status=%{http_code} time=%{time_total}s\n' \
+  curl -sS -G -w '\n  status=%{http_code} time=%{time_total}s\n' \
     -H "authorization: Bearer $API_KEY" \
-    "$RESTDIS_URL/pgrst/query?path=$path"
+    --data-urlencode "path=$1" \
+    "$RESTDIS_URL/pgrst/query"
 }
 
 psql_demo() {
@@ -50,6 +52,13 @@ if [ "${1:-}" != "--no-up" ]; then
   done
   pause 3
 fi
+
+# seed.sql's tenant rows no-op at initdb time, before Restdis has created its
+# control-plane tables. Re-apply it now that Restdis has migrated; it is
+# idempotent.
+docker compose exec -T -e PGOPTIONS="-c client_min_messages=warning" db \
+  psql -U postgres -q -v ON_ERROR_STOP=1 \
+  -f /docker-entrypoint-initdb.d/10-seed.sql > /dev/null
 
 bold "=== Restdis + a real Supabase stack ==="
 note "restdis:  $RESTDIS_URL"
@@ -71,7 +80,7 @@ curl -sS -w '\n  status=%{http_code} time=%{time_total}s\n' "$PGRST_URL/widgets?
 pause
 
 step "2. The same query through Restdis: first request is a cache MISS"
-note "curl \"$RESTDIS_URL/pgrst/query?path=widgets%3Fselect=id,name%26order=id\""
+note "curl -G \"$RESTDIS_URL/pgrst/query\" --data-urlencode \"path=widgets?select=id,name&order=id\""
 pgrst_query "widgets?select=id,name&order=id"
 note "watch the response headers/logs: this one round-tripped to PostgREST"
 pause

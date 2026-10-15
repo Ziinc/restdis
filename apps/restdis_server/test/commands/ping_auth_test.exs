@@ -50,6 +50,14 @@ defmodule RestdisServer.Commands.PingAuthTest do
     end
   end
 
+  describe "QUIT" do
+    test "answers OK before auth and marks the connection for closing" do
+      {reply, state} = Dispatcher.dispatch(unauthed_state(), ["QUIT"])
+      assert IO.iodata_to_binary(reply) == "+OK\r\n"
+      assert state.close? == true
+    end
+  end
+
   describe "command gating" do
     test "GET returns NOAUTH before auth" do
       wire_key = "pgrst:t:users:12345"

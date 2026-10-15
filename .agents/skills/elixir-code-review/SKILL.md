@@ -24,7 +24,7 @@ Run each dimension below only on changed lines, unless a dimension says otherwis
    - Bounded contexts are umbrella apps: `restdis`, `restdis_server`, `restdis_buster`, `restdis_replicator`, `restdis_repo`, `restdis_electric`.
    - Cross-app calls go through the owning app's public API only. Flag any reach into another app's internal modules.
    - `restdis` must never reference umbrella modules. Run `mix check.boundary`; don't just eyeball it.
-   - Domain modules (pure functions, structs, typespecs) must not depend on infrastructure modules (ETS, CubDB, Postgres, HTTP, RESP).
+   - Domain modules (pure functions, structs, typespecs) must not depend on infrastructure modules (ETS, FeoxDB, Postgres, HTTP, RESP).
    - Ubiquitous language: flag synonyms for PRD terms (`tenant`, `cache_key`, `reverse_index`, `rewarm`, `persist`, `replication mode`, `TTL mode`, `query_cache`, `disk_cache`, `wal_tailer`, `wal_fanout`). Example: "bust" for "invalidate" is wrong.
 3. **TDD adherence.**
    - Every new or changed function or GenServer callback needs a preceding or co-located test. Flag production diffs with no matching test diff.
@@ -69,7 +69,7 @@ False positives — do not report:
 Every finding is one sentence, stated as an assertion, no vague verbs ("improve", "clean up", "handle edge cases"). State the rule broken and the fix, nothing else. Cite `file:line`.
 
 Bad: "Consider improving error handling here."
-Good: "`Cache.put/3` swallows `{:error, _}` from `CubDB.put/3` instead of propagating it (file.ex:42)."
+Good: "`Cache.put/3` swallows `{:error, _}` from `FeoxDB.Term.put/4` instead of propagating it (file.ex:42)."
 
 ## 6. Report
 

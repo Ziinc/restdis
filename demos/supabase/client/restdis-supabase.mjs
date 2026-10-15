@@ -79,8 +79,8 @@ async function fetchThroughRestdis(restdis, table, columns, cache) {
     intercepted: true,
     via: "restdis",
     cache,
-    cacheStatus: res.headers.get("sc-cache"),
-    cacheTtlRemaining: res.headers.get("sc-cache-ttl"),
+    cacheStatus: res.headers.get("rd-cache"),
+    cacheTtlRemaining: res.headers.get("rd-cache-ttl"),
   };
 
   if (!res.ok) {

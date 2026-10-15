@@ -1,8 +1,11 @@
 defmodule Restdis.Cache.InvalidateListsTest do
   use ExUnit.Case, async: false
 
+  alias Restdis.Cache.HotCache
   alias Restdis.Cache.Key
   alias Restdis.Cache.TenantSupervisor
+  alias Restdis.Cache.TestUtils
+  alias Restdis.Cache.TestUtils.RecordingHotCacheTransport
 
   setup do
     tenant_id = "il_#{System.unique_integer([:positive])}"
@@ -24,6 +27,30 @@ defmodule Restdis.Cache.InvalidateListsTest do
 
     assert :miss == Restdis.Cache.peek(t, list_key)
     assert {:ok, _} = Restdis.Cache.peek(t, single_key)
+  end
+
+  test "invalidate_lists/2 removes the list key from the hot cache and gossips the delete", %{
+    tenant_id: t
+  } do
+    previous_transport = Application.get_env(:restdis, :hot_cache_transport)
+    TestUtils.put_hot_cache_transport(RecordingHotCacheTransport)
+    TestUtils.capture_hot_cache(self())
+
+    on_exit(fn ->
+      TestUtils.stop_capturing_hot_cache()
+      TestUtils.put_hot_cache_transport(previous_transport)
+      HotCache.flush()
+    end)
+
+    list_key = Key.build(:table, "hot", %{})
+    rows = [%{"id" => 1}]
+    Restdis.Cache.put(t, list_key, rows, primary_keys: [1])
+    HotCache.observe(t, list_key, rows)
+
+    Restdis.Cache.invalidate_lists(t, "hot")
+
+    assert :miss == HotCache.get(t, list_key)
+    assert_receive {:gossiped, {:sc_hot_cache_delete, ^t, ^list_key}}, 500
   end
 
   test "invalidate_lists/2 does not affect list keys from a different table", %{tenant_id: t} do

@@ -3,10 +3,11 @@
 ## Docker Compose
 
 [`docker-compose.yml`](../docker-compose.yml) runs Restdis alongside a
-logical-replication-enabled Postgres:
+logical-replication-enabled Postgres. The release image sits behind the `release` profile; name the services so the
+mix-based `app` dev service, which binds the same ports, stays down:
 
 ```sh
-docker compose up --build
+docker compose --profile release up --build db restdis
 ```
 
 Use it as a reference for wiring up your own deployment — the Postgres service configuration,
@@ -26,7 +27,7 @@ Restdis is configured entirely through environment variables.
 | `RESP_PORT`                        | `6380`                   | Redis RESP port                                                               |
 | `RESP_LISTEN_IP`                   | `0.0.0.0`                | RESP bind address (`:loopback` outside `:prod`)                               |
 | `POOL_SIZE`                        | `10`                     | Repo pool size                                                                |
-| `CACHE_DATA_DIR`                   | `/var/lib/restdis/cache` | CubDB disk cache root (mount a volume here)                                   |
+| `CACHE_DATA_DIR`                   | `/var/lib/restdis/cache` | FeoxDB disk cache root (mount a volume here)                                  |
 | `WAL_SLOT_NAME`                    | `restdis_slot`           | Replication slot name                                                         |
 | `WAL_PUBLICATION_NAME`             | `restdis_pub`            | Publication name                                                              |
 | `MIGRATE_ON_BOOT`                  | `true`                   | Run migrations before starting the release                                    |

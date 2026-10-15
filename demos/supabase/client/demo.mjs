@@ -14,7 +14,7 @@ function logResult(label, result) {
   console.log(`\n${label}`);
   if (result.intercepted) {
     console.log(`  intercepted by: ${result.via} (cache=${result.cache})`);
-    console.log(`  sc-cache: ${result.cacheStatus}, sc-cache-ttl: ${result.cacheTtlRemaining}`);
+    console.log(`  rd-cache: ${result.cacheStatus}, rd-cache-ttl: ${result.cacheTtlRemaining}`);
   } else {
     console.log("  not intercepted: went straight to the real client");
   }

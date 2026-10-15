@@ -192,7 +192,7 @@ are its documented environment variables.
 | Electric setting | Purpose | Restdis equivalent |
 | --- | --- | --- |
 | `ELECTRIC_DATABASE_URL` | Postgres connection Electric replicates from | `DATABASE_URL` (the control-plane/replication connection, `config/runtime.exs`) plus, per tenant, `pgrst_base_url`/`pgrst_api_key` (snapshot reads) and optionally `direct_pg_url` (`log=changes_only` snapshots and direct-Postgres reads) on the `tenants` table |
-| `ELECTRIC_STORAGE_DIR` | Where Electric persists shape logs on disk | No single directory: shape logs share Restdis's existing cache storage layer (CubDB today, per `prds/ELECTRIC_PRD.md`'s "How we store the shape log"), rooted at `CACHE_DATA_DIR` |
+| `ELECTRIC_STORAGE_DIR` | Where Electric persists shape logs on disk | No single directory: shape logs share Restdis's existing cache storage layer (FeoxDB today, per `prds/ELECTRIC_PRD.md`'s "How we store the shape log"), rooted at `CACHE_DATA_DIR` |
 | `ELECTRIC_MAX_SHAPES` (or an equivalent flat limit) | Caps shape count for the one Electric instance | Per tenant `max_shapes` column on `tenants`, enforced by `RestdisElectric.Limits.check_shapes/1` and returned as a `429` |
 | A per-instance limit on total log storage | Caps disk use for the one Electric instance | Per tenant `max_log_bytes` column on `tenants`, enforced by `RestdisElectric.Limits.check_log_bytes/3` and returned as a `429` |
 | A per-instance limit on concurrent long-polling clients | Caps waiting connections for the one Electric instance | Per tenant `max_waiting_clients` column on `tenants`, enforced by `RestdisElectric.Limits.enter_wait/1` and returned as a `429` |

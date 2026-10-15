@@ -4,7 +4,7 @@
 # per-tenant byte cap by evicting the least-recently-used entry whenever a
 # `put` pushes the tenant over its cap. Before the ordered-by-access index
 # was added, finding that LRU entry required a full scan of the tenant's
-# table (an `:ets.foldl` for `QueryCache`, a full `CubDB.select` for
+# table (an `:ets.foldl` for `QueryCache`, a full store scan for
 # `DiskCache`) on *every* evicted key, making sustained eviction O(n) per
 # put and O(n·k) overall for k evictions.
 #
@@ -79,7 +79,7 @@ Enum.each(volumes, fn n ->
   Enum.each(keys, fn key -> DiskCache.put(tenant_id, key, value) end)
 
   bytes = DiskCache.disk_size_bytes(tenant_id)
-  Application.put_env(:restdis, :cubdb_cap_bytes, bytes)
+  Application.put_env(:restdis, :disk_cap_bytes, bytes)
 
   extra_keys =
     for i <- (n + 1)..(n + puts_per_measurement),
@@ -90,7 +90,7 @@ Enum.each(volumes, fn n ->
       Enum.each(extra_keys, fn key -> DiskCache.put(tenant_id, key, value) end)
     end)
 
-  Application.delete_env(:restdis, :cubdb_cap_bytes)
+  Application.delete_env(:restdis, :disk_cap_bytes)
   Restdis.Cache.flush_tenant(tenant_id)
 
   avg_us = time_us / puts_per_measurement

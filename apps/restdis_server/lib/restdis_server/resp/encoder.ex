@@ -32,7 +32,7 @@ defmodule RestdisServer.RESP.Encoder do
   end
 
   @doc """
-  Encodes a RESP array of bulk strings, integers and nils.
+  Encodes a RESP array of bulk strings, integers, nils and nested arrays.
   """
   @spec array(list()) :: iodata()
   def array(items) do
@@ -43,4 +43,5 @@ defmodule RestdisServer.RESP.Encoder do
   defp encode_item(nil), do: bulk_string(nil)
   defp encode_item(n) when is_integer(n), do: integer(n)
   defp encode_item(bin) when is_binary(bin), do: bulk_string(bin)
+  defp encode_item(list) when is_list(list), do: array(list)
 end

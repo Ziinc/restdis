@@ -9,6 +9,7 @@ defmodule Restdis.Cache.TestUtils do
 
   @target_key :sc_test_replication_target
   @hot_cache_target_key :sc_test_hot_cache_target
+  @gossip_target_key :sc_test_gossip_target
 
   @spec start_tenant(String.t()) :: String.t()
   def start_tenant(prefix) do
@@ -77,7 +78,26 @@ defmodule Restdis.Cache.TestUtils do
   end
 
   @spec put_hot_cache_transport(module() | nil) :: :ok
+  def put_hot_cache_transport(nil), do: Application.delete_env(:restdis, :hot_cache_transport)
+
   def put_hot_cache_transport(transport) do
     Application.put_env(:restdis, :hot_cache_transport, transport)
+  end
+
+  @spec capture_gossip(pid()) :: :ok
+  def capture_gossip(pid) do
+    :persistent_term.put(@gossip_target_key, pid)
+    :ok
+  end
+
+  @spec stop_capturing_gossip() :: :ok
+  def stop_capturing_gossip do
+    :persistent_term.erase(@gossip_target_key)
+    :ok
+  end
+
+  @spec gossip_target() :: pid() | nil
+  def gossip_target do
+    :persistent_term.get(@gossip_target_key, nil)
   end
 end

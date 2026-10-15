@@ -26,8 +26,7 @@ defmodule RestdisBuster.Worker.Supervisor do
   @coalesce_table :restdis_buster_coalesce
 
   @infra_schema "public"
-  @tenants_table "tenants"
-  @table_config_table "tenant_table_config"
+  @infra_tables ~w(tenants api_keys shape_definitions tenant_table_config)
 
   @doc """
   Returns the name of the ETS table holding per-tenant semaphores.
@@ -77,11 +76,8 @@ defmodule RestdisBuster.Worker.Supervisor do
   def start_worker(event, runner \\ &RestdisBuster.Worker.run/1)
 
   # Infra tables and DDL messages bypass backpressure (low volume).
-  def start_worker(%Event{schema: @infra_schema, table: @tenants_table} = event, runner) do
-    spawn_unmetered(event, runner)
-  end
-
-  def start_worker(%Event{schema: @infra_schema, table: @table_config_table} = event, runner) do
+  def start_worker(%Event{schema: @infra_schema, table: table} = event, runner)
+      when table in @infra_tables do
     spawn_unmetered(event, runner)
   end
 

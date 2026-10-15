@@ -3,7 +3,7 @@ defmodule Restdis.Cache.Cluster.Migration do
   Hands tenant aggregates over to their new owner after a rebalance (PRD Phase 6, step 4).
 
   A tenant whose ring position moved to another node ships its `persist` entries
-  to that node and then drops its local ETS table and CubDB instance. Non-persist
+  to that node and then drops its local ETS table and FeoxDB store. Non-persist
   entries are not migrated: they are re-fetched from the origin on the new owner.
 
   Entries are shipped with a synchronous `:erpc.call/5` and the local copy is

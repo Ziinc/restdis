@@ -53,7 +53,7 @@ Two custom commands extend the protocol:
 - `PGRST.QUERY <path> [TTL <seconds>] [REWARM <seconds>]` — fetches from PostgREST, caches the result, returns the canonical cache key.
 - `PGRST.POLICY <cache_key> [TTL <seconds>] [REWARM <seconds>] [PERSIST]` — updates cache policy on an existing entry without re-fetching.
 
-Both are also reachable over the HTTP endpoint via `SC-Cache`, `SC-Cache-TTL`, and `SC-Cache-Rewarm` headers.
+Both are also reachable over the HTTP endpoint via `RD-Cache`, `RD-Cache-TTL`, and `RD-Cache-Rewarm` headers.
 
 `PERSIST` on a key extends its TTL to the tenant's `max_ttl_s` ceiling (rather than clearing it entirely, since every entry is still subject to the disk cache's own eviction/cap accounting) and writes it through to disk.
 
