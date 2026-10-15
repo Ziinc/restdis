@@ -19,8 +19,8 @@ defmodule RestdisServer.HTTP.Plug.CacheHeaders do
   @spec put_cache_miss(Plug.Conn.t(), pos_integer()) :: Plug.Conn.t()
   def put_cache_miss(conn, ttl_s) do
     conn
-    |> put_resp_header("sc-cache", "MISS")
-    |> put_resp_header("sc-cache-ttl", Integer.to_string(ttl_s))
+    |> put_resp_header("rd-cache", "MISS")
+    |> put_resp_header("rd-cache-ttl", Integer.to_string(ttl_s))
   end
 
   @doc """
@@ -28,7 +28,7 @@ defmodule RestdisServer.HTTP.Plug.CacheHeaders do
   """
   @spec put_cache_bypass(Plug.Conn.t()) :: Plug.Conn.t()
   def put_cache_bypass(conn) do
-    put_resp_header(conn, "sc-cache", "BYPASS")
+    put_resp_header(conn, "rd-cache", "BYPASS")
   end
 
   @doc """
@@ -37,9 +37,9 @@ defmodule RestdisServer.HTTP.Plug.CacheHeaders do
   @spec put_cache_hit(Plug.Conn.t(), non_neg_integer(), String.t()) :: Plug.Conn.t()
   def put_cache_hit(conn, ttl_remaining_s, rewarm \\ "none") do
     conn
-    |> put_resp_header("sc-cache", "HIT")
-    |> put_resp_header("sc-cache-ttl", Integer.to_string(ttl_remaining_s))
-    |> put_resp_header("sc-cache-rewarm", rewarm)
+    |> put_resp_header("rd-cache", "HIT")
+    |> put_resp_header("rd-cache-ttl", Integer.to_string(ttl_remaining_s))
+    |> put_resp_header("rd-cache-rewarm", rewarm)
   end
 
   @doc """
@@ -48,7 +48,7 @@ defmodule RestdisServer.HTTP.Plug.CacheHeaders do
   @spec put_policy_ok(Plug.Conn.t(), pos_integer()) :: Plug.Conn.t()
   def put_policy_ok(conn, ttl_s) do
     conn
-    |> put_resp_header("sc-cache-ttl", Integer.to_string(ttl_s))
-    |> put_resp_header("sc-cache-rewarm", "deferred")
+    |> put_resp_header("rd-cache-ttl", Integer.to_string(ttl_s))
+    |> put_resp_header("rd-cache-rewarm", "deferred")
   end
 end
