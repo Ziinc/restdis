@@ -50,18 +50,19 @@ Build the image and run it against any Postgres with logical replication turned 
 ```sh
 docker build -t restdis .
 docker run --rm \
-  -e DATABASE_URL=postgres://postgres:postgres@localhost:5432/restdis_dev \
+  --add-host=host.docker.internal:host-gateway \
+  -e DATABASE_URL=postgres://postgres:postgres@host.docker.internal:5432/restdis_dev \
   -e RELEASE_COOKIE=some_secret_cookie \
   -p 4040:4040 -p 6380:6380 \
   restdis
 ```
 
-Restdis creates its own tables on boot. Then register a tenant, the PostgREST it fronts, and an
-API key for it:
+`host.docker.internal` is how the container reaches services on your machine. Restdis creates
+its own tables on boot. Then register a tenant, the PostgREST it fronts, and an API key for it:
 
 ```sql
 INSERT INTO tenants (tenant_id, pgrst_base_url, pgrst_api_key, inserted_at, updated_at)
-VALUES ('my-tenant', 'http://localhost:3000', '<postgrest-key>', now(), now());
+VALUES ('my-tenant', 'http://host.docker.internal:3000', '<postgrest-key>', now(), now());
 
 INSERT INTO api_keys (api_key, tenant_id, inserted_at, updated_at)
 VALUES ('sk_my_key', 'my-tenant', now(), now());
@@ -232,20 +233,35 @@ working when you point their `url` at Restdis. No dependency changes, no fork.
 
 ### Examples
 
+A table served as a shape needs `REPLICA IDENTITY FULL`, so the WAL carries every column of
+each changed row. In the default **gatekeeper** mode, define each shape by name first:
+
+```sql
+ALTER TABLE products REPLICA IDENTITY FULL;
+
+INSERT INTO shape_definitions (tenant_id, name, "table", inserted_at, updated_at)
+VALUES ('my-tenant', 'products', 'products', now(), now());
+```
+
+Then request it by name:
+
 ```sh
-curl "http://localhost:4040/v1/shape?table=products&offset=-1"
+curl -i "http://localhost:4040/v1/shape?shape=products&offset=-1" \
+  -H "Authorization: Bearer sk_my_key"
 ```
 
 This returns a JSON array of `insert` messages, one per row, followed by an `up-to-date`
-control message and an `electric-handle` header. Resume from where you left off by passing
-that handle back along with the last offset you saw:
+control message, with `electric-handle` and `electric-offset` headers. Resume from where you
+left off by passing both back:
 
 ```sh
-curl "http://localhost:4040/v1/shape?table=products&handle=<handle>&offset=<offset>&live=true"
+curl "http://localhost:4040/v1/shape?shape=products&handle=<handle>&offset=<offset>&live=true" \
+  -H "Authorization: Bearer sk_my_key"
 ```
 
 With `live=true`, the request holds open until a matching Postgres write occurs or the request
-times out, exactly as it would against a real Electric server.
+times out, exactly as it would against a real Electric server. In **open** mode
+(`auth_mode = 'open'` on the tenant), the client passes `table=products` instead of `shape`.
 
 ## Learn more
 

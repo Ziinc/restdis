@@ -3,10 +3,11 @@
 ## Docker Compose
 
 [`docker-compose.yml`](../docker-compose.yml) runs Restdis alongside a
-logical-replication-enabled Postgres:
+logical-replication-enabled Postgres. The release image sits behind the `release` profile; name the services so the
+mix-based `app` dev service, which binds the same ports, stays down:
 
 ```sh
-docker compose up --build
+docker compose --profile release up --build db restdis
 ```
 
 Use it as a reference for wiring up your own deployment — the Postgres service configuration,
