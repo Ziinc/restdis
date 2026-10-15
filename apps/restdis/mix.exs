@@ -34,7 +34,7 @@ defmodule Restdis.MixProject do
 
   defp deps do
     [
-      {:feox_db, github: "ziinc/feoxdb-ex", branch: "ccr-14535bf5-veviof"},
+      {:feox_db, github: "ziinc/feoxdb-ex", branch: "main"},
       {:rustler, "~> 0.38", runtime: false},
       {:jason, "~> 1.4"},
       {:telemetry, "~> 1.0"},
