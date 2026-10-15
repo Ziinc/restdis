@@ -1,13 +1,25 @@
 defmodule Restdis.Cache.DiskCache do
   @moduledoc """
-  CubDB-backed disk cache for persisted entries of a tenant.
+  FeoxDB-backed disk cache for persisted entries of a tenant.
+
+  Keys and entries are stored as Erlang terms through `FeoxDB.Term`, which
+  chunks values over FeoxDB's 4 MB record limit transparently. Writes reach
+  disk in the background; the store is reopened (and its index rebuilt) when
+  the process restarts, and closed in `terminate/2`.
   """
 
   use GenServer
 
+  require Logger
+
   alias Restdis.Cache.InstanceConfig
   alias Restdis.Cache.Key
   alias Restdis.Cache.TenantRegistry
+
+  @store_file "store.feox"
+  @default_cap_bytes 500 * 1024 * 1024
+  @block_size 4096
+  @record_overhead 64
 
   @doc """
   Starts the disk cache for the tenant given in `opts` (`:name`, `:tenant_id`, `:data_dir`).
@@ -20,21 +32,21 @@ defmodule Restdis.Cache.DiskCache do
   end
 
   @doc """
-  Reads `key` from the tenant's CubDB store.
+  Reads `key` from the tenant's FeoxDB store.
 
-  Calls the CubDB process directly (rather than routing through the disk
-  cache's own GenServer) since CubDB already serves reads concurrently from
-  any process; going through the GenServer would needlessly serialize every
-  read behind whatever writes/evictions are in flight.
+  Reads the store directly (rather than routing through the disk cache's own
+  GenServer) since FeoxDB serves reads concurrently from any process; going
+  through the GenServer would needlessly serialize every read behind
+  whatever writes/evictions are in flight.
   """
   @spec get(atom(), String.t(), Key.t()) :: {:ok, term()} | :miss
   def get(name, tenant_id, key) do
-    case TenantRegistry.get_value(name, tenant_id, :dc_cubdb) do
+    case TenantRegistry.get_value(name, tenant_id, :dc_store) do
       nil ->
         GenServer.call(TenantRegistry.via(name, tenant_id, :disk_cache), {:get, key})
 
-      cubdb ->
-        case fetch_live(cubdb, key) do
+      store ->
+        case fetch_live(store, key) do
           {:ok, value, _expires_at} ->
             {:ok, value}
 
@@ -53,7 +65,7 @@ defmodule Restdis.Cache.DiskCache do
   expiring it after `opts[:ttl_ms]`, if given. `opts[:name]` selects the
   cache instance (required).
   """
-  @spec put(String.t(), Key.t(), term(), keyword()) :: :ok
+  @spec put(String.t(), Key.t(), term(), keyword()) :: :ok | {:error, FeoxDB.error_reason()}
   def put(tenant_id, key, value, opts \\ []) do
     name = Keyword.fetch!(opts, :name)
     persist = Keyword.get(opts, :persist, false)
@@ -83,7 +95,8 @@ defmodule Restdis.Cache.DiskCache do
   @doc """
   Flips the persist flag of an existing entry.
   """
-  @spec set_persist(atom(), String.t(), Key.t(), boolean()) :: :ok | :not_found
+  @spec set_persist(atom(), String.t(), Key.t(), boolean()) ::
+          :ok | :not_found | {:error, FeoxDB.error_reason()}
   def set_persist(name, tenant_id, key, persist) do
     GenServer.call(TenantRegistry.via(name, tenant_id, :disk_cache), {:set_persist, key, persist})
   end
@@ -91,17 +104,16 @@ defmodule Restdis.Cache.DiskCache do
   @doc """
   Returns the metadata of `key` without reading its value.
 
-  Calls the CubDB process directly for the same concurrency reason as
-  `get/2`.
+  Reads the store directly for the same concurrency reason as `get/2`.
   """
   @spec peek_meta(atom(), String.t(), Key.t()) :: {:ok, %{persist: boolean()}} | :miss
   def peek_meta(name, tenant_id, key) do
-    case TenantRegistry.get_value(name, tenant_id, :dc_cubdb) do
+    case TenantRegistry.get_value(name, tenant_id, :dc_store) do
       nil ->
         GenServer.call(TenantRegistry.via(name, tenant_id, :disk_cache), {:peek_meta, key})
 
-      cubdb ->
-        fetch_meta(cubdb, key)
+      store ->
+        fetch_meta(store, key)
     end
   end
 
@@ -149,13 +161,12 @@ defmodule Restdis.Cache.DiskCache do
   end
 
   @doc """
-  Returns the approximate on-disk footprint, in bytes, of the tenant's CubDB
+  Returns the approximate on-disk footprint, in bytes, of the tenant's FeoxDB
   store.
 
   This is a running tally of the external term size of every live entry,
-  rather than a raw file-size measurement: CubDB's log-structured storage
-  only shrinks the underlying file on (asynchronous) compaction, which would
-  make cap enforcement based on `File.stat/1` sizes lag behind evictions.
+  rather than a raw file-size measurement: the store file is preallocated
+  (sparse) at open, so its size says nothing about what it holds.
   """
   @spec disk_size_bytes(atom(), String.t()) :: non_neg_integer()
   def disk_size_bytes(name, tenant_id) do
@@ -164,19 +175,27 @@ defmodule Restdis.Cache.DiskCache do
 
   @impl GenServer
   def init(opts) do
+    Process.flag(:trap_exit, true)
     name = Keyword.fetch!(opts, :name)
     tenant_id = Keyword.fetch!(opts, :tenant_id)
     data_dir = Keyword.fetch!(opts, :data_dir)
     tenant_dir = Path.join(data_dir, tenant_id)
     File.mkdir_p!(tenant_dir)
-    {:ok, cubdb} = CubDB.start_link(data_dir: tenant_dir)
-    TenantRegistry.put_value(name, tenant_id, :dc_cubdb, cubdb)
-    {bytes, persist_count, evict_idx, persist_keys} = rebuild_index(cubdb)
+
+    store =
+      FeoxDB.open!(
+        path: Path.join(tenant_dir, @store_file),
+        # Preallocated sparse, so only blocks actually written use disk.
+        file_size: 2 * cap_bytes(name)
+      )
+
+    TenantRegistry.put_value(name, tenant_id, :dc_store, store)
+    {bytes, persist_count, evict_idx, persist_keys} = rebuild_index(store)
     record_persist_count(name, tenant_id, persist_count)
 
     {:ok,
      %{
-       cubdb: cubdb,
+       store: store,
        name: name,
        tenant_id: tenant_id,
        tenant_dir: tenant_dir,
@@ -187,8 +206,13 @@ defmodule Restdis.Cache.DiskCache do
   end
 
   @impl GenServer
-  def handle_call({:get, key}, _from, %{cubdb: cubdb} = state) do
-    case fetch_live(cubdb, key) do
+  def terminate(_reason, %{store: store}) do
+    FeoxDB.close(store)
+  end
+
+  @impl GenServer
+  def handle_call({:get, key}, _from, %{store: store} = state) do
+    case fetch_live(store, key) do
       {:ok, value, _expires_at} ->
         {:reply, {:ok, value}, state}
 
@@ -200,8 +224,8 @@ defmodule Restdis.Cache.DiskCache do
     end
   end
 
-  def handle_call({:get_with_ttl, key}, _from, %{cubdb: cubdb} = state) do
-    case fetch_live(cubdb, key) do
+  def handle_call({:get_with_ttl, key}, _from, %{store: store} = state) do
+    case fetch_live(store, key) do
       {:ok, value, :infinity} ->
         {:reply, {:ok, value, nil}, state}
 
@@ -216,116 +240,117 @@ defmodule Restdis.Cache.DiskCache do
     end
   end
 
-  def handle_call({:put, key, value, persist, expires_at}, _from, %{cubdb: cubdb} = state) do
-    inserted_at = System.monotonic_time()
-
+  def handle_call({:put, key, value, persist, expires_at}, _from, state) do
     entry =
       {:v1,
        %{
          value: value,
          persist: persist,
-         inserted_at: inserted_at,
+         inserted_at: System.monotonic_time(),
          expires_at: expires_at
        }}
 
-    old_size = entry_size(cubdb, key)
-    state = remove_from_index(state, key)
-    :ok = CubDB.put(cubdb, key, entry)
-    state = %{state | bytes: state.bytes - old_size + entry_size_of(key, entry)}
-    state = add_to_index(state, key, persist, inserted_at)
-    state = evict_over_cap(state)
-    {:reply, :ok, state}
+    case write_entry(state, key, entry) do
+      {:ok, state} -> {:reply, :ok, evict_over_cap(state)}
+      {:error, reason, state} -> {:reply, {:error, reason}, state}
+    end
   end
 
-  def handle_call({:set_persist, key, persist}, _from, %{cubdb: cubdb} = state) do
-    old_size = entry_size(cubdb, key)
-
-    case CubDB.fetch(cubdb, key) do
-      {:ok, {:v1, %{value: value} = meta}} ->
-        inserted_at = Map.get(meta, :inserted_at, 0)
-        new_meta = Map.merge(meta, %{value: value, persist: persist})
-        new_entry = {:v1, new_meta}
-        state = remove_from_index(state, key)
-        :ok = CubDB.put(cubdb, key, new_entry)
-        state = %{state | bytes: state.bytes - old_size + entry_size_of(key, new_entry)}
-        state = add_to_index(state, key, persist, inserted_at)
-        {:reply, :ok, state}
-
-      {:ok, value} ->
-        inserted_at = System.monotonic_time()
-
-        new_entry =
-          {:v1,
-           %{
-             value: value,
-             persist: persist,
-             inserted_at: inserted_at,
-             expires_at: :infinity
-           }}
-
-        state = remove_from_index(state, key)
-        :ok = CubDB.put(cubdb, key, new_entry)
-        state = %{state | bytes: state.bytes - old_size + entry_size_of(key, new_entry)}
-        state = add_to_index(state, key, persist, inserted_at)
-        {:reply, :ok, state}
+  def handle_call({:set_persist, key, persist}, _from, %{store: store} = state) do
+    case fetch(store, key) do
+      {:ok, {:v1, meta}} ->
+        case write_entry(state, key, {:v1, %{meta | persist: persist}}) do
+          {:ok, state} -> {:reply, :ok, state}
+          {:error, reason, state} -> {:reply, {:error, reason}, state}
+        end
 
       :error ->
         {:reply, :not_found, state}
     end
   end
 
-  def handle_call({:peek_meta, key}, _from, %{cubdb: cubdb} = state) do
-    {:reply, fetch_meta(cubdb, key), state}
+  def handle_call({:peek_meta, key}, _from, %{store: store} = state) do
+    {:reply, fetch_meta(store, key), state}
   end
 
-  def handle_call(:persisted_entries, _from, %{cubdb: cubdb, persist_keys: persist_keys} = state) do
+  def handle_call(:persisted_entries, _from, %{store: store, persist_keys: persist_keys} = state) do
     entries =
-      persist_keys
-      |> Enum.flat_map(fn key ->
-        case CubDB.fetch(cubdb, key) do
+      Enum.flat_map(persist_keys, fn key ->
+        case fetch(store, key) do
           {:ok, {:v1, %{value: value}}} -> [{key, value}]
-          _ -> []
+          :error -> []
         end
       end)
 
     {:reply, entries, state}
   end
 
-  def handle_call(:flush, _from, %{cubdb: cubdb} = state) do
-    CubDB.clear(cubdb)
-
-    {:reply, :ok, %{state | bytes: 0, evict_idx: :gb_sets.empty(), persist_keys: MapSet.new()}}
+  def handle_call(:flush, _from, state) do
+    state = Enum.reduce(indexed_keys(state), state, &drop_entry(&2, &1))
+    {:reply, :ok, %{state | bytes: 0}}
   end
 
   def handle_call(:disk_size_bytes, _from, %{bytes: bytes} = state) do
     {:reply, bytes, state}
   end
 
-  def handle_call(:count, _from, %{cubdb: cubdb} = state) do
-    {:reply, CubDB.size(cubdb), state}
+  def handle_call(:count, _from, state) do
+    {:reply, :gb_sets.size(state.evict_idx) + MapSet.size(state.persist_keys), state}
   end
 
-  @impl GenServer
-  def handle_call({:delete, key}, _from, %{cubdb: cubdb} = state) do
-    old_size = entry_size(cubdb, key)
-    state = remove_from_index(state, key)
-    CubDB.delete(cubdb, key)
-    {:reply, :ok, %{state | bytes: max(state.bytes - old_size, 0)}}
+  def handle_call({:delete, key}, _from, state) do
+    {:reply, :ok, drop_entry(state, key)}
   end
 
-  defp fetch_live(cubdb, key) do
-    case CubDB.fetch(cubdb, key) do
-      {:ok, {:v1, %{value: value} = meta}} ->
-        expires_at = Map.get(meta, :expires_at, :infinity)
+  # Replaces `key`'s entry, keeping the byte tally and indexes in step. On a
+  # failed write (e.g. the store file is full) the key is dropped instead, so
+  # a stale value is never served after a put.
+  defp write_entry(%{store: store} = state, key, {:v1, meta} = entry) do
+    state = drop_entry(state, key)
 
-        if expired?(expires_at) do
-          :expired
-        else
-          {:ok, value, expires_at}
-        end
+    case FeoxDB.Term.put(store, key, entry) do
+      :ok ->
+        state = %{state | bytes: state.bytes + entry_size_of(key, entry)}
+        {:ok, add_to_index(state, key, meta.persist, meta.inserted_at)}
 
-      {:ok, value} ->
-        {:ok, value, :infinity}
+      {:error, reason} ->
+        Logger.warning(
+          "disk cache write failed for tenant #{state.tenant_id}: #{inspect(reason)}"
+        )
+
+        {:error, reason, state}
+    end
+  end
+
+  defp drop_entry(%{store: store} = state, key) do
+    case fetch(store, key) do
+      {:ok, entry} ->
+        :ok = FeoxDB.Term.delete(store, key)
+        state = remove_from_index(state, key, entry)
+        %{state | bytes: max(state.bytes - entry_size_of(key, entry), 0)}
+
+      :error ->
+        state
+    end
+  end
+
+  defp indexed_keys(%{evict_idx: evict_idx, persist_keys: persist_keys}) do
+    Enum.map(:gb_sets.to_list(evict_idx), fn {_inserted_at, key} -> key end) ++
+      MapSet.to_list(persist_keys)
+  end
+
+  defp fetch(store, key) do
+    case FeoxDB.Term.get(store, key) do
+      {:ok, entry} -> {:ok, entry}
+      # `:closed` covers a direct read racing this process's terminate/2.
+      {:error, _reason} -> :error
+    end
+  end
+
+  defp fetch_live(store, key) do
+    case fetch(store, key) do
+      {:ok, {:v1, %{value: value, expires_at: expires_at}}} ->
+        if expired?(expires_at), do: :expired, else: {:ok, value, expires_at}
 
       :error ->
         :miss
@@ -335,29 +360,25 @@ defmodule Restdis.Cache.DiskCache do
   defp expired?(:infinity), do: false
   defp expired?(expires_at), do: expires_at <= System.system_time(:millisecond)
 
-  defp expire_entry(key, %{cubdb: cubdb} = state) do
-    old_size = entry_size(cubdb, key)
-    state = remove_from_index(state, key)
-    CubDB.delete(cubdb, key)
-    %{state | bytes: max(state.bytes - old_size, 0)}
-  end
+  defp expire_entry(key, state), do: drop_entry(state, key)
+
+  defp cap_bytes(name), do: InstanceConfig.get(name, :disk_cap_bytes, @default_cap_bytes)
 
   defp evict_over_cap(%{name: name, bytes: bytes} = state) do
-    cap = InstanceConfig.get(name, :cubdb_cap_bytes, 500 * 1024 * 1024)
-    do_evict_over_cap(bytes, cap, state)
+    do_evict_over_cap(bytes, cap_bytes(name), state)
   end
 
   defp do_evict_over_cap(
          bytes,
          cap,
-         %{cubdb: cubdb, tenant_id: tenant_id, evict_idx: evict_idx} = state
+         %{store: store, tenant_id: tenant_id, evict_idx: evict_idx} = state
        ) do
     if bytes > cap and not :gb_sets.is_empty(evict_idx) do
       {{_inserted_at, evict_key}, rest_idx} = :gb_sets.take_smallest(evict_idx)
-      evict_size = entry_size(cubdb, evict_key)
-      CubDB.delete(cubdb, evict_key)
+      evict_size = entry_size(store, evict_key)
+      :ok = FeoxDB.Term.delete(store, evict_key)
 
-      :telemetry.execute([:restdis, :cache, :cubdb_evict], %{count: 1}, %{
+      :telemetry.execute([:restdis, :cache, :disk_evict], %{count: 1}, %{
         tenant_id: tenant_id,
         key: evict_key
       })
@@ -370,13 +391,8 @@ defmodule Restdis.Cache.DiskCache do
     end
   end
 
-  defp add_to_index(
-         %{evict_idx: evict_idx, persist_keys: persist_keys} = state,
-         key,
-         true,
-         _inserted_at
-       ) do
-    %{state | persist_keys: MapSet.put(persist_keys, key), evict_idx: evict_idx}
+  defp add_to_index(%{persist_keys: persist_keys} = state, key, true, _inserted_at) do
+    %{state | persist_keys: MapSet.put(persist_keys, key)}
   end
 
   defp add_to_index(
@@ -392,21 +408,12 @@ defmodule Restdis.Cache.DiskCache do
     }
   end
 
-  defp remove_from_index(
-         %{cubdb: cubdb, evict_idx: evict_idx, persist_keys: persist_keys} = state,
-         key
-       ) do
-    case CubDB.fetch(cubdb, key) do
-      {:ok, {:v1, %{persist: false} = meta}} ->
-        inserted_at = Map.get(meta, :inserted_at, 0)
-        %{state | evict_idx: gb_sets_delete_any({inserted_at, key}, evict_idx)}
+  defp remove_from_index(state, key, {:v1, %{persist: false, inserted_at: inserted_at}}) do
+    %{state | evict_idx: gb_sets_delete_any({inserted_at, key}, state.evict_idx)}
+  end
 
-      {:ok, {:v1, %{persist: true}}} ->
-        %{state | persist_keys: MapSet.delete(persist_keys, key)}
-
-      _ ->
-        state
-    end
+  defp remove_from_index(state, key, {:v1, %{persist: true}}) do
+    %{state | persist_keys: MapSet.delete(state.persist_keys, key)}
   end
 
   defp gb_sets_delete_any(element, set) do
@@ -417,28 +424,30 @@ defmodule Restdis.Cache.DiskCache do
     end
   end
 
-  defp fetch_meta(cubdb, key) do
-    case CubDB.fetch(cubdb, key) do
+  defp fetch_meta(store, key) do
+    case fetch(store, key) do
       {:ok, {:v1, %{persist: persist}}} -> {:ok, %{persist: persist}}
-      {:ok, _} -> {:ok, %{persist: false}}
       :error -> :miss
     end
   end
 
-  defp entry_size(cubdb, key) do
-    case CubDB.fetch(cubdb, key) do
+  defp entry_size(store, key) do
+    case fetch(store, key) do
       {:ok, entry} -> entry_size_of(key, entry)
       :error -> 0
     end
   end
 
+  # FeoxDB allocates each record in whole blocks, so a small entry still
+  # takes a full block on disk; round up so the cap tracks real disk use.
   defp entry_size_of(key, entry) do
-    :erlang.external_size({key, entry})
+    size = :erlang.external_size({key, entry}) + @record_overhead
+    div(size + @block_size - 1, @block_size) * @block_size
   end
 
-  defp rebuild_index(cubdb) do
-    cubdb
-    |> CubDB.select()
+  defp rebuild_index(store) do
+    store
+    |> FeoxDB.Term.stream()
     |> Enum.reduce({0, 0, :gb_sets.empty(), MapSet.new()}, fn {key, entry},
                                                               {bytes, persist_count, evict_idx,
                                                                persist_keys} ->
@@ -448,12 +457,8 @@ defmodule Restdis.Cache.DiskCache do
         {:v1, %{persist: true}} ->
           {bytes, persist_count + 1, evict_idx, MapSet.put(persist_keys, key)}
 
-        {:v1, %{persist: false} = meta} ->
-          inserted_at = Map.get(meta, :inserted_at, 0)
+        {:v1, %{persist: false, inserted_at: inserted_at}} ->
           {bytes, persist_count, :gb_sets.add({inserted_at, key}, evict_idx), persist_keys}
-
-        _ ->
-          {bytes, persist_count, evict_idx, persist_keys}
       end
     end)
   end

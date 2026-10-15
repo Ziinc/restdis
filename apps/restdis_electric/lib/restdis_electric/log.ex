@@ -6,7 +6,7 @@ defmodule RestdisElectric.Log do
   `t:RestdisElectric.Offset.t/0`, and durably persists it through
   `Restdis.Cache` under the `:shape` key scope. That scope makes shape logs
   inherit the tenant's existing per-tenant limits, metrics, and flush
-  behaviour, and CubDB's on-disk storage is what lets a log survive a process
+  behaviour, and FeoxDB's on-disk storage is what lets a log survive a process
   or node restart.
 
   This module models the log as a single persisted value rather than the

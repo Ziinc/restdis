@@ -1,12 +1,12 @@
 # Disk cache concurrent-read benchmark
 #
 # Restdis.Cache.DiskCache.get/2 and peek_meta/2 used to route through a
-# GenServer.call to the tenant's disk cache process, which then read CubDB
-# on the caller's behalf. Since CubDB already serves reads concurrently from
+# GenServer.call to the tenant's disk cache process, which then read the
+# store on the caller's behalf. Since the store serves reads concurrently from
 # any process, funneling every read through one GenServer per tenant
 # serialized reads behind each other (and behind puts/evictions handled by
-# that same process) for no reason. `get/2` and `peek_meta/2` now call
-# `CubDB.fetch/2` directly using a pid cached in `:persistent_term`.
+# that same process) for no reason. `get/2` and `peek_meta/2` now read the
+# tenant's FeoxDB store directly using the reference held in its registry.
 #
 # This benchmark starts a real tenant disk cache, seeds it with entries, and
 # measures the aggregate throughput of many concurrent readers hammering

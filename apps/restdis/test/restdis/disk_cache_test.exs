@@ -4,6 +4,7 @@ defmodule Restdis.Cache.DiskCacheTest do
   alias Restdis.Cache.DiskCache
   alias Restdis.Cache.InstanceConfig
   alias Restdis.Cache.Key
+  alias Restdis.Cache.TenantRegistry
   alias Restdis.Cache.TenantSupervisor
 
   setup do
@@ -102,16 +103,45 @@ defmodule Restdis.Cache.DiskCacheTest do
     DiskCache.put(tenant_id, key1, value, persist: true, name: Restdis.Cache)
     size_after_one = DiskCache.disk_size_bytes(Restdis.Cache, tenant_id)
 
-    previous = InstanceConfig.get(Restdis.Cache, :cubdb_cap_bytes)
-    InstanceConfig.put_field(Restdis.Cache, :cubdb_cap_bytes, size_after_one)
+    previous = InstanceConfig.get(Restdis.Cache, :disk_cap_bytes)
+    InstanceConfig.put_field(Restdis.Cache, :disk_cap_bytes, size_after_one)
 
     on_exit(fn ->
-      InstanceConfig.put_field(Restdis.Cache, :cubdb_cap_bytes, previous)
+      InstanceConfig.put_field(Restdis.Cache, :disk_cap_bytes, previous)
     end)
 
     DiskCache.put(tenant_id, key2, value, persist: true, name: Restdis.Cache)
 
     assert {:ok, ^value} = DiskCache.get(Restdis.Cache, tenant_id, key1)
     assert {:ok, ^value} = DiskCache.get(Restdis.Cache, tenant_id, key2)
+  end
+
+  test "values over FeoxDB's 4 MB record limit round-trip and survive a restart", %{
+    tenant_id: tenant_id
+  } do
+    key = Key.build(:table, "big", %{})
+    value = :crypto.strong_rand_bytes(9 * 1024 * 1024)
+
+    assert :ok = DiskCache.put(tenant_id, key, value, persist: true, name: Restdis.Cache)
+    assert {:ok, ^value} = DiskCache.get(Restdis.Cache, tenant_id, key)
+
+    pid = TenantRegistry.whereis(Restdis.Cache, tenant_id, :tenant)
+    Supervisor.stop(pid, :normal)
+    TenantSupervisor.ensure_started(Restdis.Cache, tenant_id)
+
+    assert {:ok, ^value} = DiskCache.get(Restdis.Cache, tenant_id, key)
+    assert [{^key, ^value}] = DiskCache.persisted_entries(Restdis.Cache, tenant_id)
+    assert 1 = DiskCache.count(Restdis.Cache, tenant_id)
+  end
+
+  test "flush removes every entry", %{tenant_id: tenant_id} do
+    for i <- 1..3 do
+      DiskCache.put(tenant_id, Key.build(:table, "f#{i}", %{}), i, name: Restdis.Cache)
+    end
+
+    assert :ok = DiskCache.flush(Restdis.Cache, tenant_id)
+    assert 0 = DiskCache.count(Restdis.Cache, tenant_id)
+    assert 0 = DiskCache.disk_size_bytes(Restdis.Cache, tenant_id)
+    assert :miss = DiskCache.get(Restdis.Cache, tenant_id, Key.build(:table, "f1", %{}))
   end
 end

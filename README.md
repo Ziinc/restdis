@@ -19,7 +19,7 @@ to it and use it exactly as it would use Redis, with no code changes.
   `SET`, `MGET`, `DEL`, `TTL`, `EXISTS`, `PING`, and `AUTH`.
 - **HTTP proxy for PostgREST** — the same caching behavior over plain HTTP, with cache
   directives passed as headers.
-- **Two-layer cache** — an in-memory ETS cache backed by a per-tenant CubDB store on disk, so
+- **Two-layer cache** — an in-memory ETS cache backed by a per-tenant FeoxDB store on disk, so
   warm data survives restarts.
 - **Automatic WAL-driven invalidation** — a single WAL tailer per cluster watches for
   Postgres writes and busts or refreshes only the cache entries a write actually affects.
@@ -126,7 +126,7 @@ the system:
                                      ▼
                               ┌──────────────┐        ┌───────────────────┐
                               │   restdis    │◀───────│ restdis_electric   │
-                              │ (ETS→CubDB→  │  pull   │ shape defs/handles │
+                              │ (ETS→FeoxDB→ │  pull   │ shape defs/handles │
                               │  PostgREST   │────────▶│ log, filter index, │
                               │   origin)    │  push   │ where-clause eval  │
                               └──────┬───────┘        └─────────▲──────────┘
@@ -150,7 +150,7 @@ the system:
 
 | Application          | Owns                                                                                                                                                          |
 | -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `restdis`            | The three-layer cache (ETS, CubDB, PostgREST origin), the reverse index, tenant configuration, and cache keys. Depended on by every other app.                |
+| `restdis`            | The three-layer cache (ETS, FeoxDB, PostgREST origin), the reverse index, tenant configuration, and cache keys. Depended on by every other app.                |
 | `restdis_buster`     | The single cluster-wide WAL tailer. Reads the Postgres logical replication slot and dispatches decoded changes to invalidation, refresh, and shape targets.   |
 | `restdis_repo`       | The Ecto repo and migrations.                                                                                                                                 |
 | `restdis_replicator` | Always-live table replication (mirrors a full PostgREST table as key/value pairs kept current via WAL refresh).                                               |
@@ -159,7 +159,7 @@ the system:
 
 A write lands in Postgres, is read once from the WAL by `restdis_buster`, and is fanned out
 per availability zone to every node; each node then applies invalidation, refresh, or shape
-appends locally. Reads go through `restdis_server`, which checks ETS, then CubDB, then falls
+appends locally. Reads go through `restdis_server`, which checks ETS, then FeoxDB, then falls
 back to PostgREST, filling the faster layers as it goes. A consistent hash ring routes each
 tenant to one owning node, with automatic forwarding and a PostgREST fallback if that node is
 unreachable.

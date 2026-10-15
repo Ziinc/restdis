@@ -16,7 +16,7 @@ All coding agents working in this repo MUST follow the workflow below. These rul
 DDD is required for every change in this repo.
 
 **Bounded contexts = umbrella apps, including the `restdis` library.**
-- `restdis` (`apps/restdis`) — cache engine, reverse index, per-tenant ETS and CubDB,
+- `restdis` (`apps/restdis`) — cache engine, reverse index, per-tenant ETS and FeoxDB,
   built and versioned as a standalone library under the `Restdis` namespace despite living
   alongside the other umbrella children. It must never reference an umbrella module;
   `mix check.boundary` enforces this. See `prds/LIB_PRD.md`.
@@ -28,9 +28,9 @@ Cross-context calls go through the owning app's public API only. Never reach int
 
 **Ubiquitous language.** Use PRD terminology exactly: `tenant`, `cache_key`, `reverse_index`, `rewarm`, `persist`, `replication mode`, `TTL mode`, `query_cache`, `disk_cache`, `wal_tailer`, `wal_fanout`. No synonyms — don't say `bust` when PRD says `invalidate`.
 
-**Layering inside an app.** Domain (pure functions, structs, typespecs) → Application (GenServers, supervisors, orchestration) → Infrastructure (ETS, CubDB, Postgres, HTTP, RESP). Domain modules must not depend on infrastructure modules.
+**Layering inside an app.** Domain (pure functions, structs, typespecs) → Application (GenServers, supervisors, orchestration) → Infrastructure (ETS, FeoxDB, Postgres, HTTP, RESP). Domain modules must not depend on infrastructure modules.
 
-**Aggregates.** A tenant is the aggregate root for cache state: one ETS table, one CubDB instance, one reverse index, one config snapshot. All writes for a tenant route through that aggregate.
+**Aggregates.** A tenant is the aggregate root for cache state: one ETS table, one FeoxDB store, one reverse index, one config snapshot. All writes for a tenant route through that aggregate.
 
 ## TDD (strict red-green-refactor, mandatory)
 
@@ -60,7 +60,7 @@ If a task cannot be expressed as a clear assertion, it is not ready — split it
 
 - **Shared production helpers** (used by 2+ modules) go into a common utility module within their owning app (e.g., `Restdis.Cache.Common`). Promote to a cross-app utility only when at least two umbrella apps need it. Never duplicate.
 - **Locally-used helpers** (single module) stay private (`defp`). Do not pre-emptively extract.
-- **Test helpers** live in a single `test/support/test_utils.ex` per app, compiled via `elixirc_paths` in that app's `mix.exs`. Examples: tenant setup, ETS table fixtures, CubDB temp directories, WAL event factories. No copy-pasted setup blocks across test files.
+- **Test helpers** live in a single `test/support/test_utils.ex` per app, compiled via `elixirc_paths` in that app's `mix.exs`. Examples: tenant setup, ETS table fixtures, disk cache temp directories, WAL event factories. No copy-pasted setup blocks across test files.
 - **Before adding a helper**, grep the existing common module and `test_utils.ex` — reuse first.
 
 ## Code quality checks
