@@ -12,6 +12,9 @@ Postgres write-ahead log (WAL), the record of every row Postgres writes, so it s
 as it lands. It then clears or refreshes only the entries that write touched. You write no
 invalidation code.
 
+This is the same proven architecture that lets [Logflare](https://github.com/Logflare/logflare)
+scale to 28 billion requests a day on a single database server.
+
 Restdis speaks the Redis protocol and the [ElectricSQL](https://electric-sql.com) sync
 protocol. Point any Redis client at it, or any Electric client such as
 [TanStack DB](https://tanstack.com/db), and it works: no new library, no code changes.
