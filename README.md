@@ -1,7 +1,8 @@
 # Restdis
 
 **The caching layer for [Supabase](https://supabase.com). Sub-millisecond reads from
-[PostgREST](https://postgrest.org) that never go stale, through the Redis client you already use.**
+[PostgREST](https://postgrest.org) that never go stale, through the Redis or Electric client you
+already use.**
 
 Restdis sits between your app and PostgREST. It keeps responses in memory and on disk, and
 answers a repeat read in under a millisecond instead of sending it back to Postgres.
@@ -11,8 +12,9 @@ Postgres write-ahead log (WAL), the record of every row Postgres writes, so it s
 as it lands. It then clears or refreshes only the entries that write touched. You write no
 invalidation code.
 
-Restdis speaks the Redis protocol. Point any Redis client at it and it works: no new library,
-no code changes.
+Restdis speaks the Redis protocol and the [ElectricSQL](https://electric-sql.com) sync
+protocol. Point any Redis client at it, or any Electric client such as
+[TanStack DB](https://tanstack.com/db), and it works: no new library, no code changes.
 
 ## What you get
 
