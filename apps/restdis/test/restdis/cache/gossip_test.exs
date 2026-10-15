@@ -24,7 +24,7 @@ defmodule Restdis.Cache.GossipTest do
 
     start_supervised!({ReadThrough, name: name, data_dir: data_dir, gossip: gossip})
 
-    %{name: name}
+    %{name: name, data_dir: data_dir}
   end
 
   describe "config/1" do
@@ -74,6 +74,13 @@ defmodule Restdis.Cache.GossipTest do
       assert :miss = ReadThrough.fetch(name, "k", fn -> :miss end)
 
       refute_receive {:gossip_multicast, _, _, _, _}, 50
+    end
+
+    test "an instance started without a gossip option has gossip on", %{data_dir: data_dir} do
+      name = :"gossip_default_#{System.unique_integer([:positive])}"
+      start_supervised!({ReadThrough, name: name, data_dir: data_dir}, id: name)
+
+      assert {:ok, %{ratio: 0.1, max_nodes: 3}} = ReadThrough.gossip_config(name)
     end
 
     @tag gossip: false

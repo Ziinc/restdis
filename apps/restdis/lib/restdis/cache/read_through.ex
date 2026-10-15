@@ -13,9 +13,10 @@ defmodule Restdis.Cache.ReadThrough do
   consuming a tenant persist cap. Every entry carries the instance TTL in both
   layers.
 
-  Passing `gossip: true` (or a keyword list overriding `ratio`, `max_nodes`,
-  `transport` and `tombstone_ttl_ms`) propagates each loaded entry to a subset
-  of peers running an instance of the same name, see `Restdis.Cache.Gossip`.
+  Each loaded entry is gossiped to a subset of peers running an instance of
+  the same name, see `Restdis.Cache.Gossip`. Pass a keyword list as `gossip:`
+  to override `ratio`, `max_nodes`, `transport` and `tombstone_ttl_ms`, or
+  `gossip: false` to turn it off.
   """
 
   use Supervisor
@@ -130,7 +131,7 @@ defmodule Restdis.Cache.ReadThrough do
     name = Keyword.fetch!(opts, :name)
     data_dir = Keyword.fetch!(opts, :data_dir)
     ttl_ms = Keyword.get(opts, :ttl_ms, @default_ttl_ms)
-    gossip = Gossip.config(Keyword.get(opts, :gossip))
+    gossip = Gossip.config(Keyword.get(opts, :gossip, true))
     ns = namespace(name)
 
     :persistent_term.put({:sc_rt, name}, %{namespace: ns, ttl_ms: ttl_ms, gossip: gossip})

@@ -2,8 +2,8 @@ defmodule Restdis.Cache.Gossip do
   @moduledoc """
   Propagates read-through entries across the cluster.
 
-  When a `Restdis.Cache.ReadThrough` instance started with `gossip:` loads an
-  entry on a miss, it multicasts the value to a random subset of peers (a
+  When a `Restdis.Cache.ReadThrough` instance (unless started with
+  `gossip: false`) loads an entry on a miss, it multicasts the value to a random subset of peers (a
   `ratio` of them, capped at `max_nodes`). A peer that receives it:
 
     * keeps its own value and refreshes its TTL if it already holds the entry;
