@@ -23,7 +23,7 @@ defmodule Restdis.Cache.Gossip do
   alias Restdis.Cache.Gossip.Transport.Distribution
   alias Restdis.Cache.ReadThrough
 
-  @defaults %{ratio: 0.05, max_nodes: 3, transport: Distribution, tombstone_ttl_ms: 60_000}
+  @defaults %{ratio: 0.1, max_nodes: 3, transport: Distribution, tombstone_ttl_ms: 60_000}
 
   @type config :: %{
           ratio: float(),

@@ -27,6 +27,12 @@ defmodule Restdis.Cache.GossipTest do
     %{name: name}
   end
 
+  describe "config/1" do
+    test "gossips to 10% of peers, at most 3, by default" do
+      assert %{ratio: 0.1, max_nodes: 3} = Gossip.config(true)
+    end
+  end
+
   describe "select_peers/3" do
     test "selects nothing when there are no peers" do
       assert [] = Gossip.select_peers([], 1.0, 3)
