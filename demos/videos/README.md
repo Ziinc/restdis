@@ -1,20 +1,21 @@
 # Recorded demos
 
-Source for the three videos in [`docs/demos/`](../../docs/demos). Each one runs a
+Source for the three GIFs in [`docs/demos/`](../../docs/demos). Each one runs a
 client against Restdis on the left, with a console panel under the browser apps that logs every
 request, its `sc-cache` header, and its response time. On the right are the live Restdis request log and the
 live Postgres statement log (`log_statement=all`), so you can see which reads reach the
 database and which Restdis answers itself.
 
-| Video | Client | What it shows |
+| Demo | Client | What it shows |
 | --- | --- | --- |
 | `query` | supabase-js inside TanStack Query's `useQuery` | First fetch is a MISS, repeat fetches are HITs that never reach Postgres, and a write elsewhere evicts the entry through the WAL. |
-| `db` | TanStack DB with `@tanstack/electric-db-collection` | One snapshot, then a live long-poll. Each write reaches the browser after a single primary-key read. |
-| `redis` | ioredis | `PGRST.QUERY` and `GET` over RESP, with WAL eviction after a write. |
+| `db` | Two TanStack DB clients with `@tanstack/electric-db-collection` | Each client snapshots the shape, then polls Restdis live. Inserts, updates, a bulk insert and a delete reach both clients; each new or changed row costs one primary-key read. |
+| `redis` | ioredis, default settings | `PGRST.QUERY` and `GET` over RESP, WAL eviction after a write, and `QUIT`. |
 
 ## Recording
 
-Needs Docker, Node 22, and ffmpeg.
+Needs Docker, Node 22, and ffmpeg. The ioredis demo uses its default `HELLO 3` handshake and
+`QUIT`, so the Restdis image must include #90 and #91.
 
 ```sh
 cd demos/videos
@@ -28,7 +29,7 @@ npm run stage &                    # split-screen page on http://localhost:5180
 npm run record                     # or: node record.mjs query db redis
 ```
 
-`record.mjs` recreates the Restdis container before each video, so every recording starts
+`record.mjs` recreates the Restdis container before each recording, so every recording starts
 from a cold cache. To build the image yourself first, run `docker build -t restdis:demo ../..`,
 or set `RESTDIS_IMAGE` to an existing image.
 
@@ -41,7 +42,7 @@ To look around without recording, open `http://localhost:5180/?demo=query` (or `
 | --- | --- |
 | restdis | 4042 (HTTP), 6382 (RESP) |
 | db | 5434 |
-| rest | 3001 |
+| rest | 3002 |
 | stage | 5180 |
 
 ## Files
@@ -54,4 +55,5 @@ To look around without recording, open `http://localhost:5180/?demo=query` (or `
 - `app/console.js` - the in-page console that logs `fetch()` and `console.log`.
 - `redis-client.mjs` - the ioredis script.
 - `stage.mjs`, `app/stage.html` - the split-screen page and the log streams behind it.
-- `record.mjs` - drives each demo with Playwright and writes MP4 and GIF.
+- `record.mjs` - drives each demo with Playwright and writes a GIF: 960 px wide, 4 fps,
+  32 colours, then gifsicle's lossy pass, so each stays under 3 MB.

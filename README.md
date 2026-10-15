@@ -44,7 +44,7 @@ protocol. Point any Redis client at it, or any Electric client such as
 
 ## See it work
 
-Each video runs a stock client on the left. On the right are the Restdis request log and the
+Each demo runs a stock client on the left. On the right are the Restdis request log and the
 Postgres statement log, so you can count which reads reach the database. Source and
 re-recording steps: [`demos/videos`](demos/videos).
 
@@ -57,26 +57,22 @@ from another service evicts the entry through the WAL, and the next fetch gets t
 
 ![supabase-js with TanStack Query demo](docs/demos/query.gif)
 
-[MP4](docs/demos/query.mp4)
-
 ### TanStack DB over the Electric protocol
 
-A TanStack DB collection syncs from Restdis with `@tanstack/electric-db-collection`. After one
-snapshot, each write reaches the browser through a live long-poll and a single primary-key
-read. The console shows each shape request staying open until a write releases it.
+Two TanStack DB clients sync the same shape from Restdis with
+`@tanstack/electric-db-collection`. The console shows each client's live poll held open on
+Restdis, and the inserts, updates and deletes each poll delivers. Another user inserts,
+renames, completes, bulk-inserts and deletes todos; both clients follow every change.
+Restdis reads each new or changed row once by primary key, and deletes need no read.
 
 ![TanStack DB demo](docs/demos/db.gif)
 
-[MP4](docs/demos/db.mp4)
-
 ### Any Redis client
 
-ioredis caches a PostgREST query with `PGRST.QUERY`, then reads it with plain `GET`s. A write
-evicts the key, and one more query refreshes it.
+ioredis, with its default settings, caches a PostgREST query with `PGRST.QUERY` and reads it
+with plain `GET`s. A write evicts the key, and one more query refreshes it.
 
 ![Redis client demo](docs/demos/redis.gif)
-
-[MP4](docs/demos/redis.mp4)
 
 ## Quickstart
 

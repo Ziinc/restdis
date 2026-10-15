@@ -17,7 +17,7 @@ import { fileURLToPath } from "node:url";
 const here = dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.STAGE_PORT ?? 5180);
 const RESTDIS_URL = process.env.RESTDIS_URL ?? "http://localhost:4042";
-const PGRST_URL = process.env.PGRST_URL ?? "http://localhost:3001";
+const PGRST_URL = process.env.PGRST_URL ?? "http://localhost:3002";
 
 const TYPES = { ".html": "text/html", ".js": "text/javascript", ".css": "text/css" };
 

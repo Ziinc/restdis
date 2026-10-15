@@ -3,7 +3,7 @@
 
 import Redis from "ioredis";
 
-const PGRST_URL = process.env.PGRST_URL ?? "http://localhost:3001";
+const PGRST_URL = process.env.PGRST_URL ?? "http://localhost:3002";
 const PATH = "products?select=id,name,price&order=id";
 
 const redis = new Redis({
@@ -11,9 +11,6 @@ const redis = new Redis({
   port: Number(process.env.RESP_PORT ?? 6382),
   password: process.env.RESTDIS_API_KEY ?? "sk_demo",
   enableReadyCheck: false,
-  // ioredis 6 opens with `HELLO 3 AUTH ...`. Restdis speaks RESP2 and answers
-  // HELLO with NOAUTH, which ioredis does not treat as "no RESP3", so pin RESP2.
-  protocol: 2,
 });
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -79,5 +76,4 @@ for (let i = 0; i < 3; i++) {
 
 say("");
 say("# Done. Compare with the Postgres log on the right.");
-// Restdis does not implement QUIT, so close the socket directly.
-redis.disconnect();
+await run("QUIT", () => redis.quit());
