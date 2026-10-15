@@ -1,6 +1,6 @@
 # Restdis
 
-Restdis is a caching proxy that sits in front of [PostgREST](https://postgrest.org) and
+Restdis is the caching layer for [Supabase](https://supabase.com): a caching proxy that sits in front of [PostgREST](https://postgrest.org) and
 speaks the Redis wire protocol. It stores PostgREST responses in memory and on disk, so an
 application that reads the same data repeatedly gets a sub-millisecond answer from Restdis
 instead of a fresh round-trip to the database every time.
