@@ -1,47 +1,50 @@
 # Restdis
 
-Restdis is a caching proxy that sits in front of [PostgREST](https://postgrest.org) and
-speaks the Redis wire protocol. It stores PostgREST responses in memory and on disk, so an
-application that reads the same data repeatedly gets a sub-millisecond answer from Restdis
-instead of a fresh round-trip to the database every time.
+**The caching layer for [Supabase](https://supabase.com). Cached reads from
+[PostgREST](https://postgrest.org) that never go stale, through the Redis or Electric client you
+already use.**
 
-Caches normally go stale the moment the underlying data changes. Restdis avoids that by
-reading Postgres's write-ahead log (WAL) — the internal record of every row Postgres writes —
-and using it to invalidate or refresh only the cache entries a given change actually affects.
-Applications never have to clear or manage the cache themselves.
+Restdis sits between your app and PostgREST. It keeps responses in memory and on disk, and
+answers repeat reads from memory instead of sending them back to Postgres.
 
-Because Restdis speaks the Redis wire protocol, any existing Redis client library can connect
-to it and use it exactly as it would use Redis, with no code changes.
+Most caches serve old data until a TTL runs out or someone clears them. Restdis reads the
+Postgres write-ahead log (WAL), the record of every row Postgres writes, so it sees each write
+as it lands. It then clears or refreshes only the entries that write touched. You write no
+invalidation code.
 
-## Features
+Restdis speaks the Redis protocol and the [ElectricSQL](https://electric-sql.com) sync
+protocol. Point any Redis client at it, or any Electric client such as
+[TanStack DB](https://tanstack.com/db), and it works: no new library, no code changes.
 
-- **Redis protocol server (RESP)** — connect with any standard Redis client. Supports `GET`,
-  `SET`, `MGET`, `DEL`, `TTL`, `EXISTS`, `PING`, and `AUTH`.
-- **HTTP proxy for PostgREST** — the same caching behavior over plain HTTP, with cache
-  directives passed as headers.
-- **Two-layer cache** — an in-memory ETS cache backed by a per-tenant FeoxDB store on disk, so
-  warm data survives restarts.
-- **Automatic WAL-driven invalidation** — a single WAL tailer per cluster watches for
-  Postgres writes and busts or refreshes only the cache entries a write actually affects.
-- **Two invalidation modes** — TTL mode expires and rewarms entries on demand; replication
-  mode keeps entries continuously refreshed instead of expiring them.
-- **Custom `PGRST.QUERY` / `PGRST.POLICY` commands** — fetch and cache a PostgREST query
-  directly from Redis, then tune its TTL, rewarm interval, or persistence after the fact.
-- **Always-live table replication** — mirror an entire PostgREST table as key/value pairs
-  that stay current via WAL refresh, for latency-critical reads.
-- **Multi-node clustering** — a consistent hash ring places each tenant on one owning node,
-  with automatic forwarding and PostgREST fallback if that node is unreachable.
-- **Electric-compatible shape API** — serves ElectricSQL's `GET /v1/shape` protocol directly
-  from Restdis, so apps using `@electric-sql/client`, `@electric-sql/react`, or
-  `@tanstack/electric-db-collection` work unchanged after pointing their `url` at Restdis. See
-  [Electric compatibility](#electric-compatibility) below and [`ELECTRIC_PRD.md`](prds/ELECTRIC_PRD.md).
-- **Caching across the rest of the Supabase stack [WIP]** — extend the same cache-and-invalidate
-  mechanism to Realtime, Storage, Auth, and Edge Functions. See
+## What you get
+
+- **Use any Redis client.** Restdis serves the Redis protocol (RESP) and supports `GET`, `SET`,
+  `MGET`, `DEL`, `TTL`, `EXISTS`, `PING`, and `AUTH`.
+- **Or use plain HTTP.** Send normal PostgREST requests to Restdis and turn caching on with
+  headers.
+- **Keep a warm cache through restarts.** Each read checks memory (ETS) first, then a
+  per-tenant disk store (FeoxDB), then PostgREST.
+- **Never clear the cache by hand.** One WAL reader per cluster watches every Postgres write
+  and updates only the entries that write affects.
+- **Choose how entries stay fresh.** TTL mode expires entries and rewarms them on the next
+  read. Replication mode refreshes them in place and never expires them.
+- **Cache a PostgREST query from Redis.** `PGRST.QUERY` fetches and caches a query in one
+  command. `PGRST.POLICY` changes its TTL, rewarm interval, or persistence later.
+- **Mirror a whole table.** Replicate a PostgREST table as key/value pairs that the WAL keeps
+  current, for your hottest reads.
+- **Scale across nodes.** A consistent hash ring gives each tenant one owning node. Other nodes
+  forward to it, and fall back to PostgREST if it is down.
+- **Run Electric apps unchanged.** Restdis serves ElectricSQL's `GET /v1/shape` protocol.
+  Apps built on `@electric-sql/client`, `@electric-sql/react`, or
+  `@tanstack/electric-db-collection` work after you change one `url`. See
+  [Electric compatibility](#electric-compatibility) and [`ELECTRIC_PRD.md`](prds/ELECTRIC_PRD.md).
+- **Coming: the rest of Supabase [WIP].** The same cache and invalidation for Realtime,
+  Storage, Auth, and Edge Functions. See
   [`SUPABASE_INTEGRATION_PRD.md`](prds/SUPABASE_INTEGRATION_PRD.md).
 
 ## Quickstart
 
-Run the prebuilt image against your own logical-replication-enabled Postgres:
+Run the prebuilt image against any Postgres with logical replication turned on:
 
 ```sh
 docker run --rm \
@@ -51,17 +54,17 @@ docker run --rm \
   restdis:latest
 ```
 
-This exposes the HTTP proxy on port `4040` and the Redis (RESP) port on `6380`. Point a Redis
-client at `6380` and start caching PostgREST queries:
+The HTTP proxy listens on port `4040` and the Redis (RESP) server on `6380`. Point a Redis
+client at `6380` and cache a PostgREST query:
 
 ```sh
 redis-cli -p 6380 PGRST.QUERY /products?select=id,name TTL 60
 ```
 
-The response includes the canonical cache key. A second call for the same query is served
-from cache without hitting PostgREST.
+Restdis returns the cache key. The next call for the same query comes from the cache and
+never reaches PostgREST.
 
-The same caching also works over plain HTTP:
+Plain HTTP works too:
 
 ```sh
 curl "http://localhost:4040/products?select=id,name" -H "SC-Cache: true"
@@ -85,8 +88,7 @@ curl "http://localhost:4040/products?select=id,name" -H "SC-Cache: true"
 
 ### HTTP proxy
 
-The same PostgREST caching behavior is available over HTTP. Send a normal PostgREST request
-to Restdis and control caching with headers:
+Send a normal PostgREST request to Restdis and control caching with headers:
 
 | Header            | Purpose                                   |
 | ----------------- | ----------------------------------------- |
@@ -101,19 +103,18 @@ curl "http://localhost:4040/products?select=id,name" \
   -H "SC-Cache-Rewarm: 30"
 ```
 
-The first request fetches from PostgREST and caches the response; subsequent requests for the
-same path and query string are served from cache until the TTL expires, and are rewarmed in
-the background every 30 seconds while the entry stays hot.
+The first request goes to PostgREST and Restdis caches the response. Later requests for the
+same path and query string come from the cache until the TTL runs out. While the entry stays
+in use, Restdis refreshes it in the background every 30 seconds.
 
 ### Configuration
 
-Restdis is configured entirely through environment variables. See
+You configure Restdis with environment variables only. See
 [`docs/self-hosting.md`](docs/self-hosting.md) for the full list.
 
 ## Architecture
 
-Restdis is an Elixir umbrella project split into bounded contexts, each owning one piece of
-the system:
+Restdis is an Elixir umbrella project. Each app owns one part of the system:
 
 ```
                               ┌──────────────┐
@@ -157,22 +158,22 @@ the system:
 | `restdis_electric`   | The Electric-compatible shape log: shape definitions, handles, the append-only log, the filter index, snapshotting, and `where`-clause evaluation. See below. |
 | `restdis_server`     | The RESP (Redis protocol) server and the HTTP proxy/endpoint. The only app that terminates client connections.                                                |
 
-A write lands in Postgres, is read once from the WAL by `restdis_buster`, and is fanned out
-per availability zone to every node; each node then applies invalidation, refresh, or shape
-appends locally. Reads go through `restdis_server`, which checks ETS, then FeoxDB, then falls
-back to PostgREST, filling the faster layers as it goes. A consistent hash ring routes each
-tenant to one owning node, with automatic forwarding and a PostgREST fallback if that node is
-unreachable.
+**Writes.** A write lands in Postgres. `restdis_buster` reads it once from the WAL and sends
+it to every node, one copy per availability zone. Each node then invalidates, refreshes, or
+appends to shapes locally.
 
-Dependencies point one way: `restdis_electric` depends only on `restdis`; `restdis_buster`
-pushes changes into it and `restdis_server` reads from it, but neither is a dependency of it.
+**Reads.** `restdis_server` checks ETS, then FeoxDB, then PostgREST, and fills the faster layers
+on the way back. A consistent hash ring routes each tenant to one owning node. Other nodes
+forward to it, and fall back to PostgREST if it is down.
+
+**Dependencies point one way.** `restdis_electric` depends only on `restdis`. `restdis_buster`
+pushes changes into it and `restdis_server` reads from it, but it depends on neither.
 
 ## Electric compatibility
 
-Restdis serves ElectricSQL's shape-log protocol directly, so an application built against
-`@electric-sql/client`, `@electric-sql/react`, `@tanstack/electric-db-collection`, or
-`electric_client` (Hex) keeps working after changing only its `url` to point at Restdis — no
-dependency changes, no fork.
+Restdis serves ElectricSQL's shape-log protocol. Apps built on `@electric-sql/client`,
+`@electric-sql/react`, `@tanstack/electric-db-collection`, or `electric_client` (Hex) keep
+working when you point their `url` at Restdis. No dependency changes, no fork.
 
 - **`GET /v1/shape`** — takes `table`, `offset`, `handle`, `live`, `cursor`, `columns`,
   `where`, `params`, `replica`, `live_sse`, and `log`, and returns the same message shapes and
