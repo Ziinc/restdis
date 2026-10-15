@@ -1,11 +1,11 @@
 # Restdis
 
-**The caching layer for [Supabase](https://supabase.com). Sub-millisecond reads from
+**The caching layer for [Supabase](https://supabase.com). Cached reads from
 [PostgREST](https://postgrest.org) that never go stale, through the Redis or Electric client you
 already use.**
 
 Restdis sits between your app and PostgREST. It keeps responses in memory and on disk, and
-answers a repeat read in under a millisecond instead of sending it back to Postgres.
+answers repeat reads from memory instead of sending them back to Postgres.
 
 Most caches serve old data until a TTL runs out or someone clears them. Restdis reads the
 Postgres write-ahead log (WAL), the record of every row Postgres writes, so it sees each write
@@ -31,7 +31,7 @@ protocol. Point any Redis client at it, or any Electric client such as
 - **Cache a PostgREST query from Redis.** `PGRST.QUERY` fetches and caches a query in one
   command. `PGRST.POLICY` changes its TTL, rewarm interval, or persistence later.
 - **Mirror a whole table.** Replicate a PostgREST table as key/value pairs that the WAL keeps
-  current, for reads where every millisecond counts.
+  current, for your hottest reads.
 - **Scale across nodes.** A consistent hash ring gives each tenant one owning node. Other nodes
   forward to it, and fall back to PostgREST if it is down.
 - **Run Electric apps unchanged.** Restdis serves ElectricSQL's `GET /v1/shape` protocol.
