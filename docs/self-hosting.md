@@ -18,10 +18,10 @@ database.
 
 Restdis is configured entirely through environment variables.
 
-| Variable                           | Default                  | Purpose                                                                       |
-| ----------------------------------- | ------------------------ | ----------------------------------------------------------------------------- |
+| Variable                                   | Default                  | Purpose                                                                       |
+| ------------------------------------------ | ------------------------ | ----------------------------------------------------------------------------- |
 | `RESTDIS_DATABASE_URL`                     | required                 | Postgres URL for the repo and WAL replication connection                      |
-| `RELEASE_COOKIE`                   | required for clustering  | Erlang distribution cookie                                                    |
+| `RELEASE_COOKIE`                           | required for clustering  | Erlang distribution cookie                                                    |
 | `RESTDIS_RELEASE_AZ`                       | `local`                  | Availability zone advertised to the `:wal_fanout` `syn` scope                 |
 | `RESTDIS_HTTP_PORT`                        | `4040`                   | HTTP endpoint port                                                            |
 | `RESTDIS_RESP_PORT`                        | `6380`                   | Redis RESP port                                                               |

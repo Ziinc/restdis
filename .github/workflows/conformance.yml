@@ -14,7 +14,7 @@ env:
   MIX_ENV: dev
   ELIXIR_VERSION: "1.20.3"
   OTP_VERSION: "28.5"
-  POSTGRES_HOSTNAME: localhost
+  RESTDIS_POSTGRES_HOSTNAME: localhost
   RESTDIS_SNAPSHOT_READER: direct_postgres
 
 jobs:
