@@ -7,16 +7,26 @@ defmodule Restdis.Cache.ChildSpecTest do
   (LIB_PRD Phase 5, "explicit start").
   """
 
+  alias Restdis.Cache.InstanceConfig
   alias Restdis.Cache.Key
 
   test "the :restdis application declares no `mod:` callback" do
     assert Application.spec(:restdis, :mod) in [nil, []]
   end
 
-  test "start_link/1 accepts a caller-provided top-level name and is idempotent by name" do
-    # Already running under its default name; asking again must return the existing supervisor, not error.
-    assert {:ok, pid} = Restdis.Cache.Supervisor.start_link([])
+  test "start_link/1 returns {:error, {:already_started, pid}} when the named instance is already running" do
+    # Returning {:ok, pid} would make the caller believe it owns a supervisor it cannot shut down.
+    assert {:error, {:already_started, pid}} = Restdis.Cache.Supervisor.start_link([])
     assert pid == Process.whereis(Restdis.Cache)
+  end
+
+  test "start_link/1 leaves the running instance's config untouched when already started" do
+    before = InstanceConfig.fetch!(Restdis.Cache)
+
+    assert {:error, {:already_started, _pid}} =
+             Restdis.Cache.Supervisor.start_link(data_dir: "/nonexistent/other_mount")
+
+    assert InstanceConfig.fetch!(Restdis.Cache) == before
   end
 
   test "a second instance with a different :name runs alongside the default one" do
