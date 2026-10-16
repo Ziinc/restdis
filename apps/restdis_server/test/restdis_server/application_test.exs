@@ -21,6 +21,10 @@ defmodule RestdisServer.ApplicationTest do
   end
 
   test "stopping the applications in reverse release order completes within 10s" do
+    # Boot afresh: earlier umbrella suites leave hundreds of tenants in this VM's cache, each ~0.5s to close.
+    Enum.each(@stop_order, &Application.stop/1)
+    {:ok, _apps} = Application.ensure_all_started(:restdis_server)
+
     task = Task.async(fn -> Enum.map(@stop_order, &Application.stop/1) end)
 
     assert {:ok, results} = Task.yield(task, 10_000) || Task.shutdown(task, :brutal_kill)
