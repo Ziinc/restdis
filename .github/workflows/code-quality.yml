@@ -28,11 +28,14 @@ jobs:
           otp-version: ${{ env.OTP_VERSION }}
       - uses: actions/cache@v4
         with:
+          # The NIF .so and cargo target are cached with _build: an up-to-date cached SqlParser beam skips rustler, leaving priv/native empty.
           path: |
             deps
             _build
-          key: ${{ runner.os }}-mix-${{ env.OTP_VERSION }}-${{ env.ELIXIR_VERSION }}-${{ hashFiles('mix.lock') }}
-          restore-keys: ${{ runner.os }}-mix-${{ env.OTP_VERSION }}-${{ env.ELIXIR_VERSION }}-
+            apps/restdis_electric/priv/native
+            apps/restdis_electric/native/restdis_electric_sql/target
+          key: ${{ runner.os }}-mix-nif-${{ env.OTP_VERSION }}-${{ env.ELIXIR_VERSION }}-${{ hashFiles('mix.lock') }}-${{ hashFiles('apps/restdis_electric/native/**/Cargo.lock', 'apps/restdis_electric/native/**/*.rs') }}
+          restore-keys: ${{ runner.os }}-mix-nif-${{ env.OTP_VERSION }}-${{ env.ELIXIR_VERSION }}-
       - run: mix deps.get
       - run: mix check.compile
 
@@ -60,11 +63,14 @@ jobs:
           otp-version: ${{ env.OTP_VERSION }}
       - uses: actions/cache@v4
         with:
+          # The NIF .so and cargo target are cached with _build: an up-to-date cached SqlParser beam skips rustler, leaving priv/native empty.
           path: |
             deps
             _build
-          key: ${{ runner.os }}-mix-${{ env.OTP_VERSION }}-${{ env.ELIXIR_VERSION }}-${{ hashFiles('mix.lock') }}
-          restore-keys: ${{ runner.os }}-mix-${{ env.OTP_VERSION }}-${{ env.ELIXIR_VERSION }}-
+            apps/restdis_electric/priv/native
+            apps/restdis_electric/native/restdis_electric_sql/target
+          key: ${{ runner.os }}-mix-nif-${{ env.OTP_VERSION }}-${{ env.ELIXIR_VERSION }}-${{ hashFiles('mix.lock') }}-${{ hashFiles('apps/restdis_electric/native/**/Cargo.lock', 'apps/restdis_electric/native/**/*.rs') }}
+          restore-keys: ${{ runner.os }}-mix-nif-${{ env.OTP_VERSION }}-${{ env.ELIXIR_VERSION }}-
       - run: mix deps.get
       - run: mix credo --strict
 
@@ -131,11 +137,14 @@ jobs:
           otp-version: ${{ env.OTP_VERSION }}
       - uses: actions/cache@v4
         with:
+          # The NIF .so and cargo target are cached with _build: an up-to-date cached SqlParser beam skips rustler, leaving priv/native empty.
           path: |
             deps
             _build
-          key: ${{ runner.os }}-mix-${{ env.OTP_VERSION }}-${{ env.ELIXIR_VERSION }}-${{ hashFiles('mix.lock') }}
-          restore-keys: ${{ runner.os }}-mix-${{ env.OTP_VERSION }}-${{ env.ELIXIR_VERSION }}-
+            apps/restdis_electric/priv/native
+            apps/restdis_electric/native/restdis_electric_sql/target
+          key: ${{ runner.os }}-mix-nif-${{ env.OTP_VERSION }}-${{ env.ELIXIR_VERSION }}-${{ hashFiles('mix.lock') }}-${{ hashFiles('apps/restdis_electric/native/**/Cargo.lock', 'apps/restdis_electric/native/**/*.rs') }}
+          restore-keys: ${{ runner.os }}-mix-nif-${{ env.OTP_VERSION }}-${{ env.ELIXIR_VERSION }}-
       # Started with `docker run`, not the `services:` block, because
       # restdis_buster's WAL tailer needs a real logical replication slot
       # (`wal_level=logical`), which `services:` has no way to pass to the

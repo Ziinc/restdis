@@ -63,7 +63,8 @@ defmodule RestdisElectric.SchemaWatcherPostgresTest do
     :ok = ShapeRegistry.register(tenant_id, "public", table, handle)
     {:ok, _pid} = Log.ensure_started(tenant_id, handle)
 
-    {:ok, _pid} = SchemaWatcher.start_link(name: server, interval_ms: 20)
+    # Default interval: a short timer queues :check passes over every registered table ahead of our calls.
+    {:ok, _pid} = SchemaWatcher.start_link(name: server)
 
     # First pass establishes the baseline snapshot; the shape must still be there.
     :ok = SchemaWatcher.check(server)

@@ -1,5 +1,5 @@
 defmodule RestdisServer.Commands.HelloTest do
-  use ExUnit.Case, async: true
+  use ExUnit.Case, async: false
 
   alias RestdisServer.Commands.Dispatcher
   alias RestdisServer.TenantStore.InMemory

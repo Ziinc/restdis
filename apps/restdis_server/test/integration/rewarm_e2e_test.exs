@@ -12,7 +12,7 @@ defmodule RestdisServer.Integration.RewarmE2ETest do
   setup do
     Application.put_env(:restdis_server, :postgrest_fetcher, RestdisServer.StubFetcher)
 
-    {:ok, agent} = Agent.start(fn -> 0 end)
+    {:ok, agent} = Agent.start(fn -> %{} end)
     Application.put_env(:restdis_server, :stub_fetcher_agent, agent)
     Application.put_env(:restdis_server, :stub_fetcher_body, [%{"e2e" => true}])
 
@@ -61,6 +61,6 @@ defmodule RestdisServer.Integration.RewarmE2ETest do
 
     :timer.sleep(1200)
 
-    assert Agent.get(agent, & &1) == 1
+    assert Agent.get(agent, &Map.get(&1, @tenant_id, 0)) == 1
   end
 end

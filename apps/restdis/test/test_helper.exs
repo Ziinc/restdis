@@ -3,7 +3,9 @@ run_db_tests? = System.get_env("RESTDIS_SKIP_DB_TESTS") != "true"
 ExUnit.start(exclude: if(run_db_tests?, do: [], else: [:db]))
 
 test_dir = System.tmp_dir!() <> "/restdis_test"
-File.rm_rf!(test_dir)
+
+# Only wipe on a standalone run: in the umbrella VM other apps' live CubDBs sit under this tmp dir.
+if is_nil(Process.whereis(Restdis.Cache)), do: File.rm_rf!(test_dir)
 
 {:ok, _pid} =
   Restdis.Cache.Supervisor.start_link(
