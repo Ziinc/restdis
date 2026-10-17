@@ -343,7 +343,7 @@ defmodule RestdisServer.HTTP.ElectricTest do
 
   describe "log=changes_only with a direct Postgres pool" do
     @direct_tenant_id "test-electric-tenant-direct"
-    @direct_pg_url "postgres://postgres:postgres@#{System.get_env("POSTGRES_HOSTNAME", "localhost")}:5432/restdis_test"
+    @direct_pg_url "postgres://postgres:postgres@#{System.get_env("RESTDIS_POSTGRES_HOSTNAME", "localhost")}:5432/restdis_test"
 
     setup do
       {:ok, conn} =

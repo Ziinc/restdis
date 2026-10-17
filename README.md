@@ -83,7 +83,7 @@ Build the image and run it against any Postgres with logical replication turned 
 docker build -t restdis .
 docker run --rm \
   --add-host=host.docker.internal:host-gateway \
-  -e DATABASE_URL=postgres://postgres:postgres@host.docker.internal:5432/restdis_dev \
+  -e RESTDIS_DATABASE_URL=postgres://postgres:postgres@host.docker.internal:5432/restdis_dev \
   -e RELEASE_COOKIE=some_secret_cookie \
   -p 4040:4040 -p 6380:6380 \
   restdis
@@ -229,6 +229,48 @@ forward to it, and fall back to PostgREST if it is down.
 
 **Dependencies point one way.** `restdis_electric` depends only on `restdis`. `restdis_buster`
 pushes changes into it and `restdis_server` reads from it, but it depends on neither.
+
+### The three cache layers
+
+Each tenant gets its own copy of every layer. A read takes the first layer that has the entry
+and fills the faster layers on the way back, so the next read stops earlier:
+
+```
+ read ──▶ 1. ETS (memory) ──miss──▶ 2. FeoxDB (disk) ──miss──▶ 3. PostgREST (origin)
+             │ hit                     │ hit                      │ response
+             ▼                         ▼                          ▼
+          answer                    copy into ETS,             write into ETS and FeoxDB,
+                                       answer                         answer
+```
+
+| Layer             | Where                                           | Expiry and eviction                                                                                     |
+| ----------------- | ----------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
+| 1. Query cache    | An ETS table in memory, one per tenant          | The entry's TTL. Expired entries are swept every 30 s. Past 500 MB per tenant, least recently used goes first. |
+| 2. Disk cache     | A [FeoxDB](https://github.com/ziinc/feoxdb-ex) store at `RESTDIS_CACHE_DATA_DIR/<tenant>/store.feox` | The same TTL, kept on the wall clock so it holds across restarts. Past 500 MB per tenant, oldest written goes first. |
+| 3. Origin         | The tenant's PostgREST                          | Not a cache. A miss in both layers fetches here and writes the response into layers 1 and 2.           |
+
+**Restarts start warm.** ETS is empty after a restart, but the FeoxDB store is not: it reopens
+and rebuilds its index from the file. The first read of each key finds it on disk and copies it
+back into memory with its remaining TTL, without a trip to PostgREST. FeoxDB writes to disk in
+the background, so a hard crash can lose the most recent writes; those keys are simply fetched
+from PostgREST again.
+
+**`ls` overstates disk use.** Each `store.feox` is created at twice the cap (1 GB by default) as
+a sparse file, so `ls` shows 1 GB while `du` shows only the blocks its entries fill.
+
+**Persisted entries stay.** An entry marked persist (`PGRST.POLICY <key> PERSIST`, or
+`"persist": true` on `/pgrst/policy`) is never evicted from disk to make room. Each tenant can
+persist up to `persist_cap` entries (50,000 by default).
+
+**Invalidation clears the layers together.** When `restdis_buster` sees a write in the WAL, the
+reverse index maps the row's table and primary key to every cache key whose response held that
+row. Each of those keys is deleted from ETS and FeoxDB at once. An inserted row was never in a
+cached response, so an insert clears the table's cached lists instead.
+
+**One more layer in front: the hot cache.** RESP `GET` checks a node-local hot cache before the
+three layers. Every entry `GET` reads is kept there for five minutes. Once a node reads the same key
+five times within a 10 s window, it sends the value to every peer, so in a cluster a hot key is
+answered on whichever node receives the request, with no hop to the tenant's owner.
 
 ## Electric compatibility
 

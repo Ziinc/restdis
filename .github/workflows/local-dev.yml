@@ -62,7 +62,7 @@ jobs:
 
       - name: Run the test suite the same way a contributor would
         run: |
-          docker compose run --rm -e MIX_ENV=test -e POSTGRES_HOSTNAME=db app \
+          docker compose run --rm -e MIX_ENV=test -e RESTDIS_POSTGRES_HOSTNAME=db app \
             sh -c "mix ecto.create --quiet && mix ecto.migrate --quiet && mix test"
 
       - name: Dump app logs

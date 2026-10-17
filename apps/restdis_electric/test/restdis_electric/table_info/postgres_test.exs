@@ -20,7 +20,7 @@ defmodule RestdisElectric.TableInfo.PostgresTest do
     # Unlink so one test's abnormal exit (e.g. a genuine SQL error) can't take down the shared `TestRepo`.
     pid =
       case TestRepo.start_link(
-             hostname: System.get_env("POSTGRES_HOSTNAME", "localhost"),
+             hostname: System.get_env("RESTDIS_POSTGRES_HOSTNAME", "localhost"),
              username: System.get_env("POSTGRES_USER", "postgres"),
              password: System.get_env("POSTGRES_PASSWORD", "postgres"),
              database: System.get_env("POSTGRES_DB", "restdis_test"),

@@ -1,6 +1,8 @@
 defmodule RestdisBuster.FanoutSubscriberTest do
   use ExUnit.Case, async: false
 
+  import ExUnit.CaptureLog
+
   alias RestdisBuster.FanoutSubscriber
   alias RestdisBuster.TestUtils
   alias RestdisBuster.WAL.Event
@@ -28,5 +30,57 @@ defmodule RestdisBuster.FanoutSubscriberTest do
   test "handle_info/2 ignores unrelated messages" do
     state = %{az: "test"}
     assert {:noreply, ^state} = FanoutSubscriber.handle_info(:something_else, state)
+  end
+
+  test "a burst of 1000 events for an unconfigured table makes at most 1 tenant_table_config query" do
+    table = "no_such_table_for_fanout_burst"
+    TestUtils.clear_table_config()
+    test_pid = self()
+    handler_id = {__MODULE__, :burst}
+
+    :telemetry.attach(
+      handler_id,
+      [:restdis_repo, :query],
+      fn _event, _measurements, meta, _config ->
+        if meta.source == "tenant_table_config" and table in meta.params,
+          do: send(test_pid, :table_config_query)
+      end,
+      nil
+    )
+
+    on_exit(fn -> :telemetry.detach(handler_id) end)
+
+    state = %{az: "test"}
+
+    for _ <- 1..1000 do
+      event = %Event{op: :insert, schema: "public", table: table}
+      assert {:noreply, ^state} = FanoutSubscriber.handle_info({:wal_event, event}, state)
+    end
+
+    assert_received :table_config_query
+    refute_received :table_config_query
+  end
+
+  test "handle_info/2 logs and skips an event whose table config lookup raises" do
+    TestUtils.clear_table_config()
+    previous = Application.fetch_env(:restdis_buster, :repo)
+    Application.put_env(:restdis_buster, :repo, RestdisBuster.NoSuchRepo)
+
+    on_exit(fn ->
+      case previous do
+        {:ok, repo} -> Application.put_env(:restdis_buster, :repo, repo)
+        :error -> Application.delete_env(:restdis_buster, :repo)
+      end
+    end)
+
+    event = %Event{op: :insert, schema: "public", table: "fanout_lookup_error_table"}
+    state = %{az: "test"}
+
+    log =
+      capture_log(fn ->
+        assert {:noreply, ^state} = FanoutSubscriber.handle_info({:wal_event, event}, state)
+      end)
+
+    assert log =~ "fanout_lookup_error_table"
   end
 end

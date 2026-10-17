@@ -1,6 +1,6 @@
 import Config
 
-postgres_hostname = System.get_env("POSTGRES_HOSTNAME", "localhost")
+postgres_hostname = System.get_env("RESTDIS_POSTGRES_HOSTNAME", "localhost")
 
 config :restdis_buster,
   slot_name: "restdis_test_slot",
@@ -18,9 +18,7 @@ config :restdis_buster,
   tenant_table_config_cache: [
     data_dir: System.tmp_dir!() <> "/restdis_test/control_plane",
     ttl_ms: 60_000
-  ],
-  cache_data_dir: System.tmp_dir!() <> "/restdis_test",
-  cache_origin: Restdis.Cache.Origin.Stub
+  ]
 
 config :restdis_replicator,
   origin: RestdisReplicator.Origin.Stub,
@@ -60,9 +58,7 @@ config :restdis_server,
     ttl_ms: 60_000
   ],
   req_options: [plug: {Req.Test, RestdisServer.Finch}],
-  rewarm_tick_ms: 50,
-  cache_data_dir: System.tmp_dir!() <> "/restdis_test",
-  cache_origin: Restdis.Cache.Origin.Stub
+  rewarm_tick_ms: 50
 
 config :restdis_repo, RestdisRepo,
   username: "postgres",

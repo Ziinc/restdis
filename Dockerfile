@@ -66,7 +66,7 @@ RUN apk add --no-cache libstdc++ ncurses-libs openssl ca-certificates
 ENV LANG=C.UTF-8 \
     LC_ALL=C.UTF-8 \
     MIX_ENV=prod \
-    CACHE_DATA_DIR=/var/lib/restdis/cache
+    RESTDIS_CACHE_DATA_DIR=/var/lib/restdis/cache
 
 WORKDIR /app
 

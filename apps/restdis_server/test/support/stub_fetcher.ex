@@ -4,10 +4,10 @@ defmodule RestdisServer.StubFetcher do
   @behaviour RestdisServer.PostgREST.Fetcher
 
   @impl RestdisServer.PostgREST.Fetcher
-  def fetch(_tenant_id, _key, _config) do
+  def fetch(tenant_id, _key, _config) do
     case Application.get_env(:restdis_server, :stub_fetcher_agent) do
       nil -> :ok
-      agent -> Agent.update(agent, fn n -> n + 1 end)
+      agent -> Agent.update(agent, &Map.update(&1, tenant_id, 1, fn n -> n + 1 end))
     end
 
     case Application.get_env(:restdis_server, :stub_fetcher_error) do

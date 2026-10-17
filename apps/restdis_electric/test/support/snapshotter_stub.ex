@@ -2,6 +2,9 @@ defmodule RestdisElectric.Snapshotter.Stub do
   @moduledoc """
   Test snapshot reader that pages through a fixed, in-memory row set instead
   of calling PostgREST, configured via `:restdis_electric, :stub_rows`.
+
+  A table configured as `{:error, reason}` fails its snapshot with that
+  reason, and one configured as `:raise` raises mid-snapshot.
   """
 
   @behaviour RestdisElectric.Snapshotter
@@ -11,12 +14,19 @@ defmodule RestdisElectric.Snapshotter.Stub do
 
   @impl RestdisElectric.Snapshotter
   def stream(_tenant_config, %Definition{} = definition, page_fun) do
-    rows = Application.get_env(:restdis_electric, :stub_rows, %{})[definition.table] || []
+    case Application.get_env(:restdis_electric, :stub_rows, %{})[definition.table] || [] do
+      {:error, _reason} = error ->
+        error
 
-    rows
-    |> Enum.chunk_every(Snapshotter.page_size())
-    |> Enum.each(page_fun)
+      :raise ->
+        raise "snapshot of #{definition.table} failed"
 
-    :ok
+      rows ->
+        rows
+        |> Enum.chunk_every(Snapshotter.page_size())
+        |> Enum.each(page_fun)
+
+        :ok
+    end
   end
 end
