@@ -12,6 +12,7 @@ defmodule Restdis.Cache.DiskCache do
 
   require Logger
 
+  alias Restdis.Cache.HotCache
   alias Restdis.Cache.InstanceConfig
   alias Restdis.Cache.Key
   alias Restdis.Cache.ReverseIndexMeta
@@ -382,7 +383,10 @@ defmodule Restdis.Cache.DiskCache do
   defp expired?(:infinity), do: false
   defp expired?(expires_at), do: expires_at <= System.system_time(:millisecond)
 
-  defp expire_entry(key, state), do: drop_entry(state, key)
+  defp expire_entry(key, %{tenant_id: tenant_id} = state) do
+    HotCache.delete_local(tenant_id, key)
+    drop_entry(state, key)
+  end
 
   defp cap_bytes(name), do: InstanceConfig.get(name, :disk_cap_bytes, @default_cap_bytes)
 
@@ -399,6 +403,7 @@ defmodule Restdis.Cache.DiskCache do
       {{_inserted_at, evict_key}, rest_idx} = :gb_sets.take_smallest(evict_idx)
       evict_size = entry_size(store, evict_key)
       :ok = FeoxDB.Term.delete(store, evict_key)
+      HotCache.delete_local(tenant_id, evict_key)
 
       :telemetry.execute([:restdis, :cache, :disk_evict], %{count: 1}, %{
         tenant_id: tenant_id,

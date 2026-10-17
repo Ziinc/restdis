@@ -45,7 +45,7 @@ defmodule Restdis.Cache.InvalidateListsTest do
     list_key = Key.build(:table, "hot", %{})
     rows = [%{"id" => 1}]
     Restdis.Cache.put(t, list_key, rows, primary_keys: [1])
-    HotCache.observe(t, list_key, rows)
+    HotCache.observe(t, list_key, rows, :infinity)
 
     Restdis.Cache.invalidate_lists(t, "hot")
 
