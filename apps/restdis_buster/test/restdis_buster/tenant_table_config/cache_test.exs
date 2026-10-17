@@ -46,4 +46,24 @@ defmodule RestdisBuster.TenantTableConfig.CacheTest do
     assert config.mode == "ttl"
     assert config.pk_column == "id"
   end
+
+  test "lookup/2 caches :not_found until invalidate/2 clears it" do
+    Cache.invalidate("public", "cache_test")
+    assert Cache.lookup("public", "cache_test") == :not_found
+
+    %Schema{}
+    |> Schema.changeset(%{
+      tenant_id: "cache_test_tenant",
+      schema: "public",
+      table_name: "cache_test",
+      mode: "ttl",
+      pk_column: "id"
+    })
+    |> RestdisRepo.insert!()
+
+    assert Cache.lookup("public", "cache_test") == :not_found
+
+    Cache.invalidate("public", "cache_test")
+    assert {:ok, %{tenant_id: "cache_test_tenant"}} = Cache.lookup("public", "cache_test")
+  end
 end

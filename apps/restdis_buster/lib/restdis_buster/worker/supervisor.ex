@@ -16,6 +16,9 @@ defmodule RestdisBuster.Worker.Supervisor do
 
   use DynamicSupervisor
 
+  require Logger
+
+  alias RestdisBuster.Infra.LsnStore
   alias RestdisBuster.TenantTableConfig
   alias RestdisBuster.WAL.Event
 
@@ -86,7 +89,7 @@ defmodule RestdisBuster.Worker.Supervisor do
   end
 
   def start_worker(%Event{} = event, runner) do
-    case TenantTableConfig.lookup(event.schema, event.table) do
+    case safe_lookup(event) do
       {:ok, %{tenant_id: tenant_id}} ->
         if try_acquire(tenant_id) do
           spawn_metered(event, runner, tenant_id)
@@ -97,8 +100,23 @@ defmodule RestdisBuster.Worker.Supervisor do
         :ok
 
       :not_found ->
+        LsnStore.applied(event.lsn)
+
+      {:error, reason} ->
+        Logger.error(
+          "Worker.Supervisor: skipping #{event.schema}.#{event.table} event, table config lookup failed: #{reason}"
+        )
+
         :ok
     end
+  end
+
+  defp safe_lookup(event) do
+    TenantTableConfig.lookup(event.schema, event.table)
+  rescue
+    e -> {:error, Exception.message(e)}
+  catch
+    kind, reason -> {:error, "#{kind}: #{inspect(reason)}"}
   end
 
   defp spawn_unmetered(event, runner) do
