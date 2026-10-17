@@ -1,10 +1,14 @@
 defmodule Restdis.Cache.ReverseIndex do
   @moduledoc """
   Maps `{table, primary key}` pairs back to the cache keys that depend on them.
+
+  Rebuilt from the disk cache's reverse index metadata in `handle_continue/2`
+  on start, so requests queued meanwhile are served against the full index.
   """
 
   use GenServer
 
+  alias Restdis.Cache.DiskCache
   alias Restdis.Cache.Key
   alias Restdis.Cache.TenantRegistry
 
@@ -19,7 +23,7 @@ defmodule Restdis.Cache.ReverseIndex do
     name = Keyword.fetch!(opts, :name)
     tenant_id = Keyword.fetch!(opts, :tenant_id)
 
-    GenServer.start_link(__MODULE__, tenant_id,
+    GenServer.start_link(__MODULE__, {name, tenant_id},
       name: TenantRegistry.via(name, tenant_id, :reverse_index)
     )
   end
@@ -82,11 +86,24 @@ defmodule Restdis.Cache.ReverseIndex do
   end
 
   @impl GenServer
-  def init(tenant_id) do
+  def init({name, tenant_id}) do
     fwd = :ets.new(:reverse_index_fwd, [:bag, :public, read_concurrency: true])
     rev = :ets.new(:reverse_index_rev, [:bag, :public, read_concurrency: true])
     list_keys = :ets.new(:reverse_index_list_keys, [:bag, :public, read_concurrency: true])
-    {:ok, %{fwd: fwd, rev: rev, list_keys: list_keys, tenant_id: tenant_id}}
+    state = %{fwd: fwd, rev: rev, list_keys: list_keys, name: name, tenant_id: tenant_id}
+    {:ok, state, {:continue, :rebuild}}
+  end
+
+  @impl GenServer
+  def handle_continue(:rebuild, %{fwd: fwd, rev: rev, list_keys: list_keys} = state) do
+    Enum.each(DiskCache.reverse_index_entries(state.name, state.tenant_id), fn
+      {key, %{rows: rows, list?: list?}} ->
+        :ets.insert(fwd, Enum.map(rows, &{&1, key}))
+        :ets.insert(rev, Enum.map(rows, &{key, &1}))
+        if list?, do: :ets.insert(list_keys, {key.ident, key})
+    end)
+
+    {:noreply, state}
   end
 
   @impl GenServer
