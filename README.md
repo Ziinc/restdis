@@ -74,6 +74,15 @@ with plain `GET`s. A write evicts the key, and one more query refreshes it.
 
 ![Redis client demo](docs/demos/redis.gif)
 
+### Postgres → Turso replication
+
+A Node worker follows the `orders` shape from Restdis and writes every insert, update and delete
+into an embedded [Turso](https://github.com/tursodatabase/turso) database. It never connects to
+Postgres. Stopped and restarted, it resumes from the shape offset it stored in Turso and catches
+up on the writes it missed. Source: [`demos/turso`](demos/turso).
+
+![Postgres to Turso replication demo](docs/demos/turso.gif)
+
 ## Quickstart
 
 Build the image and run it against any Postgres with logical replication turned on

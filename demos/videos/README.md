@@ -1,6 +1,6 @@
 # Recorded demos
 
-Source for the three GIFs in [`docs/demos/`](../../docs/demos). Each one runs a
+Source for the four GIFs in [`docs/demos/`](../../docs/demos). Each one runs a
 client against Restdis on the left, with a console panel under the browser apps that logs every
 request, its `sc-cache` header, and its response time. On the right are the live Restdis request log and the
 live Postgres statement log (`log_statement=all`), so you can see which reads reach the
@@ -11,6 +11,7 @@ database and which Restdis answers itself.
 | `query` | supabase-js inside TanStack Query's `useQuery` | First fetch is a MISS, repeat fetches are HITs that never reach Postgres, and a write elsewhere evicts the entry through the WAL. |
 | `db` | Two TanStack DB clients with `@tanstack/electric-db-collection` | Each client snapshots the shape, then polls Restdis live. Inserts, updates, a bulk insert and a delete reach both clients; each new or changed row costs one primary-key read. |
 | `redis` | ioredis, default settings | `PGRST.QUERY` and `GET` over RESP, WAL eviction after a write, and `QUIT`. |
+| `turso` | [`demos/turso/sync.mjs`](../turso) | A worker replicates Postgres `orders` into embedded Turso through a Restdis shape, then resumes after a restart. Postgres and the replica are shown side by side. |
 
 ## Recording
 
@@ -20,6 +21,7 @@ Needs Docker, Node 22, and ffmpeg. The ioredis demo uses its default `HELLO 3` h
 ```sh
 cd demos/videos
 npm ci
+(cd ../turso && npm ci)           # the Turso demo's worker
 npm run build                      # bundle the two browser apps
 
 docker compose up -d --build       # Postgres + PostgREST + Restdis
@@ -44,6 +46,7 @@ To look around without recording, open `http://localhost:5180/?demo=query` (or `
 | db | 5434 |
 | rest | 3002 |
 | stage | 5180 |
+| turso worker (`--serve`) | 5190 |
 
 ## Files
 
@@ -55,5 +58,5 @@ To look around without recording, open `http://localhost:5180/?demo=query` (or `
 - `app/console.js` - the in-page console that logs `fetch()` and `console.log`.
 - `redis-client.mjs` - the ioredis script.
 - `stage.mjs`, `app/stage.html` - the split-screen page and the log streams behind it.
-- `record.mjs` - drives each demo with Playwright and writes a GIF: 960 px wide, 4 fps,
-  32 colours, then gifsicle's lossy pass, so each stays under 3 MB.
+- `record.mjs` - drives each demo with Playwright and writes a GIF at the full 1600 px capture
+  width, 10 fps and a 256-colour palette, with a light gifsicle pass.

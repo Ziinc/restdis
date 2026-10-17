@@ -26,6 +26,15 @@
   .term .slow { color: #f5a524; }
   .term .flash { animation: flash 1.2s ease-out; }
   @keyframes flash { from { background: #3ecf8e44; } to { background: transparent; } }
+  #left.split { display: grid; grid-template-rows: auto 1fr 1fr; }
+  .tables { display: grid; grid-template-columns: 1fr 1fr; gap: 1px; background: #2b3038; min-height: 0; }
+  .tables > div { background: #111418; display: flex; flex-direction: column; min-height: 0; }
+  .tables .bar { border-top: 1px solid #2b3038; }
+  table.rows { width: 100%; border-collapse: collapse; font: 14px/1.5 ui-monospace, Menlo, monospace; color: #c9d1d9; }
+  table.rows th { text-align: left; color: #7d8590; font-weight: 500; padding: 5px 10px; border-bottom: 1px solid #2b3038; }
+  table.rows td { padding: 5px 10px; border-bottom: 1px solid #1c2128; }
+  table.rows tr.changed td { animation: flash 1.2s ease-out; }
+  .rowcount { margin-left: auto; color: #e6e6e6; }
 </style>
 </head>
 <body>
@@ -52,6 +61,7 @@
     query: { title: "supabase-js + TanStack Query", left: "browser — supabase-js + TanStack Query app", src: "/app/query" },
     db: { title: "TanStack DB over the Electric protocol", left: "browser — TanStack DB app", src: "/app/db" },
     redis: { title: "Any Redis client", left: "terminal — node redis-client.mjs (ioredis)" },
+    turso: { title: "Postgres → Turso replication", left: "terminal — node demos/turso/sync.mjs" },
   };
   const demo = new URLSearchParams(location.search).get("demo") ?? "query";
   const cfg = DEMOS[demo];
@@ -115,6 +125,8 @@
     frame.id = "app";
     frame.src = cfg.src;
     left.appendChild(frame);
+  } else if (demo === "turso") {
+    startTurso();
   } else {
     const term = document.createElement("pre");
     term.className = "term";
@@ -131,6 +143,62 @@
     });
   }
   window.leftReady = true;
+  }
+
+  // Turso demo: the sync worker's terminal, then Postgres and the Turso
+  // replica side by side, each polled so a change shows up in both.
+  function startTurso() {
+    left.classList.add("split");
+    const term = document.createElement("pre");
+    term.className = "term";
+    term.id = "client";
+    const tables = document.createElement("div");
+    tables.className = "tables";
+    tables.innerHTML = `
+      <div><div class="bar">postgres &mdash; public.orders (source)<span class="rowcount" id="pg-rows"></span></div><table class="rows" id="pg-table"></table></div>
+      <div><div class="bar">turso &mdash; replica.db (embedded)<span class="rowcount" id="turso-rows"></span></div><table class="rows" id="turso-table"></table></div>`;
+    left.appendChild(term);
+    left.appendChild(tables);
+    term.style.gridRow = "2";
+    tables.style.gridRow = "3";
+
+    const render = (id, rows, previous) => {
+      const table = document.getElementById(id);
+      const seen = new Map(previous.map((r) => [r.id, JSON.stringify(r)]));
+      table.innerHTML = "<tr><th>id</th><th>customer</th><th>total</th><th>status</th></tr>" + rows.map((r) =>
+        `<tr class="${seen.get(r.id) === JSON.stringify(r) ? "" : "changed"}"><td>${r.id}</td><td>${esc(r.customer)}</td><td>$${(r.total / 100).toFixed(2)}</td><td>${esc(r.status)}</td></tr>`
+      ).join("");
+      document.getElementById(id.replace("table", "rows")).textContent = `${rows.length} rows`;
+    };
+    const state = { pg: [], turso: [] };
+    const poll = async (url, id, key) => {
+      try {
+        const rows = await (await fetch(url, { cache: "no-store" })).json();
+        if (JSON.stringify(rows) !== JSON.stringify(state[key])) { render(id, rows, state[key]); state[key] = rows; }
+      } catch {}
+    };
+    setInterval(() => {
+      poll("/pg/orders", "pg-table", "pg");
+      poll("/turso/rows", "turso-table", "turso");
+    }, 400);
+
+    let source;
+    window.startTurso = (resume) => {
+      source = new EventSource(resume ? "/run/turso?resume=1" : "/run/turso");
+      source.onmessage = (e) => {
+        const msg = JSON.parse(e.data);
+        if (msg.done) return;
+        term.insertAdjacentText("beforeend", msg.text);
+        term.scrollTop = term.scrollHeight;
+      };
+    };
+    window.stopTurso = () => {
+      source?.close();
+      term.insertAdjacentText("beforeend", "^C  (worker stopped)\n");
+      term.scrollTop = term.scrollHeight;
+    };
+    window.tursoRows = () => state.turso;
+    window.pgRows = () => state.pg;
   }
 </script>
 </body>

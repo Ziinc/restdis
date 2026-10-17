@@ -20,10 +20,10 @@ const STAGE = process.env.STAGE_URL ?? "http://localhost:5180";
 const RESTDIS_URL = process.env.RESTDIS_URL ?? "http://localhost:4042";
 const PGRST_URL = process.env.PGRST_URL ?? "http://localhost:3002";
 const SIZE = { width: 1600, height: 900 };
-const GIF_WIDTH = 960;
-const GIF_FPS = 4;
-const GIF_LOSSY = 160;
-const GIF_COLORS = 32;
+const GIF_WIDTH = 1600;
+const GIF_FPS = 5;
+const GIF_LOSSY = 80;
+const GIF_COLORS = 64;
 
 const plural = (n, word) => `${n} ${word}${n === "1" ? "" : "s"}`;
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -45,6 +45,17 @@ async function freshRestdis() {
     [
       { id: 1, title: "Point the app at Restdis", done: true },
       { id: 2, title: "Delete the hand-written cache code", done: false },
+    ],
+    "resolution=merge-duplicates,return=minimal"
+  );
+  await pgrst("DELETE", "orders?id=gt.3");
+  await pgrst(
+    "POST",
+    "orders",
+    [
+      { id: 1, customer: "Ada", total: 1200, status: "paid" },
+      { id: 2, customer: "Grace", total: 450, status: "pending" },
+      { id: 3, customer: "Linus", total: 3000, status: "paid" },
     ],
     "resolution=merge-duplicates,return=minimal"
   );
@@ -142,6 +153,52 @@ const DEMOS = {
     const { reads } = await counts(page);
     await caption(`${commands} Redis commands, ${plural(reads, "SELECT")} in Postgres. Restdis kept the cache fresh from the WAL.`);
     await sleep(4500);
+  },
+
+  async turso(page, caption) {
+    const write = async (text, method, path, body) => {
+      await caption(text);
+      await pgrst(method, path, body);
+      await sleep(4000);
+    };
+
+    await caption("A Node worker follows Restdis's Electric shape for orders and writes each change into embedded Turso.");
+    await page.evaluate(() => window.startTurso(false));
+    await sleep(5000);
+    await write("insert in Postgres: Restdis reads it from the WAL, the worker applies it to Turso.", "POST", "orders", {
+      id: 4, customer: "Margaret", total: 980, status: "pending",
+    });
+    await write("update: the whole new row arrives (replica=full), so the worker just upserts it.", "PATCH", "orders?id=eq.2", {
+      status: "paid",
+    });
+    await write("insert 3 rows in one statement: each poll's batch lands in Turso as one transaction.", "POST", "orders", [
+      { id: 5, customer: "Alan", total: 2100, status: "pending" },
+      { id: 6, customer: "Barbara", total: 640, status: "paid" },
+      { id: 7, customer: "Edsger", total: 1500, status: "pending" },
+    ]);
+    await write("delete: the row leaves Turso too.", "DELETE", "orders?id=eq.1");
+
+    await caption("Stop the worker. Writes keep landing in Postgres while it is down.");
+    await page.evaluate(() => window.stopTurso());
+    await sleep(1500);
+    await pgrst("PATCH", "orders?id=eq.4", { status: "paid" });
+    await pgrst("POST", "orders", { id: 8, customer: "Donald", total: 330, status: "pending" });
+    await sleep(3500);
+    await caption("Restart: the worker resumes from the shape offset it stored in Turso and catches up.");
+    await page.evaluate(() => window.startTurso(true));
+    await sleep(6000);
+
+    const same = await page.evaluate(
+      () => JSON.stringify(window.tursoRows()) === JSON.stringify(window.pgRows())
+    );
+    const rows = await page.evaluate(() => window.tursoRows().length);
+    const { reads } = await counts(page);
+    await caption(
+      same
+        ? `Turso matches Postgres: ${plural(String(rows), "row")}. Postgres served ${plural(reads, "read")}; the worker never connected to it.`
+        : "Turso has not caught up with Postgres yet."
+    );
+    await sleep(5000);
   },
 };
 
