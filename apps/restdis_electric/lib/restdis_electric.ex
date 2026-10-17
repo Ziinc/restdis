@@ -362,9 +362,22 @@ defmodule RestdisElectric do
     end
   end
 
+  # A shape whose snapshot fails must not stay registered, or it keeps receiving WAL changes no client can read.
   defp finish_new_shape(ctx, handle) do
     register(ctx, handle)
-    run_snapshot(ctx, handle)
+
+    case run_snapshot(ctx, handle) do
+      :ok ->
+        :ok
+
+      {:error, _reason} = error ->
+        delete_shape(ctx.tenant_id, handle)
+        error
+    end
+  rescue
+    exception ->
+      delete_shape(ctx.tenant_id, handle)
+      reraise exception, __STACKTRACE__
   end
 
   # Electric's LRU shape cache at capacity; reuses delete_shape/2 so the victim must-refetches.

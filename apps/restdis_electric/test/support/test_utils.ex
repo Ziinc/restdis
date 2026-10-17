@@ -50,7 +50,7 @@ defmodule RestdisElectric.TestUtils do
     Application.put_env(:restdis_electric, :tables, Map.put(tables, qualified_name, info))
   end
 
-  @spec put_stub_rows(String.t(), [map()]) :: :ok
+  @spec put_stub_rows(String.t(), [map()] | {:error, term()} | :raise) :: :ok
   def put_stub_rows(table, rows) do
     stub_rows = Application.get_env(:restdis_electric, :stub_rows, %{})
     Application.put_env(:restdis_electric, :stub_rows, Map.put(stub_rows, table, rows))

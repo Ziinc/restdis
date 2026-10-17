@@ -38,6 +38,15 @@ defmodule RestdisElectric.Eval do
   `$1` placeholders read from the `params` map given to `compile/2`. Values
   are never interpolated into the expression text.
 
+  ## Evaluation errors
+
+  Where Postgres raises an error while evaluating a row (division by zero,
+  numeric overflow, a shift count outside `0..63`), `evaluate/2` returns
+  `{:error, {:eval_error, message}}` and `matches?/3` returns `false`: the
+  row is not in the shape. Evaluation never raises, so one clause can never
+  crash the WAL path it runs on. A constant shift count outside `0..63` is
+  rejected by `compile/2` instead, since it errors on every row.
+
   ## Text ordering
 
   `<`, `<=`, `>`, and `>=` on text compare with Elixir's byte-order `<`/`>`,
@@ -62,6 +71,8 @@ defmodule RestdisElectric.Eval do
 
   @type error :: {:unsupported_where, String.t()} | {:invalid_where, String.t()}
 
+  @type eval_error :: {:eval_error, String.t()}
+
   @enforce_keys [:source, :tree, :params, :columns]
   defstruct [:source, :tree, :params, :columns]
 
@@ -73,6 +84,8 @@ defmodule RestdisElectric.Eval do
   @functions ~w(lower upper coalesce greatest least)
   @is_tests ~w(is_null is_not_null is_true is_not_true is_false is_not_false is_unknown
                is_not_unknown)
+  @shifts ~w(<< >>)
+  @max_shift 63
 
   @doc """
   Parses and validates `where`, binding `$1` placeholders to `params`.
@@ -120,6 +133,8 @@ defmodule RestdisElectric.Eval do
 
   def matches?(%__MODULE__{} = compiled, row, resolver) when is_map(row) do
     eval(compiled.tree, row, with_resolver(compiled.params, resolver)) == true
+  catch
+    {:eval_error, _message} -> false
   end
 
   # `resolver` rides in the `params` map every `eval` clause threads through, under a key no placeholder collides with.
@@ -334,6 +349,14 @@ defmodule RestdisElectric.Eval do
     end
   end
 
+  defp check({:binop, op, left, {:lit, {:number, text}} = right}, params) when op in @shifts do
+    if parse_number(text) in 0..@max_shift do
+      check_all([left, right], params)
+    else
+      {:error, {:invalid_where, "shift count #{text} is outside 0..#{@max_shift}"}}
+    end
+  end
+
   defp check({:binop, op, left, right}, params) do
     if op in @comparison or op in @arithmetic or op in @bitwise or op in @array_ops or
          op in @logical do
@@ -416,8 +439,12 @@ defmodule RestdisElectric.Eval do
   Evaluates the compiled clause against `row` and returns the SQL value,
   which may be `:null`.
   """
-  @spec evaluate(t(), row()) :: value()
-  def evaluate(%__MODULE__{} = compiled, row), do: eval(compiled.tree, row, compiled.params)
+  @spec evaluate(t(), row()) :: value() | {:error, eval_error()}
+  def evaluate(%__MODULE__{} = compiled, row) do
+    eval(compiled.tree, row, compiled.params)
+  catch
+    {:eval_error, message} -> {:error, {:eval_error, message}}
+  end
 
   defp eval({:ident, name}, row, _params), do: fetch_column(row, name)
   defp eval({:lit, literal}, _row, _params), do: literal_value(literal)
@@ -643,16 +670,20 @@ defmodule RestdisElectric.Eval do
     end
   end
 
-  defp arithmetic(op, left, right) when is_number(left) and is_number(right),
-    do: do_arithmetic(op, left, right)
+  defp arithmetic(op, left, right) when is_number(left) and is_number(right) do
+    do_arithmetic(op, left, right)
+  rescue
+    ArithmeticError -> eval_error("numeric value out of range in #{op}")
+  end
 
   defp arithmetic(_op, _left, _right), do: :null
 
   defp do_arithmetic("+", left, right), do: left + right
   defp do_arithmetic("-", left, right), do: left - right
   defp do_arithmetic("*", left, right), do: left * right
-  defp do_arithmetic("/", _left, right) when right == 0, do: :null
-  defp do_arithmetic("%", _left, right) when right == 0, do: :null
+
+  defp do_arithmetic(op, _left, right) when op in ["/", "%"] and right == 0,
+    do: eval_error("division by zero")
 
   # Postgres integer division truncates towards zero; float division does not.
   defp do_arithmetic("/", left, right) when is_integer(left) and is_integer(right),
@@ -673,8 +704,15 @@ defmodule RestdisElectric.Eval do
   defp do_bitwise("&", left, right), do: Bitwise.band(left, right)
   defp do_bitwise("|", left, right), do: Bitwise.bor(left, right)
   defp do_bitwise("#", left, right), do: Bitwise.bxor(left, right)
+
+  defp do_bitwise(op, _left, right) when op in @shifts and right not in 0..@max_shift,
+    do: eval_error("shift count #{right} is outside 0..#{@max_shift}")
+
   defp do_bitwise("<<", left, right), do: Bitwise.bsl(left, right)
   defp do_bitwise(">>", left, right), do: Bitwise.bsr(left, right)
+
+  # Thrown, not raised: `matches?/3` and `evaluate/2` catch it, so evaluation never raises.
+  defp eval_error(message), do: throw({:eval_error, message})
 
   defp array_op(op, left, right) when is_list(left) and is_list(right),
     do: do_array_op(op, left, right)

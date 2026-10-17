@@ -3,6 +3,7 @@ defmodule RestdisElectricTest do
 
   alias RestdisElectric.Handle
   alias RestdisElectric.Message
+  alias RestdisElectric.ShapeRegistry
   alias RestdisElectric.Snapshotter.DirectPostgres
   alias RestdisElectric.TestUtils
   alias RestdisElectric.WAL
@@ -37,6 +38,51 @@ defmodule RestdisElectricTest do
     assert Enum.all?(result.messages, &(&1.operation == :insert))
     assert result.up_to_date
     assert is_binary(result.handle)
+  end
+
+  describe "a shape that cannot be served" do
+    setup do
+      TestUtils.put_table("public.broken", %{
+        columns: ["id"],
+        primary_key: ["id"],
+        replica_identity: :full
+      })
+
+      %{tenant_id: TestUtils.tenant_id()}
+    end
+
+    test "a failed snapshot leaves no shape registered", %{tenant_id: tenant_id} do
+      TestUtils.put_stub_rows("broken", {:error, :origin_down})
+      params = %{"table" => "broken", "offset" => "-1"}
+
+      assert {:error, {:snapshot_failed, :origin_down}} =
+               RestdisElectric.subscribe(tenant_id, @tenant_config, params)
+
+      assert ShapeRegistry.handles_for(tenant_id, "public", "broken") == []
+    end
+
+    test "a snapshot that raises leaves no shape registered", %{tenant_id: tenant_id} do
+      TestUtils.put_stub_rows("broken", :raise)
+      params = %{"table" => "broken", "offset" => "-1"}
+
+      assert_raise RuntimeError, fn ->
+        RestdisElectric.subscribe(tenant_id, @tenant_config, params)
+      end
+
+      assert ShapeRegistry.handles_for(tenant_id, "public", "broken") == []
+    end
+
+    test "a constant shift count outside 0..63 is rejected at subscribe time", %{
+      tenant_id: tenant_id
+    } do
+      TestUtils.put_stub_rows("broken", [%{"id" => 1}])
+      params = %{"table" => "broken", "offset" => "-1", "where" => "(id << 100000000000) > 0"}
+
+      assert {:error, {:invalid_where, _message}} =
+               RestdisElectric.subscribe(tenant_id, @tenant_config, params)
+
+      assert ShapeRegistry.handles_for(tenant_id, "public", "broken") == []
+    end
   end
 
   test "resuming with a valid handle returns only messages after the given offset" do
