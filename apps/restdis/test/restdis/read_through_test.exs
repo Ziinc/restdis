@@ -85,6 +85,12 @@ defmodule Restdis.Cache.ReadThroughTest do
     assert {:ok, 1} = ReadThrough.fetch(name, "k", fn -> flunk("loader ran") end)
   end
 
+  test "key/1 keys a valid ident like Key.build/3 with no params and keeps `/` idents" do
+    assert ReadThrough.key("users") == Restdis.Cache.Key.build(:table, "users", %{})
+    assert %{ident: "tenants/acme", params_hash: hash} = ReadThrough.key("tenants/acme")
+    assert hash == ReadThrough.key("users").params_hash
+  end
+
   test "operating on a cache that was never started raises" do
     name = :"rt_never_started_#{System.unique_integer([:positive])}"
 
