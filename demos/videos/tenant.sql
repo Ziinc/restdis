@@ -17,10 +17,11 @@ VALUES ('sk_demo', 'demo-tenant', 'active', now(), now())
 ON CONFLICT (api_key) DO NOTHING;
 
 -- products: TTL mode. A write evicts the cached reads it affects.
--- todos: replication mode. A write is pushed to live Electric shapes.
+-- todos, orders: replication mode. A write is pushed to live Electric shapes.
 INSERT INTO tenant_table_config (
   tenant_id, schema, table_name, mode, pk_column, inserted_at, updated_at
 ) VALUES
   ('demo-tenant', 'public', 'products', 'ttl', 'id', now(), now()),
-  ('demo-tenant', 'public', 'todos', 'replication', 'id', now(), now())
+  ('demo-tenant', 'public', 'todos', 'replication', 'id', now(), now()),
+  ('demo-tenant', 'public', 'orders', 'replication', 'id', now(), now())
 ON CONFLICT (tenant_id, schema, table_name) DO NOTHING;

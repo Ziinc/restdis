@@ -1,0 +1,14 @@
+{
+  "name": "restdis-demo-turso",
+  "private": true,
+  "version": "0.0.0",
+  "description": "Replicates a Postgres table into an embedded Turso database by following a Restdis Electric shape.",
+  "type": "module",
+  "scripts": {
+    "sync": "node sync.mjs"
+  },
+  "dependencies": {
+    "@electric-sql/client": "1.5.27",
+    "@tursodatabase/database": "0.8.3"
+  }
+}
