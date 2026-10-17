@@ -1,6 +1,7 @@
 defmodule Restdis.Cache.ReadThroughTest do
   use ExUnit.Case, async: false
 
+  alias Restdis.Cache.Key
   alias Restdis.Cache.QueryCache
   alias Restdis.Cache.ReadThrough
 
@@ -86,7 +87,7 @@ defmodule Restdis.Cache.ReadThroughTest do
   end
 
   test "key/1 keys a valid ident like Key.build/3 with no params and keeps `/` idents" do
-    assert ReadThrough.key("users") == Restdis.Cache.Key.build(:table, "users", %{})
+    assert ReadThrough.key("users") == Key.build(:table, "users", %{})
     assert %{ident: "tenants/acme", params_hash: hash} = ReadThrough.key("tenants/acme")
     assert hash == ReadThrough.key("users").params_hash
   end
