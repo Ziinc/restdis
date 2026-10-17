@@ -128,7 +128,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     env:
-      POSTGRES_HOSTNAME: localhost
+      RESTDIS_POSTGRES_HOSTNAME: localhost
     steps:
       - uses: actions/checkout@v4
       - uses: erlef/setup-beam@v1

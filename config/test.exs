@@ -1,6 +1,6 @@
 import Config
 
-postgres_hostname = System.get_env("POSTGRES_HOSTNAME", "localhost")
+postgres_hostname = System.get_env("RESTDIS_POSTGRES_HOSTNAME", "localhost")
 
 config :restdis_buster,
   slot_name: "restdis_test_slot",
