@@ -17,7 +17,11 @@ defmodule RestdisServer.TenantConfigTest do
   }
 
   setup do
-    InMemory.seed([@tenant])
+    InMemory.seed([
+      @tenant,
+      %{@tenant | api_key: "key-acme-scoped"} |> Map.put(:key_pgrst_api_key, "scoped-jwt")
+    ])
+
     TenantConfig.invalidate("acme")
     on_exit(fn -> InMemory.clear() end)
     :ok
@@ -30,6 +34,22 @@ defmodule RestdisServer.TenantConfigTest do
 
   test "lookup_by_api_key/1 returns the configuration of the key's tenant" do
     assert {:ok, %{tenant_id: "acme"}} = TenantConfig.lookup_by_api_key("key-acme")
+  end
+
+  test "lookup_by_api_key/1 falls back to the tenant pgrst_api_key as the credential" do
+    assert {:ok, %{pgrst_credential: "pgrst"}} = TenantConfig.lookup_by_api_key("key-acme")
+  end
+
+  test "lookup_by_api_key/1 returns the key's own pgrst_api_key as the credential" do
+    assert {:ok, %{pgrst_credential: "scoped-jwt", pgrst_api_key: "pgrst"}} =
+             TenantConfig.lookup_by_api_key("key-acme-scoped")
+  end
+
+  test "lookup_by_tenant_id/1 never carries a key's credential" do
+    assert {:ok, _} = TenantConfig.lookup_by_api_key("key-acme-scoped")
+    assert {:ok, config} = TenantConfig.lookup_by_tenant_id("acme")
+    refute Map.has_key?(config, :pgrst_credential)
+    refute Map.has_key?(config, :key_pgrst_api_key)
   end
 
   test "an unknown tenant is not found" do

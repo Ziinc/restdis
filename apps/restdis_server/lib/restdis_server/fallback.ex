@@ -12,16 +12,17 @@ defmodule RestdisServer.Fallback do
   alias RestdisServer.TenantConfig
 
   @doc """
-  Fetches `key` straight from PostgREST for `tenant_id`.
+  Fetches `key` straight from PostgREST for `tenant_id`, using the requesting
+  connection's `credential` when the key has none recorded.
   """
-  @spec fetch(String.t(), Key.t()) :: {:ok, term()} | {:error, term()}
-  def fetch(tenant_id, key) do
+  @spec fetch(String.t(), Key.t(), String.t() | nil) :: {:ok, term()} | {:error, term()}
+  def fetch(tenant_id, key, credential) do
     :telemetry.execute([:restdis_server, :cluster, :fallback], %{count: 1}, %{
       tenant_id: tenant_id
     })
 
     with {:ok, config} <- TenantConfig.lookup_by_tenant_id(tenant_id) do
-      Fetcher.fetch(tenant_id, key, config)
+      Fetcher.fetch(tenant_id, key, Map.put(config, :pgrst_credential, credential))
     end
   end
 end

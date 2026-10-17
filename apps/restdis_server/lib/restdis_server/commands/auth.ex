@@ -7,7 +7,8 @@ defmodule RestdisServer.Commands.Auth do
   alias RestdisServer.TenantConfig
 
   @doc """
-  Authenticates the connection with an API key and binds it to a tenant.
+  Authenticates the connection with an API key and binds it to a tenant and
+  to the key's upstream PostgREST credential.
   """
   @spec run(map(), [binary()]) :: {iodata(), map()}
   def run(state, [api_key]) do
@@ -21,14 +22,22 @@ defmodule RestdisServer.Commands.Auth do
     do: {Encoder.error("ERR wrong number of arguments for 'auth' command"), state}
 
   @doc """
-  Binds the connection to the tenant owning `api_key`, or returns the
-  `WRONGPASS` error reply.
+  Binds the connection to the tenant owning `api_key` and to the key's
+  upstream PostgREST credential, or returns the `WRONGPASS` error reply.
   """
   @spec authenticate(map(), binary()) :: {:ok, map()} | {:error, iodata()}
   def authenticate(state, api_key) do
     case TenantConfig.lookup_by_api_key(api_key) do
-      {:ok, config} -> {:ok, %{state | authenticated?: true, tenant_id: config.tenant_id}}
-      {:error, :not_found} -> {:error, Encoder.error("WRONGPASS invalid API key")}
+      {:ok, config} ->
+        {:ok,
+         Map.merge(state, %{
+           authenticated?: true,
+           tenant_id: config.tenant_id,
+           pgrst_credential: TenantConfig.pgrst_credential(config)
+         })}
+
+      {:error, :not_found} ->
+        {:error, Encoder.error("WRONGPASS invalid API key")}
     end
   end
 end

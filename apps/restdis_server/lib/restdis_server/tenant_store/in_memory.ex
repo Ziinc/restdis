@@ -3,7 +3,8 @@ defmodule RestdisServer.TenantStore.InMemory do
   In-memory tenant store used in tests and local runs.
 
   Entries live in the process dictionary for test isolation; call `seed/1` from
-  test setup to populate them.
+  test setup to populate them. An entry's optional `:key_pgrst_api_key` is the
+  upstream credential of its `:api_key`, mirroring `api_keys.pgrst_api_key`.
   """
 
   @behaviour RestdisServer.TenantStore
@@ -16,7 +17,7 @@ defmodule RestdisServer.TenantStore.InMemory do
 
     case Enum.find(entries, fn e -> e[:api_key] == api_key end) do
       nil -> {:error, :not_found}
-      entry -> {:ok, strip_api_key(entry)}
+      entry -> {:ok, Map.put(strip_api_key(entry), :pgrst_credential, credential(entry))}
     end
   end
 
@@ -53,5 +54,7 @@ defmodule RestdisServer.TenantStore.InMemory do
     :ok
   end
 
-  defp strip_api_key(entry), do: Map.delete(entry, :api_key)
+  defp strip_api_key(entry), do: Map.drop(entry, [:api_key, :key_pgrst_api_key])
+
+  defp credential(entry), do: entry[:key_pgrst_api_key] || entry.pgrst_api_key
 end

@@ -14,9 +14,20 @@ defmodule RestdisServer.Commands.HelloTest do
         pgrst_base_url: "http://localhost:3000",
         pgrst_api_key: "service_key",
         replica_url: nil
+      },
+      %{
+        api_key: "sk_hello_scoped",
+        key_pgrst_api_key: "scoped_jwt",
+        tenant_id: "tenant-hello",
+        default_ttl_s: 60,
+        persist_cap: 50_000,
+        pgrst_base_url: "http://localhost:3000",
+        pgrst_api_key: "service_key",
+        replica_url: nil
       }
     ])
 
+    RestdisServer.TenantConfig.invalidate("tenant-hello")
     on_exit(fn -> InMemory.clear() end)
     :ok
   end
@@ -46,6 +57,19 @@ defmodule RestdisServer.Commands.HelloTest do
     assert reply =~ "$5\r\nproto\r\n:2\r\n"
     assert state.authenticated? == true
     assert state.tenant_id == "tenant-hello"
+  end
+
+  test "HELLO 2 AUTH binds the connection to the key's upstream credential like AUTH does" do
+    {_reply, state} = reply(unauthed_state(), ["HELLO", "2", "AUTH", "default", "sk_hello"])
+
+    {_reply, scoped} =
+      reply(unauthed_state(), ["HELLO", "2", "AUTH", "default", "sk_hello_scoped"])
+
+    {_reply, via_auth} = reply(unauthed_state(), ["AUTH", "sk_hello_scoped"])
+
+    assert state.pgrst_credential == "service_key"
+    assert scoped.pgrst_credential == "scoped_jwt"
+    assert scoped == via_auth
   end
 
   test "HELLO 2 AUTH with an invalid API key answers WRONGPASS" do

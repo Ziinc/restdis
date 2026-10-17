@@ -26,8 +26,9 @@ defmodule RestdisServer.Commands.PgrstQuery do
       ttl_ms = parse_ttl_opt(opts)
       rewarm_s = parse_rewarm_opt(opts)
 
-      with {:ok, key, _params} <- QueryParser.parse(state.tenant_id, path),
-           {:ok, config} <- TenantConfig.lookup_by_tenant_id(state.tenant_id) do
+      with {:ok, config} <- TenantConfig.lookup_by_tenant_id(state.tenant_id),
+           {:ok, key, _params} <-
+             QueryParser.parse(state.tenant_id, path, credential(state, config)) do
         wire_key = Key.encode(key)
 
         if rewarm_s do
@@ -91,7 +92,7 @@ defmodule RestdisServer.Commands.PgrstQuery do
   end
 
   defp fallback_query(state, key, wire_key, config) do
-    case Fallback.fetch(state.tenant_id, key) do
+    case Fallback.fetch(state.tenant_id, key, credential(state, config)) do
       {:ok, body} ->
         ttl_ms = (config.default_ttl_s || 60) * 1000
         Restdis.Cache.put(state.tenant_id, key, body, ttl_ms: ttl_ms)
@@ -101,6 +102,8 @@ defmodule RestdisServer.Commands.PgrstQuery do
         {Encoder.error("ERR origin unavailable: #{inspect(reason)}"), state}
     end
   end
+
+  defp credential(state, config), do: state[:pgrst_credential] || config.pgrst_api_key
 
   defp maybe_cold_read(tenant_id, wire_key) do
     policy = PolicyStore.get(tenant_id, wire_key)

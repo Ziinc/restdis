@@ -18,12 +18,16 @@ defmodule RestdisServer.TenantStore.Repo do
         join: t in Tenants,
         on: t.tenant_id == a.tenant_id,
         where: a.api_key == ^api_key and a.status == "active",
-        select: t
+        select: {t, a.pgrst_api_key}
       )
 
     case RestdisRepo.one(query) do
-      nil -> {:error, :not_found}
-      tenant -> {:ok, to_config(tenant)}
+      nil ->
+        {:error, :not_found}
+
+      {tenant, key_credential} ->
+        {:ok,
+         Map.put(to_config(tenant), :pgrst_credential, key_credential || tenant.pgrst_api_key)}
     end
   end
 
