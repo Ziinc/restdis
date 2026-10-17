@@ -111,7 +111,7 @@ defmodule RestdisServer.PGRST.QueryParserTest do
 
   for path <- ["../../auth/v1/x", "/./x", "/rpc/../auth", "/..%2F..%2Fauth", "/a%5Cb?x=1"] do
     test "a path with an invalid ident is rejected: #{path}" do
-      assert {:error, :invalid_ident} = QueryParser.parse("t1", unquote(path))
+      assert {:error, :invalid_ident} = QueryParser.parse("t1", unquote(path), "cred")
     end
   end
 end
