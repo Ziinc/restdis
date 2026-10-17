@@ -23,9 +23,9 @@ defmodule RestdisServer.PGRST.QueryParser do
 
   Only `/<table_or_view>` and `/rpc/<function>` are accepted; any further
   path segments return `{:error, :unsupported_path}`, since PostgREST
-  exposes no sub-resource paths. Returns `{:error, :invalid_ident}` when the
-  table or function name is not a `Restdis.Cache.Key.valid_ident?/1`, such as
-  a `.`/`..` segment.
+  exposes no sub-resource paths. Any path segment that is not a
+  `Restdis.Cache.Key.valid_ident?/1`, such as `.`/`..`, returns
+  `{:error, :invalid_ident}` first.
   """
   @spec parse(String.t(), String.t(), String.t()) :: parse_result()
   def parse(tenant_id, path, credential)
@@ -46,18 +46,18 @@ defmodule RestdisServer.PGRST.QueryParser do
   defp split_path(nil), do: {:error, :missing_path}
 
   defp split_path(path) do
-    case String.split(path, "/", trim: true) do
-      ["rpc", ident] -> validate_ident(:rpc, ident)
-      ["rpc", _ident | _rest] -> {:error, :unsupported_path}
-      [ident] -> validate_ident(:table, ident)
-      [_ident | _rest] -> {:error, :unsupported_path}
-      [] -> {:error, :empty_path}
-    end
+    segments = String.split(path, "/", trim: true)
+
+    if Enum.all?(segments, &Key.valid_ident?/1),
+      do: route(segments),
+      else: {:error, :invalid_ident}
   end
 
-  defp validate_ident(scope, ident) do
-    if Key.valid_ident?(ident), do: {:ok, scope, ident}, else: {:error, :invalid_ident}
-  end
+  defp route(["rpc", ident]), do: {:ok, :rpc, ident}
+  defp route(["rpc", _ident | _rest]), do: {:error, :unsupported_path}
+  defp route([ident]), do: {:ok, :table, ident}
+  defp route([_ident | _rest]), do: {:error, :unsupported_path}
+  defp route([]), do: {:error, :empty_path}
 
   defp decode_pairs(nil), do: []
 
