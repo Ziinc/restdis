@@ -108,4 +108,10 @@ defmodule RestdisServer.PGRST.QueryParserTest do
     assert :miss = Restdis.Cache.get(tenant_id, key_b)
     Restdis.Cache.flush_tenant(tenant_id)
   end
+
+  for path <- ["../../auth/v1/x", "/./x", "/rpc/../auth", "/..%2F..%2Fauth", "/a%5Cb?x=1"] do
+    test "a path with an invalid ident is rejected: #{path}" do
+      assert {:error, :invalid_ident} = QueryParser.parse("t1", unquote(path), "cred")
+    end
+  end
 end

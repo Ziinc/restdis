@@ -32,6 +32,7 @@ defmodule Restdis.Cache.ReadThrough do
   @type ident :: String.t()
 
   @default_ttl_ms 60_000
+  @no_params_hash Key.build(:table, "_", %{}).params_hash
 
   @doc """
   Returns the child spec of the cache instance named in `opts`.
@@ -126,6 +127,16 @@ defmodule Restdis.Cache.ReadThrough do
     :ok
   end
 
+  @doc """
+  Returns the cache key addressing `ident` in the instance's layers.
+
+  Hashed like `Restdis.Cache.Key.build/3` with no params but built directly,
+  skipping its ident check: read-through idents are caller-owned (e.g.
+  `tenants/acme`) and never fetched from PostgREST.
+  """
+  @spec key(ident()) :: Key.t()
+  def key(ident), do: %Key{scope: :table, ident: ident, params_hash: @no_params_hash}
+
   @impl Supervisor
   def init(opts) do
     name = Keyword.fetch!(opts, :name)
@@ -173,8 +184,6 @@ defmodule Restdis.Cache.ReadThrough do
         :miss
     end
   end
-
-  defp key(ident), do: Key.build(:table, ident, %{})
 
   defp envelope(value, ttl_ms), do: {:rt, value, now_ms() + ttl_ms}
 

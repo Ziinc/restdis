@@ -7,6 +7,7 @@ defmodule RestdisServer.Commands.PgrstPolicyTest do
   alias RestdisServer.PolicyStore
   alias RestdisServer.Rewarm
   alias RestdisServer.TenantStore.InMemory
+  alias RestdisServer.TestUtils
 
   @tenant_id "test-policy-tenant"
 
@@ -97,6 +98,18 @@ defmodule RestdisServer.Commands.PgrstPolicyTest do
     end
   end
 
+  # Checks the key, not the tenant: `Registry` unregisters an earlier test's stopped scheduler async.
+  defp rewarm_scheduled?(tenant_id, wire_key) do
+    case fetch_scheduler_pid(tenant_id) do
+      {:ok, pid} -> :ets.member(:sys.get_state(pid).table, wire_key)
+      :error -> false
+    end
+  catch
+    # The stale scheduler exited (`:sys.get_state/1`) or its table is already gone (`:ets.member/2`).
+    :exit, _ -> false
+    :error, :badarg -> false
+  end
+
   test "PGRST.POLICY with no arguments replies with an error", %{state: state} do
     {reply, _} = Dispatcher.dispatch(state, ["PGRST.POLICY"])
     assert IO.iodata_to_binary(reply) =~ "wrong number of arguments"
@@ -107,12 +120,45 @@ defmodule RestdisServer.Commands.PgrstPolicyTest do
     assert IO.iodata_to_binary(reply) == "-ERR invalid cache key\r\n"
   end
 
-  test "PGRST.POLICY TTL on a key with no cached value still succeeds", %{state: state} do
+  test "PGRST.POLICY on a key that is not cached replies no such key and writes nothing", %{
+    state: state
+  } do
     key = Key.build(:table, "uncached_table", %{"id" => "eq.99"})
     wire_key = Key.encode(key)
 
-    {reply, _} = Dispatcher.dispatch(state, ["PGRST.POLICY", wire_key, "TTL", "60"])
-    assert IO.iodata_to_binary(reply) == "+OK\r\n"
+    {reply, _} =
+      Dispatcher.dispatch(state, [
+        "PGRST.POLICY",
+        wire_key,
+        "TTL",
+        "60",
+        "REWARM",
+        "1",
+        "PERSIST"
+      ])
+
+    assert IO.iodata_to_binary(reply) == "-ERR no such key\r\n"
+    assert PolicyStore.get(@tenant_id, wire_key) == %{rewarm_s: nil, persist: false}
+    refute rewarm_scheduled?(@tenant_id, wire_key)
+    assert Restdis.Cache.peek(@tenant_id, key) == :miss
+  end
+
+  test "a crafted path traversal key or path makes zero requests to the origin", %{state: state} do
+    on_exit(fn -> Rewarm.stop_tenant(@tenant_id) end)
+    TestUtils.stub_origin_to_report_requests()
+    TestUtils.allow_rewarm_origin_requests(@tenant_id)
+    crafted_key = "pgrst:t:..%2F..%2Fauth%2Fv1%2Fadmin%2Fusers:0"
+
+    {policy_reply, _} = Dispatcher.dispatch(state, ["PGRST.POLICY", crafted_key, "REWARM", "1"])
+    assert IO.iodata_to_binary(policy_reply) =~ ~r/^-ERR /
+
+    {query_reply, _} =
+      Dispatcher.dispatch(state, ["PGRST.QUERY", "../../auth/v1/admin/users?x=1"])
+
+    assert IO.iodata_to_binary(query_reply) =~ ~r/^-ERR /
+
+    assert PolicyStore.get(@tenant_id, crafted_key) == %{rewarm_s: nil, persist: false}
+    refute_receive {:origin_request, _path}, 1500
   end
 
   test "PGRST.POLICY ignores an unrecognized trailing single option", %{

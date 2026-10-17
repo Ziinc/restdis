@@ -73,6 +73,42 @@ defmodule Restdis.Cache.KeyTest do
     test "non-binary input" do
       assert :error = Key.decode(nil)
     end
+
+    test "malformed percent-encoding in the ident is rejected" do
+      assert :error = Key.decode("pgrst:t:%zz:0")
+    end
+
+    test "a percent-encoded path traversal ident is rejected" do
+      assert :error = Key.decode("pgrst:t:..%2F..%2Fauth%2Fv1%2Fadmin%2Fusers:0")
+    end
+  end
+
+  @invalid_idents ["", ".", "..", "a/b", "a\\b", "a?b", "a#b", "a%b", "a\nb", "a\0b", "a\x7Fb"]
+
+  describe "ident validation" do
+    for ident <- @invalid_idents do
+      test "decode/1 rejects the ident #{inspect(ident)} in every pgrst scope" do
+        encoded = URI.encode(unquote(ident), &URI.char_unreserved?/1)
+
+        for wire_scope <- ["t", "r", "v", "s"] do
+          assert :error = Key.decode("pgrst:#{wire_scope}:#{encoded}:0")
+        end
+      end
+
+      test "build/3 raises ArgumentError for the ident #{inspect(ident)}" do
+        assert_raise ArgumentError, fn -> Key.build(:table, unquote(ident), %{}) end
+      end
+
+      test "valid_ident?/1 is false for #{inspect(ident)}" do
+        refute Key.valid_ident?(unquote(ident))
+      end
+    end
+
+    test "valid_ident?/1 is true for ordinary PostgREST identifiers" do
+      for ident <- ["users", "my-table_2", "public.users", "schema:table", "my table", "a..b"] do
+        assert Key.valid_ident?(ident)
+      end
+    end
   end
 
   describe "canonicalization" do

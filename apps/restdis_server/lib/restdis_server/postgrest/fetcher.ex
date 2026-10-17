@@ -28,18 +28,23 @@ defmodule RestdisServer.PostgREST.Fetcher do
   @doc """
   Returns the PostgREST path a cache key was built from, optionally with its
   raw query string appended.
+
+  The ident is percent-encoded as a single path segment, so no ident can
+  introduce a `/` or `?` into the path.
   """
   @spec path_for(Key.t(), String.t()) :: String.t()
   def path_for(key, query_string \\ "")
 
   def path_for(%Key{scope: :table, ident: ident}, query_string),
-    do: append_query("/#{URI.encode(ident)}", query_string)
+    do: append_query("/#{encode_segment(ident)}", query_string)
 
   def path_for(%Key{scope: :rpc, ident: ident}, query_string),
-    do: append_query("/rpc/#{URI.encode(ident)}", query_string)
+    do: append_query("/rpc/#{encode_segment(ident)}", query_string)
 
   def path_for(%Key{scope: :view, ident: ident}, query_string),
-    do: append_query("/#{URI.encode(ident)}", query_string)
+    do: append_query("/#{encode_segment(ident)}", query_string)
+
+  defp encode_segment(ident), do: URI.encode(ident, &URI.char_unreserved?/1)
 
   defp append_query(path, nil), do: path
   defp append_query(path, ""), do: path

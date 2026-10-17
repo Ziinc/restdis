@@ -1,6 +1,7 @@
 defmodule Restdis.Cache.ReadThroughTest do
   use ExUnit.Case, async: false
 
+  alias Restdis.Cache.Key
   alias Restdis.Cache.QueryCache
   alias Restdis.Cache.ReadThrough
 
@@ -83,6 +84,12 @@ defmodule Restdis.Cache.ReadThroughTest do
     assert {:ok, 1} = ReadThrough.fetch(name, "k", fn -> {:ok, 1} end)
     assert {:ok, 2} = ReadThrough.fetch(other, "k", fn -> {:ok, 2} end)
     assert {:ok, 1} = ReadThrough.fetch(name, "k", fn -> flunk("loader ran") end)
+  end
+
+  test "key/1 keys a valid ident like Key.build/3 with no params and keeps `/` idents" do
+    assert ReadThrough.key("users") == Key.build(:table, "users", %{})
+    assert %{ident: "tenants/acme", params_hash: hash} = ReadThrough.key("tenants/acme")
+    assert hash == ReadThrough.key("users").params_hash
   end
 
   test "operating on a cache that was never started raises" do
