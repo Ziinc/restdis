@@ -38,6 +38,7 @@ defmodule Restdis.MixProject do
       {:rustler, "~> 0.38", runtime: false},
       {:jason, "~> 1.4"},
       {:telemetry, "~> 1.0"},
+      {:syn, "~> 3.3", optional: true},
       {:ecto_sql, "~> 3.13"},
       {:postgrex, "~> 0.22"},
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},

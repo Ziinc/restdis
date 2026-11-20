@@ -11,6 +11,12 @@ defmodule Restdis.Cache.TestUtils do
   @hot_cache_target_key :sc_test_hot_cache_target
   @gossip_target_key :sc_test_gossip_target
 
+  @spec start_syn!() :: :ok
+  def start_syn! do
+    {:ok, _} = Application.ensure_all_started(:syn)
+    :ok = :syn.add_node_to_scopes([:wal, :wal_fanout])
+  end
+
   @spec start_tenant(String.t()) :: String.t()
   def start_tenant(prefix) do
     tenant_id = "#{prefix}_#{System.unique_integer([:positive])}"
