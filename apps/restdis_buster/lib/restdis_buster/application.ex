@@ -19,7 +19,7 @@ defmodule RestdisBuster.Application do
       table_config_cache_spec(),
       RestdisBuster.Worker.Supervisor,
       RestdisBuster.Worker.CoalesceSweeper,
-      RestdisBuster.FanoutSubscriber,
+      {Restdis.Wal.FanoutSubscriber, name: Restdis.Wal},
       {Restdis.Wal.LsnStore, name: Restdis.Wal},
       RestdisBuster.Singleton
     ]
@@ -38,7 +38,8 @@ defmodule RestdisBuster.Application do
       publication: Keyword.get(env, :publication_name, "restdis_pub"),
       replication: Keyword.get(env, :replication_connection, []),
       az: Keyword.get(env, :az, "local"),
-      handler: RestdisBuster.WalHandler
+      handler: RestdisBuster.WalHandler,
+      telemetry_prefix: [:restdis_buster]
     ]
   end
 

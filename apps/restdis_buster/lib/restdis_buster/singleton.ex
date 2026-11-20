@@ -104,7 +104,7 @@ defmodule RestdisBuster.Singleton do
   defp start_tailer do
     DynamicSupervisor.start_child(
       RestdisBuster.TailerSupervisor,
-      {RestdisBuster.Tailer, []}
+      {Restdis.Wal.Tailer, name: Restdis.Wal}
     )
   end
 
