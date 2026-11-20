@@ -1,9 +1,9 @@
 defmodule RestdisBuster.Worker.SupervisorTest do
   use ExUnit.Case, async: false
 
+  alias Restdis.Wal.Event
   alias RestdisBuster.Infra.LsnStore
   alias RestdisBuster.TestUtils
-  alias RestdisBuster.WAL.Event
   alias RestdisBuster.Worker.Supervisor, as: WorkerSupervisor
 
   setup do

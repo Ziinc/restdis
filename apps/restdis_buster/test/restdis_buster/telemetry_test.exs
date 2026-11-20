@@ -4,8 +4,8 @@ defmodule RestdisBuster.TelemetryTest do
   alias Restdis.Cache.Key
   alias Restdis.Cache.ReverseIndex
   alias Restdis.Cache.TenantSupervisor
+  alias Restdis.Wal.Event
   alias RestdisBuster.TestUtils
-  alias RestdisBuster.WAL.Event
   alias RestdisBuster.Worker
 
   setup do

@@ -5,9 +5,9 @@ defmodule RestdisBuster.Worker do
 
   use Task, restart: :temporary
 
+  alias Restdis.Wal.Event
   alias RestdisBuster.Infra.LsnStore
   alias RestdisBuster.TenantTableConfig
-  alias RestdisBuster.WAL.Event
   alias RestdisBuster.Worker.HandlerConfig
   alias RestdisElectric.TableInfo
   alias RestdisElectric.WAL, as: ElectricWAL

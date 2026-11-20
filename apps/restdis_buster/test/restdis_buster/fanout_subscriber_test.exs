@@ -3,9 +3,9 @@ defmodule RestdisBuster.FanoutSubscriberTest do
 
   import ExUnit.CaptureLog
 
+  alias Restdis.Wal.Event
   alias RestdisBuster.FanoutSubscriber
   alias RestdisBuster.TestUtils
-  alias RestdisBuster.WAL.Event
 
   setup do
     TestUtils.checkout_shared_repo!()

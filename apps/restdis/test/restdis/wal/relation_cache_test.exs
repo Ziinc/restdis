@@ -1,7 +1,7 @@
-defmodule RestdisBuster.WAL.RelationCacheTest do
+defmodule Restdis.Wal.RelationCacheTest do
   use ExUnit.Case, async: true
 
-  alias RestdisBuster.WAL.RelationCache
+  alias Restdis.Wal.RelationCache
 
   test "new/0 returns empty cache" do
     assert RelationCache.new() == %{}

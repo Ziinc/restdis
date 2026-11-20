@@ -1,8 +1,8 @@
 defmodule RestdisBuster.Dispatcher do
   @moduledoc false
 
+  alias Restdis.Wal.Event
   alias RestdisBuster.Infra.SlotConfig
-  alias RestdisBuster.WAL.Event
 
   @doc """
   Publishes a decoded WAL event to the `wal_fanout` topic for every known

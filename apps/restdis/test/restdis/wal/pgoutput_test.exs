@@ -1,10 +1,10 @@
-defmodule RestdisBuster.WAL.PgoutputTest do
+defmodule Restdis.Wal.PgoutputTest do
   use ExUnit.Case, async: true
   use ExUnitProperties
 
-  alias RestdisBuster.WAL.Event
-  alias RestdisBuster.WAL.Pgoutput
-  alias RestdisBuster.WAL.RelationCache
+  alias Restdis.Wal.Event
+  alias Restdis.Wal.Pgoutput
+  alias Restdis.Wal.RelationCache
 
   # Binary frame builders
 

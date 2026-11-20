@@ -1,8 +1,8 @@
-defmodule RestdisBuster.WAL.Pgoutput do
+defmodule Restdis.Wal.Pgoutput do
   @moduledoc false
 
-  alias RestdisBuster.WAL.Event
-  alias RestdisBuster.WAL.RelationCache
+  alias Restdis.Wal.Event
+  alias Restdis.Wal.RelationCache
 
   @type state :: {RelationCache.t(), non_neg_integer() | nil}
 
