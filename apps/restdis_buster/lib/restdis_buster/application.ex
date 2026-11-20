@@ -6,11 +6,13 @@ defmodule RestdisBuster.Application do
   use Application
 
   alias Restdis.Cache.ReadThrough
+  alias Restdis.Wal.InstanceConfig
   alias RestdisBuster.TenantTableConfig
 
   @impl Application
   def start(_type, _args) do
     :ok = :syn.add_node_to_scopes([:wal, :wal_fanout])
+    :ok = InstanceConfig.put(Restdis.Wal, wal_opts())
 
     children = [
       {DynamicSupervisor, name: RestdisBuster.TailerSupervisor, strategy: :one_for_one},
@@ -23,6 +25,20 @@ defmodule RestdisBuster.Application do
     ]
 
     Supervisor.start_link(children, strategy: :one_for_one, name: RestdisBuster.Supervisor)
+  end
+
+  # `wal_checkpoint` predates the library and lives in RestdisRepo's default schema.
+  defp wal_opts do
+    env = Application.get_all_env(:restdis_buster)
+
+    [
+      repo: Keyword.get(env, :repo, RestdisRepo),
+      prefix: "public",
+      slot_name: Keyword.get(env, :slot_name, "restdis_slot"),
+      publication: Keyword.get(env, :publication_name, "restdis_pub"),
+      replication: Keyword.get(env, :replication_connection, []),
+      az: Keyword.get(env, :az, "local")
+    ]
   end
 
   defp table_config_cache_spec do

@@ -2,7 +2,7 @@ defmodule RestdisBuster.Dispatcher do
   @moduledoc false
 
   alias Restdis.Wal.Event
-  alias RestdisBuster.Infra.SlotConfig
+  alias Restdis.Wal.InstanceConfig
 
   @doc """
   Publishes a decoded WAL event to the `wal_fanout` topic for every known
@@ -28,7 +28,7 @@ defmodule RestdisBuster.Dispatcher do
   @spec known_azs() :: [String.t()]
   defp known_azs do
     case :syn.group_names(:wal_fanout) do
-      [] -> [SlotConfig.az()]
+      [] -> [InstanceConfig.fetch!(Restdis.Wal).az]
       groups -> for {:az, az} <- groups, do: az
     end
   end

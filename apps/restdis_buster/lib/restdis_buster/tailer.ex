@@ -5,12 +5,12 @@ defmodule RestdisBuster.Tailer do
 
   use Postgrex.ReplicationConnection
 
+  alias Restdis.Wal.InstanceConfig
   alias Restdis.Wal.LSN
   alias Restdis.Wal.Pgoutput
   alias Restdis.Wal.RelationCache
   alias RestdisBuster.Dispatcher
   alias RestdisBuster.Infra.LsnStore
-  alias RestdisBuster.Infra.SlotConfig
 
   @type state :: %{
           step: :create_slot | :streaming,
@@ -24,7 +24,7 @@ defmodule RestdisBuster.Tailer do
   @spec start_link(keyword()) :: {:ok, pid()} | {:error, term()}
   def start_link(opts \\ []) do
     conn_opts =
-      SlotConfig.replication_conn_opts()
+      InstanceConfig.fetch!(Restdis.Wal).replication
       |> Keyword.put_new(:auto_reconnect, true)
       |> Keyword.merge(opts)
 
@@ -44,7 +44,7 @@ defmodule RestdisBuster.Tailer do
 
   @impl Postgrex.ReplicationConnection
   def handle_connect(state) do
-    slot = SlotConfig.slot_name()
+    slot = InstanceConfig.fetch!(Restdis.Wal).slot_name
     query = "CREATE_REPLICATION_SLOT #{slot} LOGICAL pgoutput NOEXPORT_SNAPSHOT"
     {:query, query, %{state | step: :create_slot}}
   end
@@ -116,8 +116,7 @@ defmodule RestdisBuster.Tailer do
   def handle_data(_data, state), do: {:noreply, state}
 
   defp stream(state) do
-    slot = SlotConfig.slot_name()
-    pub = SlotConfig.publication_name()
+    %{slot_name: slot, publication: pub} = InstanceConfig.fetch!(Restdis.Wal)
     start_lsn = format_lsn(LsnStore.persisted())
 
     query =

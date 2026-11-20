@@ -21,14 +21,14 @@ defmodule RestdisBuster.Integration.WalInvalidationTest do
 
   alias Restdis.Cache.Key
   alias Restdis.Cache.TenantSupervisor
-  alias RestdisBuster.Infra.SlotConfig
+  alias Restdis.Wal.InstanceConfig
 
   @tenant_id "itenant"
   @test_table "wal_int_products"
   @test_schema "public"
 
   setup_all do
-    conn_opts = SlotConfig.replication_conn_opts()
+    conn_opts = InstanceConfig.fetch!(Restdis.Wal).replication
 
     case Postgrex.start_link(conn_opts) do
       {:ok, conn} ->
@@ -297,7 +297,7 @@ defmodule RestdisBuster.Integration.WalInvalidationTest do
   end
 
   defp drop_slot(conn) do
-    slot = SlotConfig.slot_name()
+    slot = InstanceConfig.fetch!(Restdis.Wal).slot_name
 
     case Postgrex.query(
            conn,

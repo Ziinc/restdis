@@ -86,7 +86,7 @@ defmodule RestdisBuster.DispatcherTest do
   test "dispatch/1 falls back to the local AZ when no fanout groups exist" do
     az = Application.get_env(:restdis_buster, :az, "test")
 
-    # Leave both this test's `self()` and the real `FanoutSubscriber` (both members of the `az` group), so `:wal_fanout` has zero groups and `known_azs/0` falls back to `SlotConfig.az()`; rejoin both afterwards.
+    # Leave both this test's `self()` and the real `FanoutSubscriber` (both members of the `az` group), so `:wal_fanout` has zero groups and `known_azs/0` falls back to the `az` from `Restdis.Wal.InstanceConfig.fetch!/1`; rejoin both afterwards.
     real_subscriber = Process.whereis(RestdisBuster.FanoutSubscriber)
     :syn.leave(:wal_fanout, {:az, az}, self())
     if real_subscriber, do: :syn.leave(:wal_fanout, {:az, az}, real_subscriber)

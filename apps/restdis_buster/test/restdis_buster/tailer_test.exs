@@ -2,7 +2,7 @@ defmodule RestdisBuster.TailerTest do
   @moduledoc """
   `Tailer` callbacks are pure functions we can invoke directly (no need to
   open a real replication connection for most branches). `stream/1`
-  touches the DB via `SlotConfig`/`LsnStore`, both of which are available
+  touches the DB via `Restdis.Wal.InstanceConfig`/`LsnStore`, both of which are available
   in the test environment.
   """
   use ExUnit.Case, async: true
