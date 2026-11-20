@@ -1,4 +1,4 @@
-defmodule RestdisBuster.Infra.LsnStore do
+defmodule Restdis.Wal.LsnStore do
   @moduledoc false
 
   use GenServer
@@ -6,64 +6,62 @@ defmodule RestdisBuster.Infra.LsnStore do
   require Logger
 
   alias Ecto.Adapters.SQL
+  alias Restdis.Migrations.SqlQuoting
   alias Restdis.Wal.InstanceConfig
 
   @persist_interval_ms 1_000
-  @table "wal_checkpoint"
-
-  # Module-global so workers and tailers read/write without a GenServer hop.
-  @ref_key {__MODULE__, :ref}
 
   @doc """
-  Starts the LSN store, which owns the atomic holding the applied LSN.
+  Starts the LSN store of the instance `opts[:name]`, which owns the atomic holding its applied LSN.
   """
   @spec start_link(keyword()) :: GenServer.on_start()
-  def start_link(opts \\ []) do
-    GenServer.start_link(__MODULE__, opts, name: __MODULE__)
+  def start_link(opts) do
+    name = Keyword.fetch!(opts, :name)
+    GenServer.start_link(__MODULE__, name, name: Module.concat(name, LsnStore))
   end
 
   @doc """
-  Records `lsn` as applied. A `nil` LSN is ignored.
+  Records `lsn` as applied by the instance `name`. A `nil` LSN is ignored.
   """
-  @spec applied(non_neg_integer() | nil) :: :ok
-  def applied(nil), do: :ok
+  @spec applied(atom(), non_neg_integer() | nil) :: :ok
+  def applied(_name, nil), do: :ok
 
-  def applied(lsn) when is_integer(lsn) and lsn >= 0 do
-    ref = ref()
+  def applied(name, lsn) when is_integer(lsn) and lsn >= 0 do
+    ref = ref(name)
     if ref, do: bump(ref, lsn)
     :ok
   end
 
   @doc """
-  Returns the LSN applied so far, or `0` when the store is not running.
+  Returns the LSN applied so far by the instance `name`, or `0` when its store is not running.
   """
-  @spec current_applied() :: non_neg_integer()
-  def current_applied do
-    case ref() do
+  @spec current_applied(atom()) :: non_neg_integer()
+  def current_applied(name) do
+    case ref(name) do
       nil -> 0
       ref -> :atomics.get(ref, 1)
     end
   end
 
   @doc """
-  Reads the LSN last persisted to the checkpoint table.
+  Reads the LSN last persisted to the checkpoint table for the instance `name`.
   """
-  @spec persisted() :: non_neg_integer()
-  def persisted do
-    read_persisted(InstanceConfig.fetch!(Restdis.Wal).slot_name)
+  @spec persisted(atom()) :: non_neg_integer()
+  def persisted(name) do
+    read_persisted(InstanceConfig.fetch!(name))
   end
 
   @impl GenServer
-  def init(_opts) do
+  def init(name) do
     ref = :atomics.new(1, signed: false)
-    :persistent_term.put(@ref_key, ref)
+    :persistent_term.put({__MODULE__, name}, ref)
 
-    slot = InstanceConfig.fetch!(Restdis.Wal).slot_name
-    initial = ensure_row_and_read(slot)
+    config = InstanceConfig.fetch!(name)
+    initial = ensure_row_and_read(config)
     if initial > 0, do: :atomics.put(ref, 1, initial)
 
     schedule_persist()
-    {:ok, %{slot: slot, ref: ref, last_persisted: initial}}
+    {:ok, %{config: config, ref: ref, last_persisted: initial}}
   end
 
   @impl GenServer
@@ -72,7 +70,7 @@ defmodule RestdisBuster.Infra.LsnStore do
 
     new_last =
       if current > last do
-        case write_persisted(state.slot, current) do
+        case write_persisted(state.config, current) do
           :ok -> current
           :error -> last
         end
@@ -105,21 +103,22 @@ defmodule RestdisBuster.Infra.LsnStore do
     end
   end
 
-  defp ref do
-    :persistent_term.get(@ref_key, nil)
+  defp ref(name) do
+    :persistent_term.get({__MODULE__, name}, nil)
   end
 
-  defp ensure_row_and_read(slot) do
-    repo = repo()
+  defp table(%{prefix: prefix}), do: "#{SqlQuoting.quote_ident(prefix)}.wal_checkpoint"
+
+  defp ensure_row_and_read(config) do
     now = NaiveDateTime.utc_now() |> NaiveDateTime.truncate(:second)
 
     SQL.query!(
-      repo,
-      "INSERT INTO #{@table} (slot_name, lsn, inserted_at, updated_at) VALUES ($1, 0, $2, $2) ON CONFLICT (slot_name) DO NOTHING",
-      [slot, now]
+      config.repo,
+      "INSERT INTO #{table(config)} (slot_name, lsn, inserted_at, updated_at) VALUES ($1, 0, $2, $2) ON CONFLICT (slot_name) DO NOTHING",
+      [config.slot_name, now]
     )
 
-    read_persisted(slot)
+    read_persisted(config)
   rescue
     e ->
       Logger.warning("LsnStore: degraded mode (DB unavailable): #{Exception.message(e)}")
@@ -130,12 +129,12 @@ defmodule RestdisBuster.Infra.LsnStore do
       0
   end
 
-  defp read_persisted(slot) do
+  defp read_persisted(config) do
     %{rows: rows} =
       SQL.query!(
-        repo(),
-        "SELECT lsn FROM #{@table} WHERE slot_name = $1",
-        [slot]
+        config.repo,
+        "SELECT lsn FROM #{table(config)} WHERE slot_name = $1",
+        [config.slot_name]
       )
 
     case rows do
@@ -148,13 +147,13 @@ defmodule RestdisBuster.Infra.LsnStore do
     _, _ -> 0
   end
 
-  defp write_persisted(slot, lsn) do
+  defp write_persisted(config, lsn) do
     now = NaiveDateTime.utc_now() |> NaiveDateTime.truncate(:second)
 
     SQL.query!(
-      repo(),
-      "UPDATE #{@table} SET lsn = $1, updated_at = $2 WHERE slot_name = $3",
-      [lsn, now, slot]
+      config.repo,
+      "UPDATE #{table(config)} SET lsn = $1, updated_at = $2 WHERE slot_name = $3",
+      [lsn, now, config.slot_name]
     )
 
     :ok
@@ -165,6 +164,4 @@ defmodule RestdisBuster.Infra.LsnStore do
   catch
     _, _ -> :error
   end
-
-  defp repo, do: Application.get_env(:restdis_buster, :repo, RestdisRepo)
 end

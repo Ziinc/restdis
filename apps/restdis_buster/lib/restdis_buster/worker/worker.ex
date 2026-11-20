@@ -6,7 +6,7 @@ defmodule RestdisBuster.Worker do
   use Task, restart: :temporary
 
   alias Restdis.Wal.Event
-  alias RestdisBuster.Infra.LsnStore
+  alias Restdis.Wal.LsnStore
   alias RestdisBuster.TenantTableConfig
   alias RestdisBuster.Worker.HandlerConfig
   alias RestdisElectric.TableInfo
@@ -26,7 +26,7 @@ defmodule RestdisBuster.Worker do
   end
 
   defp ack(%Event{lsn: nil}), do: :ok
-  defp ack(%Event{lsn: lsn}), do: LsnStore.applied(lsn)
+  defp ack(%Event{lsn: lsn}), do: LsnStore.applied(Restdis.Wal, lsn)
 
   @doc """
   Applies `event` to the cache, then acknowledges its LSN.

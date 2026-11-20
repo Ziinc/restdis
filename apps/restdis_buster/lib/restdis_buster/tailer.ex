@@ -7,10 +7,10 @@ defmodule RestdisBuster.Tailer do
 
   alias Restdis.Wal.InstanceConfig
   alias Restdis.Wal.LSN
+  alias Restdis.Wal.LsnStore
   alias Restdis.Wal.Pgoutput
   alias Restdis.Wal.RelationCache
   alias RestdisBuster.Dispatcher
-  alias RestdisBuster.Infra.LsnStore
 
   @type state :: %{
           step: :create_slot | :streaming,
@@ -105,7 +105,7 @@ defmodule RestdisBuster.Tailer do
 
     messages =
       if reply == 1 do
-        [LSN.standby_status(new_wal_end, LsnStore.current_applied())]
+        [LSN.standby_status(new_wal_end, LsnStore.current_applied(Restdis.Wal))]
       else
         []
       end
@@ -117,7 +117,7 @@ defmodule RestdisBuster.Tailer do
 
   defp stream(state) do
     %{slot_name: slot, publication: pub} = InstanceConfig.fetch!(Restdis.Wal)
-    start_lsn = format_lsn(LsnStore.persisted())
+    start_lsn = format_lsn(LsnStore.persisted(Restdis.Wal))
 
     query =
       "START_REPLICATION SLOT #{slot} LOGICAL #{start_lsn} (proto_version '1', publication_names '#{pub}')"

@@ -19,7 +19,7 @@ defmodule RestdisBuster.Worker.Supervisor do
   require Logger
 
   alias Restdis.Wal.Event
-  alias RestdisBuster.Infra.LsnStore
+  alias Restdis.Wal.LsnStore
   alias RestdisBuster.TenantTableConfig
 
   @max_children 5_000
@@ -100,7 +100,7 @@ defmodule RestdisBuster.Worker.Supervisor do
         :ok
 
       :not_found ->
-        LsnStore.applied(event.lsn)
+        LsnStore.applied(Restdis.Wal, event.lsn)
 
       {:error, reason} ->
         Logger.error(
