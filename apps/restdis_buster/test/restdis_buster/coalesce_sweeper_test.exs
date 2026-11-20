@@ -6,24 +6,24 @@ defmodule RestdisBuster.Worker.CoalesceSweeperTest do
 
   @moduledoc """
   Proves `RestdisBuster.Worker.CoalesceSweeper` dispatches its backpressure
-  fallback flush through the configured `Restdis.Wal.Handler` implementation
+  fallback flush through the configured `RestdisBuster.Invalidator` implementation
   rather than calling `Restdis.Cache` directly (QA gap found in PR #31,
   LIB_PRD Phase 4/5 dependency inversion).
   """
 
   defmodule StubHandler do
-    @behaviour Restdis.Wal.Handler
+    @behaviour RestdisBuster.Invalidator
 
-    @impl Restdis.Wal.Handler
+    @impl RestdisBuster.Invalidator
     def invalidate_by_row(_tenant_id, _table, _pk), do: :ok
 
-    @impl Restdis.Wal.Handler
+    @impl RestdisBuster.Invalidator
     def flush_table(tenant_id, table) do
       send(:coalesce_sweeper_test, {:flush_table, tenant_id, table})
       :ok
     end
 
-    @impl Restdis.Wal.Handler
+    @impl RestdisBuster.Invalidator
     def invalidate_lists(_tenant_id, _table), do: :ok
   end
 

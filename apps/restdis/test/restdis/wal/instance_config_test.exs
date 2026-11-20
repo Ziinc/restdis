@@ -18,7 +18,8 @@ defmodule Restdis.Wal.InstanceConfigTest do
              slot_name: "restdis_slot",
              publication: "restdis_pub",
              replication: [],
-             az: "local"
+             az: "local",
+             handler: nil
            }
   end
 

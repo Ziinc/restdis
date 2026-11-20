@@ -6,8 +6,8 @@ defmodule RestdisBuster.FanoutSubscriber do
   use GenServer
 
   alias Restdis.Wal.Event
+  alias Restdis.Wal.Handler
   alias Restdis.Wal.InstanceConfig
-  alias RestdisBuster.Worker.Supervisor, as: WorkerSupervisor
 
   @doc """
   Starts the fanout subscriber for this node.
@@ -26,7 +26,7 @@ defmodule RestdisBuster.FanoutSubscriber do
 
   @impl GenServer
   def handle_info({:wal_event, %Event{} = event}, state) do
-    WorkerSupervisor.start_worker(event)
+    Handler.dispatch(Restdis.Wal, event)
     {:noreply, state}
   end
 

@@ -5,7 +5,7 @@ defmodule RestdisBuster.Worker.CoalesceSweeper do
 
   For every `(tenant_id, table)` bucket with `count > 0`, the sweeper resets the
   counter to 0 and issues a coarse flush through the configured
-  `Restdis.Wal.Handler` implementation (see `RestdisBuster.Worker.HandlerConfig`),
+  `RestdisBuster.Invalidator` implementation (see `RestdisBuster.Worker.HandlerConfig`),
   then emits a `[:restdis_buster, :backpressure, :flushed]` telemetry event with
   the coalesced count.
   """

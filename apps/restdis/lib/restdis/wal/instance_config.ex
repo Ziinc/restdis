@@ -14,7 +14,8 @@ defmodule Restdis.Wal.InstanceConfig do
           slot_name: String.t(),
           publication: String.t(),
           replication: keyword(),
-          az: String.t()
+          az: String.t(),
+          handler: module() | nil
         }
 
   @doc """
@@ -31,7 +32,8 @@ defmodule Restdis.Wal.InstanceConfig do
       slot_name: Keyword.get(opts, :slot_name, "restdis_slot"),
       publication: Keyword.get(opts, :publication, "restdis_pub"),
       replication: replication_opts(Keyword.get(opts, :replication, [])),
-      az: Keyword.get(opts, :az, "local")
+      az: Keyword.get(opts, :az, "local"),
+      handler: Keyword.get(opts, :handler)
     }
 
     :persistent_term.put(key(name), config)

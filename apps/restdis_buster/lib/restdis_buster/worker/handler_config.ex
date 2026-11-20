@@ -1,6 +1,6 @@
 defmodule RestdisBuster.Worker.HandlerConfig do
   @moduledoc """
-  Resolves the configured `Restdis.Wal.Handler` implementation.
+  Resolves the configured `RestdisBuster.Invalidator` implementation.
 
   Shared by `RestdisBuster.Worker` and `RestdisBuster.Worker.CoalesceSweeper`
   so both the per-row/DDL/truncate invalidation path and the backpressure
@@ -9,7 +9,7 @@ defmodule RestdisBuster.Worker.HandlerConfig do
   """
 
   @doc """
-  Returns the module implementing `Restdis.Wal.Handler` configured via
+  Returns the module implementing `RestdisBuster.Invalidator` configured via
   `:restdis_buster, :wal_handler`, defaulting to `RestdisBuster.CacheHandler`.
   """
   @spec handler() :: module()

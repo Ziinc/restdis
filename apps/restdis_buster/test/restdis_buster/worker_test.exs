@@ -314,18 +314,18 @@ defmodule RestdisBuster.WorkerTest do
 
   describe ":message events (DDL notifications)" do
     defmodule DdlStubHandler do
-      @behaviour Restdis.Wal.Handler
+      @behaviour RestdisBuster.Invalidator
 
-      @impl Restdis.Wal.Handler
+      @impl RestdisBuster.Invalidator
       def invalidate_by_row(_tenant_id, _table, _pk), do: :ok
 
-      @impl Restdis.Wal.Handler
+      @impl RestdisBuster.Invalidator
       def flush_table(tenant_id, table) do
         send(:worker_test, {:flush_table, tenant_id, table})
         :ok
       end
 
-      @impl Restdis.Wal.Handler
+      @impl RestdisBuster.Invalidator
       def invalidate_lists(_tenant_id, _table), do: :ok
     end
 
