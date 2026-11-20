@@ -16,7 +16,9 @@ defmodule Restdis.Wal.InstanceConfig do
           replication: keyword(),
           az: String.t(),
           handler: module() | nil,
-          telemetry_prefix: [atom()]
+          telemetry_prefix: [atom()],
+          topology: :syn | :local,
+          on_takeover: {module(), atom(), list()} | nil
         }
 
   @doc """
@@ -35,7 +37,9 @@ defmodule Restdis.Wal.InstanceConfig do
       replication: replication_opts(Keyword.get(opts, :replication, [])),
       az: Keyword.get(opts, :az, "local"),
       handler: Keyword.get(opts, :handler),
-      telemetry_prefix: Keyword.get(opts, :telemetry_prefix, [:restdis])
+      telemetry_prefix: Keyword.get(opts, :telemetry_prefix, [:restdis]),
+      topology: Keyword.get(opts, :topology, :syn),
+      on_takeover: Keyword.get(opts, :on_takeover)
     }
 
     :persistent_term.put(key(name), config)

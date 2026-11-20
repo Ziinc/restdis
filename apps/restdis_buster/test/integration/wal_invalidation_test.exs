@@ -116,11 +116,11 @@ defmodule RestdisBuster.Integration.WalInvalidationTest do
     value = %{"id" => 2, "name" => "seed-2"}
     Restdis.Cache.put(@tenant_id, key, value, primary_keys: [2])
 
-    {tailer_pid, _meta} = :syn.lookup(:wal, :wal_tailer)
+    {tailer_pid, _meta} = :syn.lookup(:wal, {Restdis.Wal, :wal_tailer})
     assert is_pid(tailer_pid)
 
     ref = Process.monitor(tailer_pid)
-    DynamicSupervisor.terminate_child(RestdisBuster.TailerSupervisor, tailer_pid)
+    DynamicSupervisor.terminate_child(Restdis.Wal.TailerSupervisor, tailer_pid)
     assert_receive {:DOWN, ^ref, :process, ^tailer_pid, _reason}, 5_000
 
     # While the tailer is down, write a row update.
@@ -134,7 +134,7 @@ defmodule RestdisBuster.Integration.WalInvalidationTest do
     # Singleton should bring a new tailer up.
     assert wait_until(
              fn ->
-               case :syn.lookup(:wal, :wal_tailer) do
+               case :syn.lookup(:wal, {Restdis.Wal, :wal_tailer}) do
                  {pid, _} when is_pid(pid) and pid != tailer_pid -> true
                  _ -> false
                end
@@ -264,10 +264,10 @@ defmodule RestdisBuster.Integration.WalInvalidationTest do
 
   defp reset_replication_slot(conn) do
     # Stop the tailer so it releases the slot; the Singleton respawns it.
-    case :syn.lookup(:wal, :wal_tailer) do
+    case :syn.lookup(:wal, {Restdis.Wal, :wal_tailer}) do
       {pid, _meta} when is_pid(pid) ->
         ref = Process.monitor(pid)
-        DynamicSupervisor.terminate_child(RestdisBuster.TailerSupervisor, pid)
+        DynamicSupervisor.terminate_child(Restdis.Wal.TailerSupervisor, pid)
 
         receive do
           {:DOWN, ^ref, :process, ^pid, _} -> :ok
@@ -284,7 +284,7 @@ defmodule RestdisBuster.Integration.WalInvalidationTest do
     # Wait for the Singleton to spawn a new Tailer with the recreated slot.
     wait_until(
       fn ->
-        case :syn.lookup(:wal, :wal_tailer) do
+        case :syn.lookup(:wal, {Restdis.Wal, :wal_tailer}) do
           {pid, _} when is_pid(pid) -> Process.alive?(pid)
           _ -> false
         end

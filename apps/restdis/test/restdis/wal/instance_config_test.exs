@@ -20,7 +20,9 @@ defmodule Restdis.Wal.InstanceConfigTest do
              replication: [],
              az: "local",
              handler: nil,
-             telemetry_prefix: [:restdis]
+             telemetry_prefix: [:restdis],
+             topology: :syn,
+             on_takeover: nil
            }
   end
 

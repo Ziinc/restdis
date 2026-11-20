@@ -1,7 +1,26 @@
-defmodule RestdisBuster.SingletonTest do
+defmodule Restdis.Wal.SingletonTest do
   use ExUnit.Case, async: false
 
-  alias RestdisBuster.Singleton
+  @moduletag :capture_log
+
+  alias Restdis.Cache.TestUtils
+  alias Restdis.Wal.InstanceConfig
+  alias Restdis.Wal.Singleton
+
+  @name :wal_singleton_test
+
+  setup_all do
+    TestUtils.start_syn!()
+
+    InstanceConfig.put(@name,
+      repo: NotARunningRepo,
+      replication: [hostname: "localhost", port: 1, database: "none", sync_connect: false],
+      on_takeover: {Kernel, :send, [:wal_singleton_test, :took_over]}
+    )
+
+    InstanceConfig.put(:wal_lost_election, repo: NotARunningRepo)
+    InstanceConfig.put(:wal_crashed_tailer, repo: NotARunningRepo)
+  end
 
   test ":syn :wal scope allows only one registration per name" do
     parent = self()
@@ -89,16 +108,31 @@ defmodule RestdisBuster.SingletonTest do
     Process.exit(sub2, :kill)
   end
 
+  test "the elected owner starts the instance's tailer and runs its on_takeover callback" do
+    Process.register(self(), :wal_singleton_test)
+    start_supervised!({DynamicSupervisor, name: Module.concat(@name, TailerSupervisor)})
+    start_supervised!({Singleton, name: @name})
+
+    assert_receive :took_over, 1_000
+
+    assert [{_, tailer, _, _}] =
+             DynamicSupervisor.which_children(Module.concat(@name, TailerSupervisor))
+
+    assert Process.alive?(tailer)
+  end
+
   describe "handle_info/2 (direct callback invocation)" do
-    # Calls `handle_info/2` directly to exercise branches without disturbing the real running singleton.
+    # Calls `handle_info/2` directly to exercise branches without a running singleton.
 
     test ":try_register loses the election to the already-registered winner and monitors it" do
-      assert {pid, _meta} = :syn.lookup(:wal, :wal_tailer)
+      winner = spawn(fn -> Process.sleep(:infinity) end)
+      :ok = :syn.register(:wal, {:wal_lost_election, :wal_tailer}, winner)
+      on_exit(fn -> Process.exit(winner, :kill) end)
 
       assert {:noreply, %{tailer: nil}} =
-               Singleton.handle_info(:try_register, %{tailer: nil})
+               Singleton.handle_info(:try_register, %{name: :wal_lost_election, tailer: nil})
 
-      assert Process.alive?(pid)
+      assert Process.alive?(winner)
     end
 
     test "an unrelated :DOWN (not the owned tailer) triggers a takeover attempt" do
@@ -106,6 +140,7 @@ defmodule RestdisBuster.SingletonTest do
 
       assert {:noreply, %{tailer: nil}} =
                Singleton.handle_info({:DOWN, make_ref(), :process, fake_pid, :normal}, %{
+                 name: @name,
                  tailer: nil
                })
 
@@ -113,17 +148,17 @@ defmodule RestdisBuster.SingletonTest do
     end
 
     test "the owned tailer crashing unregisters it and retries" do
-      {real_tailer_pid, _meta} = :syn.lookup(:wal, :wal_tailer)
-      on_exit(fn -> :syn.register(:wal, :wal_tailer, real_tailer_pid) end)
+      tailer = spawn(fn -> :ok end)
+      :ok = :syn.register(:wal, {:wal_crashed_tailer, :wal_tailer}, self())
 
       assert {:noreply, %{tailer: nil}} =
                Singleton.handle_info(
-                 {:DOWN, make_ref(), :process, real_tailer_pid, :boom},
-                 %{tailer: real_tailer_pid}
+                 {:DOWN, make_ref(), :process, tailer, :boom},
+                 %{name: :wal_crashed_tailer, tailer: tailer}
                )
 
       assert_received :try_register
-      assert :syn.lookup(:wal, :wal_tailer) == :undefined
+      assert :syn.lookup(:wal, {:wal_crashed_tailer, :wal_tailer}) == :undefined
     end
 
     test "unrecognized messages are ignored" do
