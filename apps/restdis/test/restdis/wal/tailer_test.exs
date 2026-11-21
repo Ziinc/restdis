@@ -1,22 +1,31 @@
-defmodule RestdisBuster.TailerTest do
+defmodule Restdis.Wal.TailerTest do
   @moduledoc """
   `Tailer` callbacks are pure functions we can invoke directly (no need to
-  open a real replication connection for most branches). `stream/1`
-  touches the DB via `Restdis.Wal.InstanceConfig`/`Restdis.Wal.LsnStore`, both of which are available
-  in the test environment.
+  open a real replication connection for most branches). `stream/1` reads
+  the checkpoint through `LsnStore`, which falls back to 0 without a database.
   """
   use ExUnit.Case, async: true
 
+  @moduletag :capture_log
+
+  alias Restdis.Wal.InstanceConfig
   alias Restdis.Wal.RelationCache
-  alias RestdisBuster.Tailer
+  alias Restdis.Wal.Tailer
+
+  @name :wal_tailer_test
+
+  setup_all do
+    InstanceConfig.put(@name, repo: NotARunningRepo, telemetry_prefix: [:wal_tailer_test])
+  end
 
   defp base_state(step \\ :create_slot) do
-    %{step: step, decode_state: {RelationCache.new(), nil}, last_wal_end: 0}
+    %{name: @name, step: step, decode_state: {RelationCache.new(), nil}, last_wal_end: 0}
   end
 
   describe "init/1" do
     test "returns the initial streaming state" do
-      assert {:ok, state} = Tailer.init(:ok)
+      assert {:ok, state} = Tailer.init(@name)
+      assert state.name == @name
       assert state.step == :create_slot
       assert state.last_wal_end == 0
     end
@@ -64,6 +73,24 @@ defmodule RestdisBuster.TailerTest do
 
       assert {:noreply, new_state} = Tailer.handle_data(frame, base_state(:streaming))
       assert new_state.last_wal_end == wal_end
+    end
+
+    test "emits its telemetry under the instance's telemetry prefix" do
+      ref = make_ref()
+      parent = self()
+
+      :telemetry.attach(
+        ref,
+        [:wal_tailer_test, :wal, :received],
+        fn event, measurements, _meta, _ -> send(parent, {ref, event, measurements}) end,
+        nil
+      )
+
+      on_exit(fn -> :telemetry.detach(ref) end)
+
+      Tailer.handle_data(<<?w, 0::64, 42::64, 0::64, "?"::binary>>, base_state(:streaming))
+
+      assert_received {^ref, [:wal_tailer_test, :wal, :received], %{bytes: 1, count: 1}}
     end
 
     test "responds to a primary keepalive requesting a reply" do

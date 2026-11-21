@@ -1,4 +1,4 @@
-defmodule RestdisBuster.Tailer do
+defmodule Restdis.Wal.Tailer do
   @moduledoc """
   Logical replication connection that tails the WAL and hands decoded events to the dispatcher.
   """
@@ -13,27 +13,31 @@ defmodule RestdisBuster.Tailer do
   alias Restdis.Wal.RelationCache
 
   @type state :: %{
+          name: atom(),
           step: :create_slot | :streaming,
           decode_state: {RelationCache.t(), non_neg_integer() | nil},
           last_wal_end: non_neg_integer()
         }
 
   @doc """
-  Starts the replication connection that tails the WAL.
+  Starts the replication connection that tails the WAL for the instance `opts[:name]`.
   """
   @spec start_link(keyword()) :: {:ok, pid()} | {:error, term()}
-  def start_link(opts \\ []) do
+  def start_link(opts) do
+    {name, opts} = Keyword.pop!(opts, :name)
+
     conn_opts =
-      InstanceConfig.fetch!(Restdis.Wal).replication
+      InstanceConfig.fetch!(name).replication
       |> Keyword.put_new(:auto_reconnect, true)
       |> Keyword.merge(opts)
 
-    Postgrex.ReplicationConnection.start_link(__MODULE__, :ok, conn_opts)
+    Postgrex.ReplicationConnection.start_link(__MODULE__, name, conn_opts)
   end
 
   @impl Postgrex.ReplicationConnection
-  def init(:ok) do
+  def init(name) do
     state = %{
+      name: name,
       step: :create_slot,
       decode_state: {RelationCache.new(), nil},
       last_wal_end: 0
@@ -44,7 +48,7 @@ defmodule RestdisBuster.Tailer do
 
   @impl Postgrex.ReplicationConnection
   def handle_connect(state) do
-    slot = InstanceConfig.fetch!(Restdis.Wal).slot_name
+    slot = InstanceConfig.fetch!(state.name).slot_name
     query = "CREATE_REPLICATION_SLOT #{slot} LOGICAL pgoutput NOEXPORT_SNAPSHOT"
     {:query, query, %{state | step: :create_slot}}
   end
@@ -68,8 +72,10 @@ defmodule RestdisBuster.Tailer do
   @impl Postgrex.ReplicationConnection
   # XLogData: WAL record
   def handle_data(<<?w, _wal_start::64, wal_end::64, _clock::64, rest::binary>>, state) do
+    prefix = InstanceConfig.fetch!(state.name).telemetry_prefix
+
     :telemetry.execute(
-      [:restdis_buster, :wal, :received],
+      prefix ++ [:wal, :received],
       %{bytes: byte_size(rest), count: 1},
       %{wal_end: wal_end}
     )
@@ -77,12 +83,12 @@ defmodule RestdisBuster.Tailer do
     {events, new_decode_state} = Pgoutput.decode(rest, state.decode_state)
 
     :telemetry.execute(
-      [:restdis_buster, :wal, :decoded],
+      prefix ++ [:wal, :decoded],
       %{count: length(events)},
       %{}
     )
 
-    Enum.each(events, &Dispatcher.dispatch(Restdis.Wal, &1))
+    Enum.each(events, &Dispatcher.dispatch(state.name, &1))
 
     new_state = %{
       state
@@ -96,7 +102,7 @@ defmodule RestdisBuster.Tailer do
   # Primary keepalive
   def handle_data(<<?k, wal_end::64, clock::64, reply::8>>, state) do
     :telemetry.execute(
-      [:restdis_buster, :tailer, :lag],
+      InstanceConfig.fetch!(state.name).telemetry_prefix ++ [:tailer, :lag],
       %{lag_us: LSN.current_clock() - clock},
       %{wal_end: wal_end}
     )
@@ -105,7 +111,7 @@ defmodule RestdisBuster.Tailer do
 
     messages =
       if reply == 1 do
-        [LSN.standby_status(new_wal_end, LsnStore.current_applied(Restdis.Wal))]
+        [LSN.standby_status(new_wal_end, LsnStore.current_applied(state.name))]
       else
         []
       end
@@ -116,8 +122,8 @@ defmodule RestdisBuster.Tailer do
   def handle_data(_data, state), do: {:noreply, state}
 
   defp stream(state) do
-    %{slot_name: slot, publication: pub} = InstanceConfig.fetch!(Restdis.Wal)
-    start_lsn = format_lsn(LsnStore.persisted(Restdis.Wal))
+    %{slot_name: slot, publication: pub} = InstanceConfig.fetch!(state.name)
+    start_lsn = format_lsn(LsnStore.persisted(state.name))
 
     query =
       "START_REPLICATION SLOT #{slot} LOGICAL #{start_lsn} (proto_version '1', publication_names '#{pub}')"

@@ -19,7 +19,8 @@ defmodule Restdis.Wal.InstanceConfigTest do
              publication: "restdis_pub",
              replication: [],
              az: "local",
-             handler: nil
+             handler: nil,
+             telemetry_prefix: [:restdis]
            }
   end
 

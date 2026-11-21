@@ -15,7 +15,8 @@ defmodule Restdis.Wal.InstanceConfig do
           publication: String.t(),
           replication: keyword(),
           az: String.t(),
-          handler: module() | nil
+          handler: module() | nil,
+          telemetry_prefix: [atom()]
         }
 
   @doc """
@@ -33,7 +34,8 @@ defmodule Restdis.Wal.InstanceConfig do
       publication: Keyword.get(opts, :publication, "restdis_pub"),
       replication: replication_opts(Keyword.get(opts, :replication, [])),
       az: Keyword.get(opts, :az, "local"),
-      handler: Keyword.get(opts, :handler)
+      handler: Keyword.get(opts, :handler),
+      telemetry_prefix: Keyword.get(opts, :telemetry_prefix, [:restdis])
     }
 
     :persistent_term.put(key(name), config)
