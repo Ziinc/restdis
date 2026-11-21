@@ -6,7 +6,7 @@ defmodule RestdisBuster.FanoutSubscriber do
   use GenServer
 
   alias Restdis.Wal.Event
-  alias RestdisBuster.Infra.SlotConfig
+  alias Restdis.Wal.InstanceConfig
   alias RestdisBuster.Worker.Supervisor, as: WorkerSupervisor
 
   @doc """
@@ -19,7 +19,7 @@ defmodule RestdisBuster.FanoutSubscriber do
 
   @impl GenServer
   def init(_opts) do
-    az = SlotConfig.az()
+    az = InstanceConfig.fetch!(Restdis.Wal).az
     :syn.join(:wal_fanout, {:az, az}, self())
     {:ok, %{az: az}}
   end

@@ -6,7 +6,7 @@ defmodule RestdisBuster.Infra.LsnStore do
   require Logger
 
   alias Ecto.Adapters.SQL
-  alias RestdisBuster.Infra.SlotConfig
+  alias Restdis.Wal.InstanceConfig
 
   @persist_interval_ms 1_000
   @table "wal_checkpoint"
@@ -50,8 +50,7 @@ defmodule RestdisBuster.Infra.LsnStore do
   """
   @spec persisted() :: non_neg_integer()
   def persisted do
-    slot = SlotConfig.slot_name()
-    read_persisted(slot)
+    read_persisted(InstanceConfig.fetch!(Restdis.Wal).slot_name)
   end
 
   @impl GenServer
@@ -59,7 +58,7 @@ defmodule RestdisBuster.Infra.LsnStore do
     ref = :atomics.new(1, signed: false)
     :persistent_term.put(@ref_key, ref)
 
-    slot = SlotConfig.slot_name()
+    slot = InstanceConfig.fetch!(Restdis.Wal).slot_name
     initial = ensure_row_and_read(slot)
     if initial > 0, do: :atomics.put(ref, 1, initial)
 
