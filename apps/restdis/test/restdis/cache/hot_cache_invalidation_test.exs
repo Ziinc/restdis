@@ -40,6 +40,9 @@ defmodule Restdis.Cache.HotCacheInvalidationTest do
     :ok = Restdis.Cache.put(t, key, "named", name: name)
     :ok = Restdis.Cache.delete(t, key, [], name)
     :ok = Restdis.Cache.flush_tenant(t, name)
+    :ok = Restdis.Cache.put(t, key, "named", name: name, ttl_ms: 1)
+    Process.sleep(5)
+    assert :miss = Restdis.Cache.peek(t, key, name)
 
     assert {:ok, "default"} = HotCache.get(t, key)
     refute_receive {:gossiped, _}, 100

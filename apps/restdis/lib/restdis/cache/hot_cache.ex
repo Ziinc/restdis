@@ -133,6 +133,14 @@ defmodule Restdis.Cache.HotCache do
   def delete_local(tenant_id, key), do: delete(tenant_id, key, gossiped: true)
 
   @doc """
+  `delete_local/2` for an entry of the cache instance `name`: only the default
+  `Restdis.Cache` instance is served by the hot layer, so other instances skip it.
+  """
+  @spec delete_local(atom(), Restdis.Cache.tenant_id(), Key.t()) :: :ok
+  def delete_local(Restdis.Cache, tenant_id, key), do: delete_local(tenant_id, key)
+  def delete_local(_name, _tenant_id, _key), do: :ok
+
+  @doc """
   Removes every entry of `tenant_id` from the hot layer and, unless
   `opts[:gossiped]` is set, gossips the delete to every peer.
   """
