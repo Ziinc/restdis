@@ -20,7 +20,7 @@ defmodule RestdisBuster.FanoutSubscriber do
   @impl GenServer
   def init(_opts) do
     az = InstanceConfig.fetch!(Restdis.Wal).az
-    :syn.join(:wal_fanout, {:az, az}, self())
+    :syn.join(:wal_fanout, {Restdis.Wal, az}, self())
     {:ok, %{az: az}}
   end
 

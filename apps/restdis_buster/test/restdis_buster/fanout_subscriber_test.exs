@@ -17,7 +17,7 @@ defmodule RestdisBuster.FanoutSubscriberTest do
     assert {:ok, %{az: ^az}} = FanoutSubscriber.init([])
 
     # `init/1` ran directly (not via `start_link`), so `self()` is this test process; leave the joined group.
-    on_exit(fn -> :syn.leave(:wal_fanout, {:az, az}, self()) end)
+    on_exit(fn -> :syn.leave(:wal_fanout, {Restdis.Wal, az}, self()) end)
   end
 
   test "handle_info/2 dispatches a :wal_event to the worker supervisor" do
