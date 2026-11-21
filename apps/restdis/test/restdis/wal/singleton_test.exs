@@ -121,6 +121,21 @@ defmodule Restdis.Wal.SingletonTest do
     assert Process.alive?(tailer)
   end
 
+  test "a singleton that loses a registration conflict takes its tailer down with it" do
+    Process.register(self(), :wal_singleton_test)
+    tailers = Module.concat(@name, TailerSupervisor)
+    start_supervised!({DynamicSupervisor, name: tailers})
+    singleton = start_supervised!({Singleton, name: @name})
+    assert_receive :took_over, 1_000
+    [{_, tailer, _, _}] = DynamicSupervisor.which_children(tailers)
+    ref = Process.monitor(tailer)
+
+    Process.exit(singleton, {:syn_resolve_kill, {@name, :wal_tailer}, :undefined})
+
+    assert_receive {:DOWN, ^ref, :process, ^tailer, _}, 1_000
+    refute tailer in Enum.map(DynamicSupervisor.which_children(tailers), &elem(&1, 1))
+  end
+
   describe "handle_info/2 (direct callback invocation)" do
     # Calls `handle_info/2` directly to exercise branches without a running singleton.
 
