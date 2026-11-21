@@ -34,6 +34,8 @@ defmodule Restdis.Wal.Singleton do
 
   @impl GenServer
   def init(name) do
+    # Trapped so that losing a :syn conflict (a trappable exit) still runs terminate/2.
+    Process.flag(:trap_exit, true)
     send(self(), :try_register)
     {:ok, %{name: name, tailer: nil}}
   end
@@ -103,12 +105,24 @@ defmodule Restdis.Wal.Singleton do
     {:noreply, state}
   end
 
+  def handle_info({:EXIT, _from, reason}, state), do: {:stop, reason, state}
+
   def handle_info(_msg, state), do: {:noreply, state}
+
+  @impl GenServer
+  def terminate(_reason, %{name: name, tailer: tailer}) when is_pid(tailer) do
+    DynamicSupervisor.terminate_child(Module.concat(name, TailerSupervisor), tailer)
+  end
+
+  def terminate(_reason, _state), do: :ok
 
   defp telemetry_prefix(state), do: InstanceConfig.fetch!(state.name).telemetry_prefix
 
   defp start_tailer(name) do
-    DynamicSupervisor.start_child(Module.concat(name, TailerSupervisor), {Tailer, name: name})
+    DynamicSupervisor.start_child(
+      Module.concat(name, TailerSupervisor),
+      Supervisor.child_spec({Tailer, name: name}, restart: :temporary)
+    )
   end
 
   defp monitor_winner(name) do
