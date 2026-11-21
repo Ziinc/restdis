@@ -20,7 +20,7 @@ defmodule RestdisBuster.Application do
       RestdisBuster.Worker.Supervisor,
       RestdisBuster.Worker.CoalesceSweeper,
       RestdisBuster.FanoutSubscriber,
-      RestdisBuster.Infra.LsnStore,
+      {Restdis.Wal.LsnStore, name: Restdis.Wal},
       RestdisBuster.Singleton
     ]
 
