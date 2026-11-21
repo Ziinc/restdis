@@ -5,12 +5,12 @@ defmodule RestdisBuster.Tailer do
 
   use Postgrex.ReplicationConnection
 
+  alias Restdis.Wal.LSN
+  alias Restdis.Wal.Pgoutput
+  alias Restdis.Wal.RelationCache
   alias RestdisBuster.Dispatcher
-  alias RestdisBuster.Infra.LSN
   alias RestdisBuster.Infra.LsnStore
   alias RestdisBuster.Infra.SlotConfig
-  alias RestdisBuster.WAL.Pgoutput
-  alias RestdisBuster.WAL.RelationCache
 
   @type state :: %{
           step: :create_slot | :streaming,

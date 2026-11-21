@@ -1,4 +1,4 @@
-defmodule RestdisBuster.WAL.RelationCache do
+defmodule Restdis.Wal.RelationCache do
   @moduledoc false
 
   @type column :: %{name: String.t(), flags: non_neg_integer()}

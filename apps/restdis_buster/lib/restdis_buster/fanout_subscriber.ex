@@ -5,8 +5,8 @@ defmodule RestdisBuster.FanoutSubscriber do
 
   use GenServer
 
+  alias Restdis.Wal.Event
   alias RestdisBuster.Infra.SlotConfig
-  alias RestdisBuster.WAL.Event
   alias RestdisBuster.Worker.Supervisor, as: WorkerSupervisor
 
   @doc """

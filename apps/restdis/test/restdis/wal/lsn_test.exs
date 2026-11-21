@@ -1,7 +1,7 @@
-defmodule RestdisBuster.Infra.LSNTest do
+defmodule Restdis.Wal.LSNTest do
   use ExUnit.Case, async: true
 
-  alias RestdisBuster.Infra.LSN
+  alias Restdis.Wal.LSN
 
   test "standby_status byte layout with non-zero applied LSN" do
     bin = LSN.standby_status(100, 50)

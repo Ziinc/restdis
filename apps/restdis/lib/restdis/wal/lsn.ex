@@ -1,4 +1,4 @@
-defmodule RestdisBuster.Infra.LSN do
+defmodule Restdis.Wal.LSN do
   @moduledoc false
 
   # Microseconds from PostgreSQL epoch (2000-01-01 00:00:00 UTC)

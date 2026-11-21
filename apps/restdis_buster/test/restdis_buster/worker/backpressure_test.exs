@@ -157,7 +157,7 @@ defmodule RestdisBuster.Worker.BackpressureTest do
 
     runner = fn _event -> send(test_pid, {:ran, ref}) end
 
-    event = %RestdisBuster.WAL.Event{
+    event = %Restdis.Wal.Event{
       op: :update,
       schema: "public",
       table: "tenants",
@@ -178,7 +178,7 @@ defmodule RestdisBuster.Worker.BackpressureTest do
 
       runner = fn _event -> send(test_pid, {:ran, ref}) end
 
-      event = %RestdisBuster.WAL.Event{
+      event = %Restdis.Wal.Event{
         op: :insert,
         schema: "public",
         table: unquote(table),

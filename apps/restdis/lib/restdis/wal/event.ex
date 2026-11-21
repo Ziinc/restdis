@@ -1,4 +1,4 @@
-defmodule RestdisBuster.WAL.Event do
+defmodule Restdis.Wal.Event do
   @moduledoc """
   Struct describing a single decoded WAL change (schema, table, operation, primary key).
   """

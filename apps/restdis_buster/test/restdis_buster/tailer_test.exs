@@ -7,8 +7,8 @@ defmodule RestdisBuster.TailerTest do
   """
   use ExUnit.Case, async: true
 
+  alias Restdis.Wal.RelationCache
   alias RestdisBuster.Tailer
-  alias RestdisBuster.WAL.RelationCache
 
   defp base_state(step \\ :create_slot) do
     %{step: step, decode_state: {RelationCache.new(), nil}, last_wal_end: 0}

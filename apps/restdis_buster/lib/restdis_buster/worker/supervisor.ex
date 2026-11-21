@@ -18,9 +18,9 @@ defmodule RestdisBuster.Worker.Supervisor do
 
   require Logger
 
+  alias Restdis.Wal.Event
   alias RestdisBuster.Infra.LsnStore
   alias RestdisBuster.TenantTableConfig
-  alias RestdisBuster.WAL.Event
 
   @max_children 5_000
   @default_per_tenant_cap 50

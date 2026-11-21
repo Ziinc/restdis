@@ -223,7 +223,7 @@ defmodule RestdisBuster.WorkerTest do
     key = Key.build(:table, "products", %{})
     Restdis.Cache.put("tenant1", key, %{"id" => 3}, primary_keys: [3])
 
-    event = %RestdisBuster.WAL.Event{
+    event = %Restdis.Wal.Event{
       op: :update,
       schema: "public",
       table: "tenant_table_config",
@@ -285,7 +285,7 @@ defmodule RestdisBuster.WorkerTest do
   end
 
   test "unhandled event op is a no-op" do
-    event = %RestdisBuster.WAL.Event{op: nil, schema: "public", table: "products"}
+    event = %Restdis.Wal.Event{op: nil, schema: "public", table: "products"}
     assert :ok = Worker.run(event)
   end
 
@@ -301,7 +301,7 @@ defmodule RestdisBuster.WorkerTest do
     seed_config("public", "products", config)
     on_exit(&clear_config/0)
 
-    event = %RestdisBuster.WAL.Event{
+    event = %Restdis.Wal.Event{
       op: :update,
       schema: "public",
       table: "products",
@@ -348,7 +348,7 @@ defmodule RestdisBuster.WorkerTest do
       seed_config("public", "products", config)
       on_exit(&clear_config/0)
 
-      event = %RestdisBuster.WAL.Event{
+      event = %Restdis.Wal.Event{
         op: :message,
         new_row: %{
           prefix: "restdis_ddl",
@@ -361,7 +361,7 @@ defmodule RestdisBuster.WorkerTest do
     end
 
     test "a drop DDL message for an unconfigured table is a no-op" do
-      event = %RestdisBuster.WAL.Event{
+      event = %Restdis.Wal.Event{
         op: :message,
         new_row: %{
           prefix: "restdis_ddl",
@@ -374,7 +374,7 @@ defmodule RestdisBuster.WorkerTest do
     end
 
     test "a non-drop DDL message is a no-op" do
-      event = %RestdisBuster.WAL.Event{
+      event = %Restdis.Wal.Event{
         op: :message,
         new_row: %{
           prefix: "restdis_ddl",
@@ -387,7 +387,7 @@ defmodule RestdisBuster.WorkerTest do
     end
 
     test "a message with unparseable JSON content is a no-op" do
-      event = %RestdisBuster.WAL.Event{
+      event = %Restdis.Wal.Event{
         op: :message,
         new_row: %{prefix: "restdis_ddl", content: "not json"}
       }
@@ -397,7 +397,7 @@ defmodule RestdisBuster.WorkerTest do
     end
 
     test "a message without the restdis_ddl prefix is a no-op" do
-      event = %RestdisBuster.WAL.Event{op: :message, new_row: %{prefix: "other", content: "{}"}}
+      event = %Restdis.Wal.Event{op: :message, new_row: %{prefix: "other", content: "{}"}}
       assert :ok = Worker.run(event)
       refute_receive {:flush_table, _, _}, 100
     end
@@ -482,7 +482,7 @@ defmodule RestdisBuster.WorkerTest do
     Restdis.Cache.put("tenant2", key, %{"order_id" => 99}, primary_keys: [99])
 
     # Flush 'products' table config — should not touch 'orders' cache
-    event = %RestdisBuster.WAL.Event{
+    event = %Restdis.Wal.Event{
       op: :update,
       schema: "public",
       table: "tenant_table_config",

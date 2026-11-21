@@ -3,8 +3,8 @@ defmodule RestdisBuster.TestUtils do
 
   alias Ecto.Adapters.SQL.Sandbox
   alias Restdis.Cache.ReadThrough
+  alias Restdis.Wal.Event
   alias RestdisBuster.TenantTableConfig
-  alias RestdisBuster.WAL.Event
 
   @doc """
   Like `assert_receive/2`, but instead of blocking for a single long
