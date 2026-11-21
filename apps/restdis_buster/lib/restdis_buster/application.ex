@@ -6,22 +6,15 @@ defmodule RestdisBuster.Application do
   use Application
 
   alias Restdis.Cache.ReadThrough
-  alias Restdis.Wal.InstanceConfig
   alias RestdisBuster.TenantTableConfig
 
   @impl Application
   def start(_type, _args) do
-    :ok = :syn.add_node_to_scopes([:wal, :wal_fanout])
-    :ok = InstanceConfig.put(Restdis.Wal, wal_opts())
-
     children = [
-      {DynamicSupervisor, name: RestdisBuster.TailerSupervisor, strategy: :one_for_one},
       table_config_cache_spec(),
       RestdisBuster.Worker.Supervisor,
       RestdisBuster.Worker.CoalesceSweeper,
-      {Restdis.Wal.FanoutSubscriber, name: Restdis.Wal},
-      {Restdis.Wal.LsnStore, name: Restdis.Wal},
-      RestdisBuster.Singleton
+      {Restdis.Wal, wal_opts()}
     ]
 
     Supervisor.start_link(children, strategy: :one_for_one, name: RestdisBuster.Supervisor)
@@ -39,6 +32,7 @@ defmodule RestdisBuster.Application do
       replication: Keyword.get(env, :replication_connection, []),
       az: Keyword.get(env, :az, "local"),
       handler: RestdisBuster.WalHandler,
+      on_takeover: {RestdisBuster.WalHandler, :on_takeover, []},
       telemetry_prefix: [:restdis_buster]
     ]
   end

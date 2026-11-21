@@ -13,4 +13,17 @@ defmodule RestdisBuster.WalHandler do
     WorkerSupervisor.start_worker(event)
     :defer
   end
+
+  @doc """
+  Asks the configured failover reconciler to close the WAL gap of a tailer takeover.
+  """
+  @spec on_takeover() :: :ok
+  def on_takeover do
+    case Application.get_env(:restdis_buster, :failover_reconciler) do
+      nil -> :ok
+      reconciler -> reconciler.reconcile_all()
+    end
+
+    :ok
+  end
 end

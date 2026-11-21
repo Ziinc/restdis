@@ -3,8 +3,8 @@ defmodule RestdisBuster.ReplicationModeTest do
 
   alias Restdis.Cache.Key
   alias Restdis.Cache.TenantSupervisor
-  alias RestdisBuster.Singleton
   alias RestdisBuster.TestUtils
+  alias RestdisBuster.WalHandler
   alias RestdisBuster.Worker
 
   defmodule StubDispatcher do
@@ -76,7 +76,7 @@ defmodule RestdisBuster.ReplicationModeTest do
     Application.put_env(:restdis_buster, :failover_reconciler, StubReconciler)
     on_exit(fn -> Application.put_env(:restdis_buster, :failover_reconciler, nil) end)
 
-    Singleton.notify_ownership_acquired()
+    WalHandler.on_takeover()
 
     assert_receive :reconcile_all, 500
   end

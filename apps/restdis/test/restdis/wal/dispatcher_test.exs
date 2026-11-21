@@ -6,6 +6,16 @@ defmodule Restdis.Wal.DispatcherTest do
   alias Restdis.Wal.Event
   alias Restdis.Wal.InstanceConfig
 
+  defmodule LocalHandler do
+    @behaviour Restdis.Wal.Handler
+
+    @impl Restdis.Wal.Handler
+    def handle_event(event) do
+      send(:wal_dispatch_local_test, {:handled, event})
+      :ok
+    end
+  end
+
   setup_all do
     TestUtils.start_syn!()
   end
@@ -95,5 +105,19 @@ defmodule Restdis.Wal.DispatcherTest do
     :ok = InstanceConfig.put(lonely, repo: NotARunningRepo, az: "test")
 
     assert Dispatcher.dispatch(lonely, event("fallback_table")) == :ok
+  end
+
+  test "dispatch/2 hands events straight to the handler under the :local topology" do
+    Process.register(self(), :wal_dispatch_local_test)
+    local = :"wal_dispatch_local_#{System.unique_integer([:positive])}"
+
+    :ok =
+      InstanceConfig.put(local, repo: NotARunningRepo, topology: :local, handler: LocalHandler)
+
+    event = event("local_table")
+    assert Dispatcher.dispatch(local, event) == :ok
+
+    assert_received {:handled, ^event}
+    refute_received {:wal_event, _}
   end
 end

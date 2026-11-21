@@ -2,6 +2,7 @@ defmodule Restdis.Wal.Dispatcher do
   @moduledoc false
 
   alias Restdis.Wal.Event
+  alias Restdis.Wal.Handler
   alias Restdis.Wal.InstanceConfig
 
   @doc """
@@ -15,14 +16,20 @@ defmodule Restdis.Wal.Dispatcher do
   connected nodes, so `:syn.group_names/1` returns the full set of AZs
   currently represented anywhere in the cluster. In a single-AZ deployment
   this returns just the local AZ, preserving prior behavior.
+
+  Under the `:local` topology every node tails its own slot, so the event goes
+  straight to this node's handler instead.
   """
   @spec dispatch(atom(), Event.t()) :: :ok
   def dispatch(name, %Event{} = event) do
-    for az <- known_azs(name) do
-      :syn.publish(:wal_fanout, {name, az}, {:wal_event, event})
-    end
+    case InstanceConfig.fetch!(name).topology do
+      :local ->
+        Handler.dispatch(name, event)
 
-    :ok
+      :syn ->
+        for az <- known_azs(name), do: :syn.publish(:wal_fanout, {name, az}, {:wal_event, event})
+        :ok
+    end
   end
 
   @spec known_azs(atom()) :: [String.t()]
