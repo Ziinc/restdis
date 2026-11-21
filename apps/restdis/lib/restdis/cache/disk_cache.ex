@@ -383,8 +383,8 @@ defmodule Restdis.Cache.DiskCache do
   defp expired?(:infinity), do: false
   defp expired?(expires_at), do: expires_at <= System.system_time(:millisecond)
 
-  defp expire_entry(key, %{tenant_id: tenant_id} = state) do
-    HotCache.delete_local(tenant_id, key)
+  defp expire_entry(key, %{name: name, tenant_id: tenant_id} = state) do
+    HotCache.delete_local(name, tenant_id, key)
     drop_entry(state, key)
   end
 
@@ -397,13 +397,13 @@ defmodule Restdis.Cache.DiskCache do
   defp do_evict_over_cap(
          bytes,
          cap,
-         %{store: store, tenant_id: tenant_id, evict_idx: evict_idx} = state
+         %{name: name, store: store, tenant_id: tenant_id, evict_idx: evict_idx} = state
        ) do
     if bytes > cap and not :gb_sets.is_empty(evict_idx) do
       {{_inserted_at, evict_key}, rest_idx} = :gb_sets.take_smallest(evict_idx)
       evict_size = entry_size(store, evict_key)
       :ok = FeoxDB.Term.delete(store, evict_key)
-      HotCache.delete_local(tenant_id, evict_key)
+      HotCache.delete_local(name, tenant_id, evict_key)
 
       :telemetry.execute([:restdis, :cache, :disk_evict], %{count: 1}, %{
         tenant_id: tenant_id,

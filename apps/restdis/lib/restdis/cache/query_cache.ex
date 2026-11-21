@@ -55,7 +55,7 @@ defmodule Restdis.Cache.QueryCache do
       [{^key, _, _, last_access}] ->
         :ets.delete(tid, key)
         :ets.delete(idx, {last_access, key})
-        HotCache.delete_local(tenant_id, key)
+        HotCache.delete_local(name, tenant_id, key)
         :miss
 
       [] ->
@@ -142,10 +142,10 @@ defmodule Restdis.Cache.QueryCache do
 
   defp evict_over_cap(name, tenant_id, tid, idx) do
     cap = InstanceConfig.get(name, :ets_cap_bytes, 500 * 1024 * 1024)
-    do_evict_over_cap(tenant_id, tid, idx, cap)
+    do_evict_over_cap({name, tenant_id}, tid, idx, cap)
   end
 
-  defp do_evict_over_cap(tenant_id, tid, idx, cap) do
+  defp do_evict_over_cap({name, tenant_id} = owner, tid, idx, cap) do
     mem_bytes = :ets.info(tid, :memory) * :erlang.system_info(:wordsize)
 
     if mem_bytes > cap do
@@ -156,14 +156,14 @@ defmodule Restdis.Cache.QueryCache do
         {_last_access, lru_key} = idx_entry ->
           :ets.delete(tid, lru_key)
           :ets.delete(idx, idx_entry)
-          HotCache.delete_local(tenant_id, lru_key)
+          HotCache.delete_local(name, tenant_id, lru_key)
 
           :telemetry.execute([:restdis, :cache, :ets_evict], %{count: 1}, %{
             tenant_id: tenant_id,
             key: lru_key
           })
 
-          do_evict_over_cap(tenant_id, tid, idx, cap)
+          do_evict_over_cap(owner, tid, idx, cap)
       end
     else
       :ok
@@ -228,7 +228,7 @@ defmodule Restdis.Cache.QueryCache do
     Enum.each(expired, fn {key, last_access} ->
       :ets.delete(tid, key)
       :ets.delete(idx, {last_access, key})
-      HotCache.delete_local(tenant_id, key)
+      HotCache.delete_local(state.name, tenant_id, key)
     end)
 
     schedule_sweep()

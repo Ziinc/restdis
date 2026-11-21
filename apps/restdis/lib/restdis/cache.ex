@@ -85,7 +85,7 @@ defmodule Restdis.Cache do
 
     case do_put(tenant_id, key, value, opts) do
       :ok ->
-        HotCache.delete(tenant_id, key)
+        hot_cache_delete(name, tenant_id, key)
         :ok
 
       error ->
@@ -130,7 +130,7 @@ defmodule Restdis.Cache do
       pid -> Supervisor.stop(pid, :normal)
     end
 
-    HotCache.delete_tenant(tenant_id)
+    if name == __MODULE__, do: HotCache.delete_tenant(tenant_id)
 
     data_dir = InstanceConfig.fetch!(name).data_dir
     tenant_dir = Path.join(data_dir, tenant_id)
@@ -303,8 +303,12 @@ defmodule Restdis.Cache do
   defp invalidate_key(name, tenant_id, key) do
     QueryCache.delete(name, tenant_id, key)
     DiskCache.delete(name, tenant_id, key)
-    HotCache.delete(tenant_id, key)
+    hot_cache_delete(name, tenant_id, key)
   end
+
+  # Only the default instance mounts HotCache (see `Restdis.Cache.Supervisor`).
+  defp hot_cache_delete(__MODULE__, tenant_id, key), do: HotCache.delete(tenant_id, key)
+  defp hot_cache_delete(_name, _tenant_id, _key), do: :ok
 
   defp disk_get_and_promote(name, tenant_id, key) do
     case DiskCache.get_with_ttl(name, tenant_id, key) do

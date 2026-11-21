@@ -26,6 +26,28 @@ defmodule Restdis.Cache.HotCacheInvalidationTest do
     {:ok, tenant_id: tenant_id}
   end
 
+  test "a named instance leaves the default instance's hot entries alone", %{tenant_id: t} do
+    name = :"hot_named_#{System.unique_integer([:positive])}"
+
+    start_supervised!(
+      {Restdis.Cache, name: name, data_dir: Path.join(System.tmp_dir!(), "#{name}")}
+    )
+
+    key = Key.build(:table, "shared", %{"a" => 1})
+    HotCache.observe(t, key, "default", :infinity)
+    TestUtils.capture_hot_cache(self())
+
+    :ok = Restdis.Cache.put(t, key, "named", name: name)
+    :ok = Restdis.Cache.delete(t, key, [], name)
+    :ok = Restdis.Cache.flush_tenant(t, name)
+    :ok = Restdis.Cache.put(t, key, "named", name: name, ttl_ms: 1)
+    Process.sleep(5)
+    assert :miss = Restdis.Cache.peek(t, key, name)
+
+    assert {:ok, "default"} = HotCache.get(t, key)
+    refute_receive {:gossiped, _}, 100
+  end
+
   test "a hot entry does not outlive the underlying entry's TTL", %{tenant_id: t} do
     key = Key.build(:table, "widgets", %{"id" => "eq.7"})
     :ok = Restdis.Cache.put(t, key, %{"id" => 7}, ttl_ms: 50)
