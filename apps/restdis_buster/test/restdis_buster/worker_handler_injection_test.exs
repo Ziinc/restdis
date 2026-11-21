@@ -6,26 +6,26 @@ defmodule RestdisBuster.WorkerHandlerInjectionTest do
 
   @moduledoc """
   Proves `RestdisBuster.Worker` dispatches invalidation through an injected
-  `Restdis.Wal.Handler` implementation rather than calling `Restdis.Cache`
+  `RestdisBuster.Invalidator` implementation rather than calling `Restdis.Cache`
   directly (LIB_PRD Phase 4, step 7-8).
   """
 
   defmodule StubHandler do
-    @behaviour Restdis.Wal.Handler
+    @behaviour RestdisBuster.Invalidator
 
-    @impl Restdis.Wal.Handler
+    @impl RestdisBuster.Invalidator
     def invalidate_by_row(tenant_id, table, pk) do
       send(:handler_injection_test, {:invalidate_by_row, tenant_id, table, pk})
       :ok
     end
 
-    @impl Restdis.Wal.Handler
+    @impl RestdisBuster.Invalidator
     def flush_table(tenant_id, table) do
       send(:handler_injection_test, {:flush_table, tenant_id, table})
       :ok
     end
 
-    @impl Restdis.Wal.Handler
+    @impl RestdisBuster.Invalidator
     def invalidate_lists(tenant_id, table) do
       send(:handler_injection_test, {:invalidate_lists, tenant_id, table})
       :ok

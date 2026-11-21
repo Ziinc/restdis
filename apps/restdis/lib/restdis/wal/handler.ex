@@ -1,32 +1,30 @@
 defmodule Restdis.Wal.Handler do
   @moduledoc """
-  Behaviour a host implements to react to decoded WAL events.
+  Behaviour a host implements to receive the decoded WAL events of a follower instance.
 
-  A WAL follower (slated to move into this library as `Restdis.Wal` per
-  LIB_PRD Phase 4) decodes row-level changes and dispatches them to a handler
-  configured by the host, rather than calling a concrete cache module
-  directly. This is what lets the follower run without any cache tree
-  started at all, and lets two hosts apply WAL events differently.
+  The follower knows nothing of what a change means to the host: it hands each
+  `Restdis.Wal.Event` to `c:handle_event/1` and acks the event's LSN when the
+  handler returns `:ok`. A handler that applies events asynchronously returns
+  `:defer` and acks each one itself with `Restdis.Wal.LsnStore.applied/2` once applied.
   """
 
-  @typedoc "A tenant identifier, opaque to the WAL follower."
-  @type tenant_id :: String.t()
+  alias Restdis.Wal.Event
+  alias Restdis.Wal.InstanceConfig
+  alias Restdis.Wal.LsnStore
 
   @doc """
-  Invalidates every cache entry that depends on the row `{table, pk}`.
+  Applies `event`. Returns `:ok` to have the follower ack its LSN, or `:defer` to ack it later.
   """
-  @callback invalidate_by_row(tenant_id(), table :: String.t(), pk :: term()) :: :ok
+  @callback handle_event(Event.t()) :: :ok | :defer
 
   @doc """
-  Invalidates every cache entry that depends on `table`.
+  Hands `event` to the handler of the instance `name`, acking its LSN unless the handler defers.
   """
-  @callback flush_table(tenant_id(), table :: String.t()) :: :ok
-
-  @doc """
-  Invalidates every list-scoped cache entry for `table`.
-
-  Called on row insert, since a newly inserted row's primary key was never
-  indexed and so can't be purged via `invalidate_by_row/3`.
-  """
-  @callback invalidate_lists(tenant_id(), table :: String.t()) :: :ok
+  @spec dispatch(atom(), Event.t()) :: :ok
+  def dispatch(name, %Event{} = event) do
+    case InstanceConfig.fetch!(name).handler.handle_event(event) do
+      :ok -> LsnStore.applied(name, event.lsn)
+      :defer -> :ok
+    end
+  end
 end

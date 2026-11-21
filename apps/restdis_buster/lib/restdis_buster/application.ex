@@ -37,7 +37,8 @@ defmodule RestdisBuster.Application do
       slot_name: Keyword.get(env, :slot_name, "restdis_slot"),
       publication: Keyword.get(env, :publication_name, "restdis_pub"),
       replication: Keyword.get(env, :replication_connection, []),
-      az: Keyword.get(env, :az, "local")
+      az: Keyword.get(env, :az, "local"),
+      handler: RestdisBuster.WalHandler
     ]
   end
 
