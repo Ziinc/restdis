@@ -123,8 +123,7 @@ defmodule Restdis.Wal.Tailer do
 
   def handle_data(_data, state), do: {:noreply, state}
 
-  # Postgres drops a temporary slot when its connection closes, so each connection creates
-  # its own, under a fresh name.
+  # Postgres drops a temporary slot with its connection, so each connection makes its own.
   defp create_slot(%{temporary: true, slot_name: base}) do
     slot = "#{base}_#{Base.encode16(:crypto.strong_rand_bytes(4), case: :lower)}"
     {slot, "CREATE_REPLICATION_SLOT #{slot} TEMPORARY LOGICAL pgoutput NOEXPORT_SNAPSHOT"}
@@ -134,8 +133,7 @@ defmodule Restdis.Wal.Tailer do
     {slot, "CREATE_REPLICATION_SLOT #{slot} LOGICAL pgoutput NOEXPORT_SNAPSHOT"}
   end
 
-  # A new temporary slot misses what was committed while no slot was open (a takeover or a
-  # reconnect). It records what follows, so on_takeover can now close that gap.
+  # A new temporary slot missed commits made while none was open; on_takeover closes that gap.
   defp close_gap(%{temporary: true, on_takeover: {module, function, args}}),
     do: Task.start(module, function, args)
 
