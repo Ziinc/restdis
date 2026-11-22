@@ -57,14 +57,17 @@ defmodule Restdis.Wal.LsnStore do
     :persistent_term.put({__MODULE__, name}, ref)
 
     config = InstanceConfig.fetch!(name)
-    initial = ensure_row_and_read(config)
+    # A temporary slot starts afresh on each connection, so there is no checkpoint to keep.
+    initial = if config.temporary, do: 0, else: ensure_row_and_read(config)
     if initial > 0, do: :atomics.put(ref, 1, initial)
 
-    schedule_persist()
+    if not config.temporary, do: schedule_persist()
     {:ok, %{config: config, ref: ref, last_persisted: initial}}
   end
 
   @impl GenServer
+  def handle_info(:persist, %{config: %{temporary: true}} = state), do: {:noreply, state}
+
   def handle_info(:persist, %{ref: ref, last_persisted: last} = state) do
     current = :atomics.get(ref, 1)
 
@@ -128,6 +131,8 @@ defmodule Restdis.Wal.LsnStore do
       Logger.warning("LsnStore: degraded mode (#{kind}): #{inspect(reason)}")
       0
   end
+
+  defp read_persisted(%{temporary: true}), do: 0
 
   defp read_persisted(config) do
     %{rows: rows} =

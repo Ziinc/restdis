@@ -18,6 +18,11 @@ defmodule Restdis.Wal.SingletonTest do
       on_takeover: {Kernel, :send, [:wal_singleton_test, :took_over]}
     )
 
+    InstanceConfig.put(:wal_singleton_temporary,
+      temporary: true,
+      on_takeover: {Kernel, :send, [:wal_singleton_test, :took_over]}
+    )
+
     InstanceConfig.put(:wal_lost_election, repo: NotARunningRepo)
     InstanceConfig.put(:wal_crashed_tailer, repo: NotARunningRepo)
   end
@@ -134,6 +139,13 @@ defmodule Restdis.Wal.SingletonTest do
 
     assert_receive {:DOWN, ^ref, :process, ^tailer, _}, 1_000
     refute tailer in Enum.map(DynamicSupervisor.which_children(tailers), &elem(&1, 1))
+  end
+
+  test "a temporary instance's owner leaves on_takeover to the tailer, which runs it once its slot exists" do
+    Process.register(self(), :wal_singleton_test)
+
+    assert Singleton.notify_ownership_acquired(:wal_singleton_temporary) == :ok
+    refute_received :took_over
   end
 
   describe "handle_info/2 (direct callback invocation)" do

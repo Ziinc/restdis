@@ -16,6 +16,16 @@ defmodule Restdis.WalTest do
     def handle_event(_event), do: :ok
   end
 
+  defmodule ForwardingHandler do
+    @behaviour Restdis.Wal.Handler
+
+    @impl Restdis.Wal.Handler
+    def handle_event(event) do
+      send(:wal_temporary_test, {:event, event})
+      :ok
+    end
+  end
+
   setup_all do
     TestUtils.start_syn!()
   end
@@ -53,6 +63,52 @@ defmodule Restdis.WalTest do
     start_supervised!({Restdis.Wal, opts(name, topology: :local)})
 
     assert children(name) == [Tailer, LsnStore]
+  end
+
+  test "a temporary instance starts without a repo" do
+    name = :"wal_temporary_#{System.unique_integer([:positive])}"
+
+    start_supervised!(
+      {Restdis.Wal, opts(name, temporary: true, topology: :local) |> Keyword.delete(:repo)}
+    )
+
+    assert children(name) == [Tailer, LsnStore]
+  end
+
+  @tag :db
+  test "a temporary slot delivers changes and is dropped with its connection" do
+    repo = Restdis.TestRepo
+    repo.query!("CREATE TABLE wal_temporary_things (id int PRIMARY KEY)")
+    repo.query!("CREATE PUBLICATION wal_temporary_pub FOR TABLE wal_temporary_things")
+    Process.register(self(), :wal_temporary_test)
+
+    start_supervised!(
+      {Restdis.Wal,
+       name: :wal_temporary_db,
+       handler: ForwardingHandler,
+       temporary: true,
+       topology: :local,
+       slot_name: "wal_temporary",
+       publication: "wal_temporary_pub",
+       replication: Keyword.take(repo.config(), [:hostname, :username, :password, :database]),
+       on_takeover: {Kernel, :send, [:wal_temporary_test, :slot_created]}}
+    )
+
+    assert_receive :slot_created, 5_000
+
+    slots = fn ->
+      repo.query!(
+        "SELECT temporary FROM pg_replication_slots WHERE slot_name LIKE 'wal_temporary_%'"
+      ).rows
+    end
+
+    assert slots.() == [[true]]
+
+    repo.query!("INSERT INTO wal_temporary_things VALUES (1)")
+    assert_receive {:event, %{table: "wal_temporary_things", op: :insert}}, 5_000
+
+    stop_supervised!({Restdis.Wal, :wal_temporary_db})
+    assert Enum.any?(1..50, fn _ -> slots.() == [] or (Process.sleep(100) && false) end)
   end
 
   test "two instances run side by side" do

@@ -71,6 +71,23 @@ defmodule Restdis.Wal.LsnStoreTest do
     assert LsnStore.persisted(name) == 0
   end
 
+  test "a temporary instance's store tracks applied LSNs without a checkpoint" do
+    name = unique_name()
+    :ok = InstanceConfig.put(name, temporary: true, slot_name: "slot_#{name}")
+
+    log =
+      ExUnit.CaptureLog.capture_log(fn ->
+        pid = start_supervised!({LsnStore, name: name}, id: name)
+        :ok = LsnStore.applied(name, 42)
+        send(pid, :persist)
+        :sys.get_state(pid)
+      end)
+
+    refute log =~ "LsnStore"
+    assert LsnStore.current_applied(name) == 42
+    assert LsnStore.persisted(name) == 0
+  end
+
   test "ignores unknown messages" do
     name = unique_name()
     pid = start_store(name, NotARunningRepo)

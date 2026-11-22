@@ -13,7 +13,7 @@ defmodule Restdis.Wal do
   Options:
 
     * `:handler` (required) - the `Restdis.Wal.Handler` that receives each event.
-    * `:repo` (required) - the Ecto repo holding `<prefix>.wal_checkpoint`.
+    * `:repo` - the Ecto repo holding `<prefix>.wal_checkpoint`; required unless `:temporary`.
     * `:name` - the instance name, defaulting to `Restdis.Wal`.
     * `:prefix` - the schema of `wal_checkpoint`, defaulting to `"restdis"`.
     * `:replication` - Postgrex connection options for the replication connection; a
@@ -23,8 +23,14 @@ defmodule Restdis.Wal do
       `:syn` and fans each event out to every node, so the host must depend on `:syn`.
       `:local` runs a tailer on every node without `:syn`; give each node its own slot.
     * `:az` - this node's availability zone for the `:syn` fanout, defaulting to `"local"`.
+    * `:temporary` - `true` tails a temporary slot instead, named `<slot_name>_<random>`,
+      which Postgres drops when its connection closes, so no slot is left holding WAL and
+      no checkpoint is kept. Each new slot starts at the current WAL position: changes
+      committed while no slot was open (during a takeover or a reconnect) are never seen.
+      Defaults to `false`.
     * `:on_takeover` - an `{m, f, a}` run when this node becomes the tailer, to close the
-      gap a failover can leave.
+      gap a failover can leave. With `:temporary`, it runs instead each time the tailer
+      creates its slot, once the slot exists, in a separate process.
     * `:telemetry_prefix` - prepended to the follower's telemetry events, defaulting to
       `[:restdis]`.
   """

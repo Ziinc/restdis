@@ -9,7 +9,7 @@ defmodule Restdis.Wal.InstanceConfig do
   """
 
   @type t :: %{
-          repo: module(),
+          repo: module() | nil,
           prefix: String.t(),
           slot_name: String.t(),
           publication: String.t(),
@@ -18,19 +18,23 @@ defmodule Restdis.Wal.InstanceConfig do
           handler: module() | nil,
           telemetry_prefix: [atom()],
           topology: :syn | :local,
-          on_takeover: {module(), atom(), list()} | nil
+          on_takeover: {module(), atom(), list()} | nil,
+          temporary: boolean()
         }
 
   @doc """
   Resolves and stores the config for `name` from a host's mount options.
 
-  `:repo` is required. A `:url` inside `:replication` is expanded into Postgrex
-  connection options; explicit options win over the url.
+  `:repo` is required unless `:temporary`, which keeps no checkpoint. A `:url` inside
+  `:replication` is expanded into Postgrex connection options; explicit options win over
+  the url.
   """
   @spec put(atom(), keyword()) :: :ok
   def put(name, opts) do
+    temporary = Keyword.get(opts, :temporary, false)
+
     config = %{
-      repo: Keyword.fetch!(opts, :repo),
+      repo: if(temporary, do: Keyword.get(opts, :repo), else: Keyword.fetch!(opts, :repo)),
       prefix: Keyword.get(opts, :prefix, Restdis.Migration.default_prefix()),
       slot_name: Keyword.get(opts, :slot_name, "restdis_slot"),
       publication: Keyword.get(opts, :publication, "restdis_pub"),
@@ -39,7 +43,8 @@ defmodule Restdis.Wal.InstanceConfig do
       handler: Keyword.get(opts, :handler),
       telemetry_prefix: Keyword.get(opts, :telemetry_prefix, [:restdis]),
       topology: Keyword.get(opts, :topology, :syn),
-      on_takeover: Keyword.get(opts, :on_takeover)
+      on_takeover: Keyword.get(opts, :on_takeover),
+      temporary: temporary
     }
 
     :persistent_term.put(key(name), config)

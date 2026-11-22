@@ -13,13 +13,29 @@ defmodule Restdis.Wal.TailerTest do
   alias Restdis.Wal.Tailer
 
   @name :wal_tailer_test
+  @temporary :wal_tailer_temporary_test
 
   setup_all do
-    InstanceConfig.put(@name, repo: NotARunningRepo, telemetry_prefix: [:wal_tailer_test])
+    InstanceConfig.put(@name,
+      repo: NotARunningRepo,
+      telemetry_prefix: [:wal_tailer_test],
+      on_takeover: {Kernel, :send, [:wal_tailer_test_gap, :gap_closed]}
+    )
+
+    InstanceConfig.put(@temporary,
+      temporary: true,
+      on_takeover: {Kernel, :send, [:wal_tailer_test_gap, :gap_closed]}
+    )
   end
 
-  defp base_state(step \\ :create_slot) do
-    %{name: @name, step: step, decode_state: {RelationCache.new(), nil}, last_wal_end: 0}
+  defp base_state(step \\ :create_slot, name \\ @name, slot \\ "restdis_slot") do
+    %{
+      name: name,
+      step: step,
+      slot: slot,
+      decode_state: {RelationCache.new(), nil},
+      last_wal_end: 0
+    }
   end
 
   describe "init/1" do
@@ -34,8 +50,22 @@ defmodule Restdis.Wal.TailerTest do
   describe "handle_connect/1" do
     test "issues a CREATE_REPLICATION_SLOT query" do
       assert {:query, query, new_state} = Tailer.handle_connect(base_state(:streaming))
-      assert query =~ "CREATE_REPLICATION_SLOT"
+      assert query == "CREATE_REPLICATION_SLOT restdis_slot LOGICAL pgoutput NOEXPORT_SNAPSHOT"
       assert new_state.step == :create_slot
+      assert new_state.slot == "restdis_slot"
+    end
+
+    test "a temporary instance creates a TEMPORARY slot with a fresh name on each connect" do
+      state = base_state(:streaming, @temporary, nil)
+      assert {:query, query, %{slot: slot}} = Tailer.handle_connect(state)
+      assert {:query, _query, %{slot: other_slot}} = Tailer.handle_connect(state)
+
+      assert slot =~ ~r/^restdis_slot_[0-9a-f]{8}$/
+
+      assert query ==
+               "CREATE_REPLICATION_SLOT #{slot} TEMPORARY LOGICAL pgoutput NOEXPORT_SNAPSHOT"
+
+      assert other_slot != slot
     end
   end
 
@@ -46,6 +76,24 @@ defmodule Restdis.Wal.TailerTest do
 
       assert query =~ "START_REPLICATION"
       assert new_state.step == :streaming
+    end
+
+    test "a durable slot does not run on_takeover once created" do
+      Process.register(self(), :wal_tailer_test_gap)
+
+      Tailer.handle_result([:ok_result], base_state())
+
+      refute_receive :gap_closed, 100
+    end
+
+    test "a temporary slot streams from its start and runs on_takeover once it exists" do
+      Process.register(self(), :wal_tailer_test_gap)
+
+      assert {:stream, query, [], %{step: :streaming}} =
+               Tailer.handle_result([:ok_result], base_state(:create_slot, @temporary, "tmp_1"))
+
+      assert query =~ ~r/^START_REPLICATION SLOT tmp_1 LOGICAL 0\/0 /
+      assert_receive :gap_closed, 1_000
     end
 
     test "starts streaming when the slot already exists (duplicate_object)" do
