@@ -22,12 +22,19 @@ defmodule Restdis.Wal.InstanceConfigTest do
              handler: nil,
              telemetry_prefix: [:restdis],
              topology: :syn,
-             on_takeover: nil
+             on_takeover: nil,
+             temporary: false
            }
   end
 
   test "requires a repo" do
     assert_raise KeyError, fn -> InstanceConfig.put(:wal_config_no_repo, []) end
+  end
+
+  test "a temporary instance needs no repo" do
+    :ok = InstanceConfig.put(:wal_config_temporary, temporary: true)
+
+    assert %{repo: nil, temporary: true} = InstanceConfig.fetch!(:wal_config_temporary)
   end
 
   test "fetch!/1 raises for an instance that was never started" do

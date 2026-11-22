@@ -15,6 +15,7 @@ defmodule Restdis.Wal.Tailer do
   @type state :: %{
           name: atom(),
           step: :create_slot | :streaming,
+          slot: String.t() | nil,
           decode_state: {RelationCache.t(), non_neg_integer() | nil},
           last_wal_end: non_neg_integer()
         }
@@ -39,6 +40,7 @@ defmodule Restdis.Wal.Tailer do
     state = %{
       name: name,
       step: :create_slot,
+      slot: nil,
       decode_state: {RelationCache.new(), nil},
       last_wal_end: 0
     }
@@ -48,13 +50,13 @@ defmodule Restdis.Wal.Tailer do
 
   @impl Postgrex.ReplicationConnection
   def handle_connect(state) do
-    slot = InstanceConfig.fetch!(state.name).slot_name
-    query = "CREATE_REPLICATION_SLOT #{slot} LOGICAL pgoutput NOEXPORT_SNAPSHOT"
-    {:query, query, %{state | step: :create_slot}}
+    {slot, query} = create_slot(InstanceConfig.fetch!(state.name))
+    {:query, query, %{state | step: :create_slot, slot: slot}}
   end
 
   @impl Postgrex.ReplicationConnection
   def handle_result([_result], %{step: :create_slot} = state) do
+    close_gap(InstanceConfig.fetch!(state.name))
     stream(state)
   end
 
@@ -121,8 +123,24 @@ defmodule Restdis.Wal.Tailer do
 
   def handle_data(_data, state), do: {:noreply, state}
 
-  defp stream(state) do
-    %{slot_name: slot, publication: pub} = InstanceConfig.fetch!(state.name)
+  # Postgres drops a temporary slot with its connection, so each connection makes its own.
+  defp create_slot(%{temporary: true, slot_name: base}) do
+    slot = "#{base}_#{Base.encode16(:crypto.strong_rand_bytes(4), case: :lower)}"
+    {slot, "CREATE_REPLICATION_SLOT #{slot} TEMPORARY LOGICAL pgoutput NOEXPORT_SNAPSHOT"}
+  end
+
+  defp create_slot(%{slot_name: slot}) do
+    {slot, "CREATE_REPLICATION_SLOT #{slot} LOGICAL pgoutput NOEXPORT_SNAPSHOT"}
+  end
+
+  # A new temporary slot missed commits made while none was open; on_takeover closes that gap.
+  defp close_gap(%{temporary: true, on_takeover: {module, function, args}}),
+    do: Task.start(module, function, args)
+
+  defp close_gap(_config), do: :ok
+
+  defp stream(%{slot: slot} = state) do
+    %{publication: pub} = InstanceConfig.fetch!(state.name)
     start_lsn = format_lsn(LsnStore.persisted(state.name))
 
     query =

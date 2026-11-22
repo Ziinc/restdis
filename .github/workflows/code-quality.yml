@@ -93,21 +93,23 @@ jobs:
     defaults:
       run:
         working-directory: apps/restdis
-    services:
-      postgres:
-        image: postgres:16
-        env:
-          POSTGRES_USER: postgres
-          POSTGRES_PASSWORD: postgres
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
     steps:
       - uses: actions/checkout@v4
+      # `docker run`, not `services:`, for the same reason as the coverage job below:
+      # Restdis.Wal's temporary-slot test needs `wal_level=logical`.
+      - name: Start Postgres (wal_level=logical)
+        run: |
+          docker run -d --name pg \
+            -e POSTGRES_USER=postgres -e POSTGRES_PASSWORD=postgres \
+            -p 5432:5432 \
+            postgres:16 postgres -c wal_level=logical
+          for _ in $(seq 1 30); do
+            docker exec pg pg_isready -U postgres && exit 0
+            sleep 2
+          done
+          echo "Postgres never became healthy" >&2
+          docker logs pg >&2
+          exit 1
       - uses: erlef/setup-beam@v1
         with:
           elixir-version: ${{ env.ELIXIR_VERSION }}

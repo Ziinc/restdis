@@ -24,9 +24,11 @@ defmodule Restdis.Wal.Singleton do
   """
   @spec notify_ownership_acquired(atom()) :: :ok
   def notify_ownership_acquired(name) do
-    case InstanceConfig.fetch!(name).on_takeover do
-      nil -> :ok
-      {module, function, args} -> apply(module, function, args)
+    case InstanceConfig.fetch!(name) do
+      # The tailer of a temporary slot runs it once the slot exists.
+      %{temporary: true} -> :ok
+      %{on_takeover: {module, function, args}} -> apply(module, function, args)
+      %{on_takeover: nil} -> :ok
     end
 
     :ok
